@@ -9,7 +9,7 @@
     - Algorithms, implementations
 - Programming Paradigms
 - Runtime
-  - Compiled?
+  - Compiled 
   - Garbage Collector
 
 ## Implementation
