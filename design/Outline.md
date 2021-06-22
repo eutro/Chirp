@@ -12,12 +12,18 @@
 
 
 - Programming Paradigms
+   - Imperative or functional
 
 
 - Runtime
   - Compiled 
   - Garbage Collector
 
+- Syntax
+- Static or dynamic typing
+- Performance or readability
+- What is it going to be used for?
+- Build a standard library
 ## Implementation
 
 - C++
@@ -26,6 +32,9 @@
 
 ## Steps
 - First start with basics like integer,float, mul/div, add/sub ?
-- Lexer (Should take a couple of hundred lines)
-- Parser (Should take a couple of hundred lines)
-  -Decide on grammar rules etc
+- For compiler:
+ - Lexer (Should take a couple of hundred lines)
+ - Parser (Should take a couple of hundred lines)
+   -Decide on grammar rules etc
+ - Abstract syntax tree
+ - Machine code
