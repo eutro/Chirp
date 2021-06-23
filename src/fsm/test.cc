@@ -53,6 +53,15 @@ void checkRegex(const std::string &regex,
   }
 }
 
+void assertFailsParse(const std::string &s) {
+  try {
+    fsm::re::parseFromString(s);
+    std::cerr << "RegEx: /" << s << "/ erroneously parsed successfully.\n";
+    exit(0);
+  } catch (std::runtime_error &ignored) {
+  }
+}
+
 int main() {
   checkRegex(
       "a*bc*",
@@ -105,4 +114,23 @@ int main() {
           {"abcdefcd", false},
       }
   );
+
+  checkRegex(
+      "a|",
+      {
+          {"a",  true},
+          {"",   true},
+
+          {"aa", false},
+      }
+  );
+
+  assertFailsParse("(");
+  assertFailsParse(")");
+  assertFailsParse("[");
+  assertFailsParse("\\");
+  assertFailsParse("((())))");
+  assertFailsParse("))))(((");
+  assertFailsParse("[\\]");
+  assertFailsParse("[\\");
 }

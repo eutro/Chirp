@@ -77,8 +77,7 @@ namespace fsm {
         }
         case Type::Concat: {
           if (children.empty()) {
-            size_t start = nfa.push();
-            return std::make_pair(start, start);
+            break;
           } else {
             auto it = children.begin();
             size_t start, end;
@@ -102,7 +101,8 @@ namespace fsm {
           return std::make_pair(start, end);
         }
         }
-        throw std::runtime_error("Unknown type");
+        size_t start = nfa.push();
+        return std::make_pair(start, start);
       }
     };
 
