@@ -5,6 +5,7 @@
 #include <vector>
 #include <queue>
 #include <iostream>
+#include "DFA.tcc"
 
 namespace fsm {
   /**
@@ -13,7 +14,7 @@ namespace fsm {
    * @tparam S The type of symbols that the NFA can accept.
    * @tparam F The type of the final tag of states.
    */
-  template <typename S, typename F>
+  template<typename S, typename F>
   class NFAState {
   public:
     /**
@@ -42,13 +43,18 @@ namespace fsm {
    * @tparam S The type of symbols that the NFA can accept.
    * @tparam F The type of the final tag of states.
    */
-  template <typename S, typename F>
+  template<typename S, typename F>
   class NFA {
   public:
     /**
-     * All the states in this NFA.
+     * All the states of this NFA.
      */
     std::vector<NFAState<S, F>> states;
+
+    /**
+     * The set of initial states of this NFA.
+     */
+    std::set<size_t> initial;
 
     /**
      * Add a state to this NFA.
@@ -56,7 +62,7 @@ namespace fsm {
      * @return The index of the added state.
      */
     size_t push() {
-      states.push_back(NFAState<S, F>());
+      states.emplace_back();
       return states.size() - 1;
     }
 
@@ -115,8 +121,8 @@ namespace fsm {
      * @param end The end iterator.
      * @return The OR of the set of final states.
      */
-    template <typename Iter>
-    F match(const std::set<size_t> &initial, Iter start, Iter end) const {
+    template<typename Iter>
+    F match(Iter start, Iter end) const {
       std::set<size_t> current = initial;
       for (Iter it = start; it != end; ++it) {
         eClosure(current);
@@ -138,15 +144,15 @@ namespace fsm {
      * @param iterable The iterable.
      * @return The OR of the set of final states.
      */
-    template <typename Iterable>
-    F match(const std::set<size_t> &initial, Iterable iterable) const {
-      return match(initial, std::begin(iterable), std::end(iterable));
+    template<typename Iterable>
+    F match(Iterable iterable) const {
+      return match(std::begin(iterable), std::end(iterable));
     }
 
     /**
      * Write this NFA to out, for debugging purposes.
      *
-     * Each state is written as an index, followed by its final tag in brackets,
+     * Each state is written as an index, followed by its "final" tag in brackets,
      * then followed on the same line by all the states that can be reached by
      * a single epsilon move (i.e. without consuming an input symbol).
      *
@@ -174,6 +180,42 @@ namespace fsm {
         i++;
       }
       return out;
+    }
+
+    /**
+     * Convert this NFA to a DFA, using power set construction.
+     *
+     * @return The DFA.
+     */
+    DFA<S, F> toDfa() const {
+      std::map<std::set<size_t>, size_t> stateMapping;
+      DFA<S, F> dfa;
+      std::set<size_t> init = initial;
+      dfa.initial = addToDfa(stateMapping, dfa, init);
+      return std::move(dfa);
+    }
+
+  private:
+    size_t addToDfa(std::map<std::set<size_t>, size_t> &stateMapping,
+                    DFA<S, F> &dfa,
+                    std::set<size_t> &cur) const {
+      eClosure(cur); // this is not memoised, could this be too slow?
+      auto entry = stateMapping.find(cur);
+      if (entry != stateMapping.end()) {
+        return entry->second;
+      }
+      size_t curState = stateMapping[cur] = dfa.push();
+      std::map<S, std::set<size_t>> allOut;
+      for (size_t state : cur) {
+        dfa.states[curState].finished |= states[state].finished;
+        for (const std::pair<S, std::set<size_t>> &transition : states[state].transitions) {
+          allOut[transition.first].insert(transition.second.begin(), transition.second.end());
+        }
+      }
+      for (auto &out : allOut) {
+        dfa.states[curState].transitions[out.first] = addToDfa(stateMapping, dfa, out.second);
+      }
+      return curState;
     }
   };
 }

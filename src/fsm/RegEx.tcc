@@ -145,7 +145,7 @@ namespace fsm {
             ++start;
             re.type = Type::Union;
             while (start != end && *start != ']') {
-              if (*start == '\'') {
+              if (*start == '\\') {
                 ++start;
                 if (start == end) {
                   throw std::runtime_error("Expected character after \\");

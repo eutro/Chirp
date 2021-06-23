@@ -5,20 +5,21 @@
 #include <iostream>
 #include <string>
 
-template<typename F>
+template<typename NFA, typename F>
 void assertMatches(const std::string &regex,
-                   fsm::NFA<char, F> &nfa,
-                   size_t start,
+                   NFA &nfa,
+                   const std::string &run,
                    F expected,
                    const std::string &s) {
-  F result = nfa.match({start}, s);
+  F result = nfa.match(s);
   if (result != expected) {
     std::cerr << "Assertion failed:\n"
               << " Matching \"" << s << "\"\n"
               << " With /" << regex << "/\n"
               << "  Expected: <" << expected << ">\n"
               << "  Got: <" << result << ">\n"
-              << "NFA:\n" << nfa;
+              << run << ":\n"
+              << nfa;
     exit(1);
   }
 }
@@ -30,9 +31,15 @@ void checkRegex(const std::string &regex,
   size_t start, end;
   std::tie(start, end) = re.toNfa(nfa);
   nfa.states[end].finished = true;
+  nfa.initial.insert(start);
 
   for (const auto &assertion : assertions) {
-    assertMatches(regex, nfa, start, assertion.second, assertion.first);
+    assertMatches(regex, nfa, "NFA", assertion.second, assertion.first);
+  }
+
+  fsm::DFA<char, bool> dfa = nfa.toDfa();
+  for (const auto &assertion : assertions) {
+    assertMatches(regex, dfa, "DFA", assertion.second, assertion.first);
   }
 }
 
@@ -63,15 +70,28 @@ int main() {
   );
 
   checkRegex(
-      "(ab|c[dg]|ef)*",
+      "(ab|c[d\\]]|\\)f)*",
       {
           {"",         true},
           {"cd",       true},
-          {"cdef",     true},
-          {"abefcdcd", true},
-          {"efcdcgab", true},
+          {"cd)f",     true},
+          {"ab)fcdcd", true},
+          {")fcdc]ab", true},
 
-          {"ace",      false},
+          {"ac)",      false},
+      }
+  );
+
+  checkRegex(
+      "(ab(cd)*ef)|ab|ef",
+      {
+          {"abef",     true},
+          {"abcdef",   true},
+          {"abcdcdef", true},
+          {"ab",       true},
+          {"ef",       true},
+
+          {"abcdefcd", false},
       }
   );
 }
