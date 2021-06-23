@@ -33,13 +33,23 @@ void checkRegex(const std::string &regex,
   nfa.states[end].finished = true;
   nfa.initial.insert(start);
 
+  std::cerr << "/" << regex << "/:\n";
+
+  std::cerr << "NFA:\n" << nfa << "\n";
   for (const auto &assertion : assertions) {
     assertMatches(regex, nfa, "NFA", assertion.second, assertion.first);
   }
 
   fsm::DFA<char, bool> dfa = nfa.toDfa();
+  std::cerr << "DFA:\n" << dfa << "\n";
   for (const auto &assertion : assertions) {
     assertMatches(regex, dfa, "DFA", assertion.second, assertion.first);
+  }
+
+  fsm::DFA<char, bool> minDfa = dfa.minimise();
+  std::cerr << "DFA (min):\n" << minDfa << "\n";
+  for (const auto &assertion : assertions) {
+    assertMatches(regex, minDfa, "DFA (min)", assertion.second, assertion.first);
   }
 }
 
@@ -79,6 +89,7 @@ int main() {
           {")fcdc]ab", true},
 
           {"ac)",      false},
+          {"a]",       false},
       }
   );
 

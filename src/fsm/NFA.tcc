@@ -12,7 +12,7 @@ namespace fsm {
    * A state of an NFA.
    *
    * @tparam S The type of symbols that the NFA can accept.
-   * @tparam F The type of the final tag of states.
+   * @tparam F The type of the "finished" tag of states.
    */
   template<typename S, typename F>
   class NFAState {
@@ -33,6 +33,9 @@ namespace fsm {
     std::set<size_t> emptyTransitions;
     /**
      * The finished tag of this state.
+     *
+     * Instead of distinguishing between only final and non-final states,
+     * this NFA supports any arbitrary tag for finished states, hence the "finished" tag.
      */
     F finished;
   };
@@ -41,7 +44,7 @@ namespace fsm {
    * An NFA, a Nondeterministic Finite Automaton, which supports epsilon moves.
    *
    * @tparam S The type of symbols that the NFA can accept.
-   * @tparam F The type of the final tag of states.
+   * @tparam F The type of the "finished" tag of states.
    */
   template<typename S, typename F>
   class NFA {

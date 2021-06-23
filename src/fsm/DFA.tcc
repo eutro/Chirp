@@ -5,7 +5,7 @@ namespace fsm {
    * A state of a DFA.
    *
    * @tparam S The type of symbols that the DFA can accept.
-   * @tparam F The type of the final tag of states.
+   * @tparam F The type of the "finished" tag of states.
    */
   template <typename S, typename F>
   class DFAState {
@@ -19,6 +19,9 @@ namespace fsm {
     std::map<S, size_t> transitions;
     /**
      * The finished tag of this state.
+     *
+     * Instead of distinguishing between only final and non-final states,
+     * this DFA supports any arbitrary tag for finished states, hence the "finished" tag.
      */
     F finished;
   };
@@ -27,7 +30,7 @@ namespace fsm {
    * A DFA, a Deterministic Finite Automaton.
    *
    * @tparam S The type of symbols that the DFA can accept.
-   * @tparam F The type of the final tag of states.
+   * @tparam F The type of the "finished" tag of states.
    */
   template <typename S, typename F>
   class DFA {
@@ -126,6 +129,84 @@ namespace fsm {
         i++;
       }
       return out;
+    }
+
+    DFA<S, F> minimise() const {
+      // determine alphabet from all edges
+      std::set<S> alphabet;
+      for (const DFAState<S, F> &state : states) {
+        for (const auto &transition : state.transitions) {
+          alphabet.insert(transition.first);
+        }
+      }
+
+      // states are distinguishable iff there's a possible string that leads to a different finish
+
+      // bottommost and rightmost edges are sentinels representing the state reached after there's no transition
+      std::vector<std::vector<bool>> distinguishable(states.size() + 1, std::vector<bool>(states.size() + 1, true));
+      for (int i = 0; i < states.size(); ++i) {
+        for (int j = i + 1; j < states.size(); ++j) {
+          // if states have different finish tags then the empty string leads them to a different finish
+          distinguishable[i][j] = distinguishable[j][i]
+              = states[i].finished != states[j].finished;
+        }
+      }
+      // all states are indistinguishable from themselves
+      for (int i = 0; i <= states.size(); ++i) {
+        distinguishable[i][i] = false;
+      }
+
+      // repeatedly find distinguishable states until fixed point
+      bool changed;
+      do {
+        changed = false;
+        for (const S &symbol : alphabet) {
+          for (int i = 0; i < states.size() - 1; ++i) {
+            // if there's a letter of the alphabet that leads to distinguishable states
+            // then the two states are also distinguishable
+            auto iFound = states[i].transitions.find(symbol);
+            size_t iTransition = iFound != states[i].transitions.end() ? iFound->second : states.size();
+            for (int j = i + 1; j < states.size(); ++j) {
+              if (distinguishable[i][j]) continue;
+
+              auto jFound = states[j].transitions.find(symbol);
+              size_t jTransition = jFound != states[j].transitions.end() ? jFound->second : states.size();
+              if (distinguishable[iTransition][jTransition]) {
+                distinguishable[i][j] = distinguishable[j][i] = true;
+                changed = true;
+              }
+            }
+          }
+        }
+      } while (changed);
+
+      // group states that are indistinguishable
+      DFA<S, F> optimised;
+      std::map<size_t, size_t> grouped;
+      for (int i = 0; i < states.size(); ++i) {
+        for (int j = 0; j < states.size(); ++j) {
+          if (distinguishable[i][j]) continue;
+          auto found = grouped.find(j);
+          if (found != grouped.end()) {
+            grouped[i] = found->second;
+            goto nextI;
+          }
+        }
+        {
+          size_t state = grouped[i] = optimised.push();
+          optimised.states[state].finished = states[i].finished;
+        }
+       nextI:;
+      }
+
+      // add their transitions
+      for (int i = 0; i < states.size(); ++i) {
+        for (const auto &transition : states[i].transitions) {
+          optimised.states[grouped[i]].transitions[transition.first] = grouped[transition.second];
+        }
+      }
+      optimised.initial = grouped[initial];
+      return std::move(optimised);
     }
   };
 }
