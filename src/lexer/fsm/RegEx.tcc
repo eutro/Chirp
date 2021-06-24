@@ -151,7 +151,8 @@ namespace fsm {
                   throw std::runtime_error("Expected character after \\");
                 }
               }
-              RegEx<char> &literal = re.children.emplace_back(Type::Literal);
+              re.children.emplace_back(Type::Literal);
+              RegEx<char> &literal = re.children.back();
               literal.symbols.push_back(*start);
               ++start;
             }
