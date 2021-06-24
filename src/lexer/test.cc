@@ -27,7 +27,7 @@ enum class TokType {
   Ident,
 };
 
-std::vector<std::pair<TokType, std::string>> tokenTypes =
+const std::vector<std::pair<TokType, std::string>> tokenTypes =
   {
     {TokType::Whitespace, "[ \t]"},
     {TokType::Newline, "\n(\r|)"},
@@ -51,15 +51,8 @@ std::vector<std::pair<TokType, std::string>> tokenTypes =
     {TokType::Float, "[0123456789]+\\.[0123456789]+"},
   };
 
-TokType &operator|=(TokType &a, const TokType &b) {
-  if (b > a) {
-    a = b;
-  }
-  return a;
-}
-
-bool operator!(const TokType &tt) {
-  return tt == TokType::Invalid;
+template<> TokType fsm::Finished<TokType>::rejecting() {
+  return TokType::Invalid;
 }
 
 std::ostream &operator<<(std::ostream &out, const TokType &tt) {
@@ -69,9 +62,9 @@ std::ostream &operator<<(std::ostream &out, const TokType &tt) {
 int main() {
   lexer::Lexer<TokType> lexer(tokenTypes);
 
-  std::stringstream sin("bar -= 1 + 2.0 * (6 / foo)");
+  std::stringstream sin("## bar -= 1 + 2.0 * (6 / foo) + foo");
   auto lexed = lexer.lex(sin);
   for (const auto &tok : lexed) {
-    std::cout << tok.value << " (" << tok.type << ")\n";
+    std::cout << "\"" << tok.value << "\" (" << tok.type << ")\n";
   }
 }

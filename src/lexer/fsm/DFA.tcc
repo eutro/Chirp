@@ -1,6 +1,24 @@
 #pragma once
 
 namespace fsm {
+  template <typename F>
+  struct Finished {
+    F rejecting();
+    void merge(F &lhs, F rhs) {
+      lhs = std::max(lhs, rhs);
+    }
+  };
+
+  template<>
+  struct Finished<bool> {
+    static bool rejecting() {
+      return false;
+    }
+    static void merge(bool &lhs, bool rhs) {
+      lhs |= rhs;
+    }
+  };
+
   /**
    * A state of a DFA.
    *
@@ -23,7 +41,7 @@ namespace fsm {
      * Instead of distinguishing between only final and non-final states,
      * this DFA supports any arbitrary tag for finished states, hence the "finished" tag.
      */
-    F finished;
+    F finished = Finished<F>().rejecting();
   };
 
   /**

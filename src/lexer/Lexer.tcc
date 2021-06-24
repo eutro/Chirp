@@ -27,7 +27,7 @@ namespace lexer {
   public:
     fsm::DFA<char, TokenType> dfa;
 
-    Lexer(const std::vector<std::pair<TokenType, std::string>> tokens) {
+    explicit Lexer(const std::vector<std::pair<TokenType, std::string>> tokens) {
       fsm::NFA<char, TokenType> nfa;
       for (const std::pair<TokenType, std::string> &token : tokens) {
         fsm::re::RegEx<char> regex = fsm::re::parseFromString(token.second);
@@ -53,9 +53,9 @@ namespace lexer {
 
       bool relexing = false;
       while (relexing ?
-             (c = raw[pos], true) :
+             (c = (unsigned char) raw[pos], true) :
              (c = in.get()) != -1) {
-        cc = c;
+        cc = (char) c;
         ++pos;
         if (relexing) {
           if (pos >= raw.size()) {
@@ -68,6 +68,7 @@ namespace lexer {
         addTok:
           Token<TokenType> tok;
           if (!hasMatch) {
+            tok.type = fsm::Finished<TokenType>().rejecting();
             tok.value = std::move(raw);
             raw = "";
           } else {
@@ -75,14 +76,14 @@ namespace lexer {
             tok.value = raw.substr(0, lastMatchLoc);
             raw.erase(0, lastMatchLoc);
             hasMatch = false;
-            if (raw.size() != 0) {
+            if (!raw.empty()) {
               relexing = true;
             }
           }
           pos = 0;
           lexed.push_back(std::move(tok));
           state = dfa.initial;
-        } else if (!!dfa.states[state].finished) {
+        } else if (dfa.states[state].finished != fsm::Finished<TokenType>().rejecting()) {
           lastMatchLoc = pos;
           lastMatchState = state;
           hasMatch = true;

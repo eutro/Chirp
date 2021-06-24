@@ -37,7 +37,7 @@ namespace fsm {
      * Instead of distinguishing between only final and non-final states,
      * this NFA supports any arbitrary tag for finished states, hence the "finished" tag.
      */
-    F finished;
+    F finished = Finished<F>().rejecting();
   };
 
   /**
@@ -132,9 +132,9 @@ namespace fsm {
         accept(current, *it);
       }
       eClosure(current);
-      F ret{};
+      F ret = Finished<F>().rejecting();
       for (auto state : current) {
-        ret |= states[state].finished;
+        Finished<F>::merge(ret, states[state].finished);
       }
       return std::move(ret);
     }
@@ -210,7 +210,8 @@ namespace fsm {
       size_t curState = stateMapping[cur] = dfa.push();
       std::map<S, std::set<size_t>> allOut;
       for (size_t state : cur) {
-        dfa.states[curState].finished |= states[state].finished;
+        Finished<F>().merge(dfa.states[curState].finished,
+                           states[state].finished);
         for (const std::pair<S, std::set<size_t>> &transition : states[state].transitions) {
           allOut[transition.first].insert(transition.second.begin(), transition.second.end());
         }
