@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <map>
+#include <climits>
 
 namespace fsm::re {
   /**
@@ -72,6 +73,9 @@ namespace fsm::re {
           nfa.states[start].emptyTransitions.insert(eStart);
           nfa.states[eEnd].emptyTransitions.insert(end);
         }
+        for (const auto &sym : symbols) {
+          nfa.states[start].transitions[sym].insert(end);
+        }
         return std::make_pair(start, end);
       }
       case Type::Concat: {
@@ -114,6 +118,9 @@ namespace fsm::re {
    * - Kleene Star/Plus ('*' and '+' postfix).
    * - Pipe unions ('|' infix).
    * - Square bracket single-char unions ('[' and ']').
+   *   - Their inversions, using carets ('^').
+   *   - Supports ranges with dashes ('-').
+   * - Dot matching anything ('.').
    *
    * @param s The string.
    * @return The parsed RegEx.
@@ -143,6 +150,11 @@ namespace fsm::re {
         case '[': {
           ++start;
           re.type = Type::Union;
+          bool invert = false;
+          if (start != end && *start == '^') {
+            ++start;
+            invert = true;
+          }
           while (start != end && *start != ']') {
             if (*start == '\\') {
               ++start;
@@ -150,15 +162,34 @@ namespace fsm::re {
                 throw std::runtime_error("Expected character after \\");
               }
             }
-            re.children.emplace_back(Type::Literal);
-            RegEx<char> &literal = re.children.back();
-            literal.symbols.push_back(*start);
+            char nextSym = *start;
             ++start;
+            if (start != end && *start == '-') {
+              ++start;
+              if (start == end || *start == ']') {
+                throw std::runtime_error("Expected character after -");
+              }
+              char endSym = *start;
+              for (char sym = nextSym - 1; sym++ != endSym; ) {
+                re.symbols.push_back(sym);
+              }
+            } else {
+              re.symbols.push_back(nextSym);
+            }
           }
           if (start == end) {
             throw std::runtime_error("Unmatched [");
           }
           ++start;
+          if (invert) {
+            std::set<char> exclude;
+            exclude.insert(re.symbols.begin(), re.symbols.end());
+            re.symbols.clear();
+            for (int c = 0; c <= CHAR_MAX; ++c) {
+              if (exclude.count(c)) continue;
+              re.symbols.push_back(c);
+            }
+          }
           break;
         }
         case ')': {
@@ -178,6 +209,13 @@ namespace fsm::re {
           ++start;
           break;
         }
+        case '.':
+          re.type = Type::Union;
+          for (int c = 0; c <= CHAR_MAX; ++c) {
+            re.symbols.push_back(c);
+          }
+          ++start;
+          break;
         case '\\':
           ++start;
           if (start == end) {

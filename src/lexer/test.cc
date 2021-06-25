@@ -29,7 +29,7 @@ enum class TokType {
 
 const std::vector<std::pair<TokType, std::string>> tokenTypes =
   {
-    {TokType::Whitespace, "[ \t]"},
+    {TokType::Whitespace, "[ \t]+"},
     {TokType::Newline, "\n(\r|)"},
 
     {TokType::ParenOpen, "\\("},
@@ -38,6 +38,7 @@ const std::vector<std::pair<TokType, std::string>> tokenTypes =
     {TokType::BraceClose, "\\}"},
     {TokType::SquareOpen, "\\["},
     {TokType::SquareClose, "\\]"},
+
     {TokType::Add, "\\+"},
     {TokType::Sub, "\\-"},
     {TokType::Mul, "\\*"},
@@ -46,9 +47,11 @@ const std::vector<std::pair<TokType, std::string>> tokenTypes =
     {TokType::SubAssign, "\\-="},
     {TokType::MulAssign, "\\*="},
     {TokType::DivAssign, "\\/="},
-    {TokType::Ident, "[abcdefghijklmnopqrstuvwxyz]+"},
-    {TokType::Int, "0|[123456789][0123456789]*"},
-    {TokType::Float, "[0123456789]+\\.[0123456789]+"},
+
+    {TokType::Ident, "[a-zA-Z_][a-zA-Z_0-9]*"},
+
+    {TokType::Int, "0|[1-9][0-9]*"},
+    {TokType::Float, "[0-9]+\\.[0-9]+"},
   };
 
 template<> TokType fsm::Finished<TokType>::rejecting() {

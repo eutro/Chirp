@@ -125,6 +125,35 @@ int main() {
       }
   );
 
+  checkRegex(
+      ".+",
+      {
+          {"a", true},
+
+          {"",  false},
+      }
+  );
+
+  checkRegex(
+      "[b-y]",
+      {
+          {"a", false},
+          {"b", true},
+          {"y", true},
+          {"z", false},
+      }
+  );
+
+  checkRegex(
+      "\"([^\"\\\\]|\\\\[\"\\\\])*\"",
+      {
+          {"\"\"",                                                  true},
+          {"\"\\\"([^\\\"\\\\\\\\]|\\\\\\\\[\\\"\\\\\\\\])*\\\"\"", true},
+          {"\"\\\"",                                                false},
+          {"\"\\\"([^\"\\\\\\\\]|\\\\\\\\[\\\"\\\\\\\\])*\\\"\"",   false},
+      }
+  );
+
   assertFailsParse("(");
   assertFailsParse(")");
   assertFailsParse("[");
@@ -133,4 +162,5 @@ int main() {
   assertFailsParse("))))(((");
   assertFailsParse("[\\]");
   assertFailsParse("[\\");
+  assertFailsParse("[a-]");
 }
