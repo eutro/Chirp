@@ -66,8 +66,7 @@ int main() {
   lexer::Lexer<TokType> lexer(tokenTypes);
 
   std::stringstream sin("## bar -= 1 + 2.0 * (6 / foo) + foo");
-  auto lexed = lexer.lex(sin);
-  for (const auto &tok : lexed) {
+  for (const auto &tok : lexer.lex(sin)) {
     std::cout << "\"" << tok.value << "\" (" << tok.type << ")\n";
   }
 }
