@@ -1,0 +1,49 @@
+Program ::= Statement*
+
+Statement ::= Defn | Expr
+
+Defn ::= 'defn' Binding
+
+Binding ::= Identifier ( '(' ( Binding ( ',' Binding )? )? ')' )? TypeHint? '=' Expr
+
+Identifier ::= TIdent
+
+TypeHint ::= ':' Type
+
+Type ::= '_' | Identifier ( '<' Type ( ',' Type )* '>' )?
+
+Expr ::= BlockExpr | IfExpr | LetExpr
+
+IfExpr ::= 'if' Expr DelimitedExpr ( 'else' DelimitedExpr )?
+
+LetExpr ::= 'let' ( Binding ( ',' Binding )* )? 'in' Identifier? DelimitedExpr
+
+DelimitedExpr ::= BlockExpr | BracketExpr
+
+BlockExpr ::= '{' ( Statement (','|'\n') )* Expr '}'
+
+LogCmpExpr ::= EqExpr ( ('&&' | '||') EqExpr )*
+
+EqExpr ::= CmpExpr ( ('!='|'='|'==') CmpExpr )*
+
+CmpExpr ::= BitExpr ( ('<'|'<='|'>'|'>=') BitExpr )*
+
+BitExpr ::= ShiftExpr ( ('|' | '&') ShiftExpr )*
+
+ShiftExpr ::= AddExpr ( ('<<'|'>>') AddExpr )*
+
+AddExpr ::= MulExpr ( ('+'|'-') MulExpr )*
+
+MulExpr ::= HintedExpr ( ('*'|'/'|'%') HintedExpr )*
+
+HintedExpr ::= PrefixExpr TypeHint?
+
+PrefixExpr ::= ('+'|'-') PostfixExpr
+
+PostfixExpr ::= PrimaryExpr ( '(' )
+
+PrimaryExpr ::= Identifier | LiteralExpr | BracketExpr
+
+BracketExpr ::= '(' Expr ')'
+
+LiteralExpr ::= TStr | TInt | TFloat

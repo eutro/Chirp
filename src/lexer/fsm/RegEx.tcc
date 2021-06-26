@@ -109,6 +109,27 @@ namespace fsm::re {
     }
   };
 
+  static bool readEscape(char &c) {
+    switch (c) {
+      case 'n':
+        c = '\n';
+        return true;
+      case 'r':
+        c = '\r';
+        return true;
+      case 'v':
+        c = '\v';
+        return true;
+      case 'f':
+        c = '\f';
+        return true;
+      case 't':
+        c = '\t';
+        return true;
+    }
+    return false;
+  }
+
   /**
    * Parse a character RegEx from a string.
    *
@@ -125,7 +146,7 @@ namespace fsm::re {
    * @param s The string.
    * @return The parsed RegEx.
    */
-  RegEx<char> parseFromString(const std::string &s) {
+  static RegEx<char> parseFromString(const std::string &s) {
     auto start = s.begin();
     auto end = s.end();
 
@@ -156,13 +177,15 @@ namespace fsm::re {
             invert = true;
           }
           while (start != end && *start != ']') {
+            char nextSym = *start;
             if (*start == '\\') {
               ++start;
               if (start == end) {
                 throw std::runtime_error("Expected character after \\");
               }
+              nextSym = *start;
+              readEscape(nextSym);
             }
-            char nextSym = *start;
             ++start;
             if (start != end && *start == '-') {
               ++start;
@@ -216,17 +239,26 @@ namespace fsm::re {
           }
           ++start;
           break;
-        case '\\':
+        case '\\': {
           ++start;
           if (start == end) {
             throw std::runtime_error("Expected character after \\");
           }
+          char c = *start;
+          if (readEscape(c)) {
+            re.type = Type::Literal;
+            re.symbols.push_back(c);
+            ++start;
+            goto postfix;
+          }
+        }
         default:
           re.type = Type::Literal;
           re.symbols.push_back(*start);
           ++start;
           break;
       }
+    postfix:
       if (start != end) {
         switch (*start) {
           case '*':

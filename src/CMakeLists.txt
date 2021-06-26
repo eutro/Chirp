@@ -17,3 +17,4 @@ llvm_map_components_to_libnames(llvm_libs core analysis)
 enable_testing()
 
 add_subdirectory(lexer)
+add_subdirectory(parser)
