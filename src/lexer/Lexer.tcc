@@ -1,3 +1,5 @@
+#pragma once
+
 #include "fsm/NFA.tcc"
 #include "fsm/DFA.tcc"
 #include "fsm/RegEx.tcc"
@@ -25,6 +27,11 @@ namespace lexer {
     SrcLoc(): line(1), col(0) {}
 
     SrcLoc(size_t line, size_t col): line(line), col(col) {}
+
+    friend std::ostream &operator<<(std::ostream &os, const SrcLoc &loc) {
+      os << loc.line << ":" << loc.col;
+      return os;
+    }
 
     void add(const std::string &s) {
       for (char c : s) {
@@ -189,8 +196,8 @@ namespace lexer {
         return tok;
       }
 
-      Token<TokenType> &operator->() {
-        return tok;
+      Token<TokenType> *operator->() {
+        return &tok;
       }
     };
 

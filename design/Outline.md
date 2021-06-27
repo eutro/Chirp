@@ -86,5 +86,5 @@ defn factorial(x) = if x <= 1 { 1 } else { x * factorial(x - 1) }
 ```
 defn factorial(x) =
   let fact = 1, i = 1
-    in loop ( if i > x ( fact ) else ( loop(fact * i, i + 1) ) )
+    in loop ( if i > x { fact } else { loop(fact * i, i + 1) } )
 ```

@@ -42,9 +42,9 @@ namespace parser {
   };
 }
 
-#define TOKENS {\
-  {parser::Tok::TWhitespace, "[ \\t\\r]+"},\
-  {parser::Tok::TLinebreak, "[ \\t\\r]*\\n"},\
+#define TOKEN_PATTERNS {\
+  {parser::Tok::TWhitespace, "[ \\t\\v\\f\\r]+"},\
+  {parser::Tok::TLinebreak, "[ \\t\\v\\f\\r]*\\n"},\
   {parser::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},\
   {parser::Tok::TDefn, "defn"},\
   {parser::Tok::TIf, "if"},\
@@ -53,7 +53,7 @@ namespace parser {
   {parser::Tok::TIn, "in"},\
   {parser::Tok::TInt, "0|[1-9][0-9]*"},\
   {parser::Tok::TFloat, "[0-9]+\\.[0-9]+"},\
-  {parser::Tok::TStr, "\"([^\"\\\\]|\\\\[\"\\\\])\""},\
+  {parser::Tok::TStr, "\"([^\"\\\\]|\\\\[\"\\\\])*\""},\
   {parser::Tok::TParOpen, "\\("},\
   {parser::Tok::TParClose, "\\)"},\
   {parser::Tok::TBrOpen, "\\{"},\

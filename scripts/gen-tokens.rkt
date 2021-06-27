@@ -1,3 +1,5 @@
+#!/usr/bin/env racket
+
 #lang racket
 
 (let loop
@@ -15,7 +17,7 @@
      (displayln "};")
      (displayln "}")
      (newline)
-     (displayln "#define TOKENS {\\")
+     (displayln "#define TOKEN_PATTERNS {\\")
      (displayln (string-join (reverse res) "\n"))
      (displayln "}")]
     [(zero? (string-length line))

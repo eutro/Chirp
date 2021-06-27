@@ -4,19 +4,21 @@ Statement ::= Defn | Expr
 
 Defn ::= 'defn' Binding
 
-Binding ::= Identifier ( '(' ( Binding ( ',' Binding )? )? ')' )? TypeHint? '=' Expr
+Binding ::= Identifier ( '(' ( RawBinding ( ',' RawBinding )? )? ')' )? TypeHint? '=' Expr
+
+RawBinding ::= Identifier TypeHint?
 
 Identifier ::= TIdent
 
 TypeHint ::= ':' Type
 
-Type ::= '_' | Identifier ( '<' Type ( ',' Type )* '>' )?
+Type ::= PlaceholderType | NamedType
 
-Expr ::= BlockExpr | IfExpr | LetExpr
+PlaceholderType ::= '_'
 
-IfExpr ::= 'if' Expr DelimitedExpr ( 'else' DelimitedExpr )?
+NamedType ::= Identifier ( '<' Type ( ',' Type )* ','? '>' )?
 
-LetExpr ::= 'let' ( Binding ( ',' Binding )* )? 'in' Identifier? DelimitedExpr
+Expr ::= LogCmpExpr
 
 DelimitedExpr ::= BlockExpr | BracketExpr
 
@@ -38,11 +40,21 @@ MulExpr ::= HintedExpr ( ('*'|'/'|'%') HintedExpr )*
 
 HintedExpr ::= PrefixExpr TypeHint?
 
-PrefixExpr ::= ('+'|'-') PostfixExpr
+PrefixExpr ::= ('+'|'-')* PostfixExpr
 
-PostfixExpr ::= PrimaryExpr ( '(' )
+PostfixExpr ::= PrimaryExpr | FunCalLExpr
 
-PrimaryExpr ::= Identifier | LiteralExpr | BracketExpr
+FunCallExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )
+
+PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr
+
+IfExpr ::= 'if' Expr DelimitedExpr
+           ( 'else' 'if' Expr DelimitedExpr )*
+           ( 'else' DelimitedExpr )?
+
+LetExpr ::= 'let' ( Binding ( ',' Binding )* ','? )? 'in' Identifier? DelimitedExpr
+
+VarExpr ::= Identifier
 
 BracketExpr ::= '(' Expr ')'
 
