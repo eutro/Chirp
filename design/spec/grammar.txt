@@ -20,10 +20,6 @@ NamedType ::= Identifier ( '<' Type ( ',' Type )* ','? '>' )?
 
 Expr ::= LogCmpExpr
 
-DelimitedExpr ::= BlockExpr | BracketExpr
-
-BlockExpr ::= '{' ( Statement (','|'\n') )* Expr '}'
-
 LogCmpExpr ::= EqExpr ( ('&&' | '||') EqExpr )*
 
 EqExpr ::= CmpExpr ( ('!='|'='|'==') CmpExpr )*
@@ -48,14 +44,18 @@ FunCallExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )
 
 PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr
 
-IfExpr ::= 'if' Expr DelimitedExpr
-           ( 'else' 'if' Expr DelimitedExpr )*
-           ( 'else' DelimitedExpr )?
-
-LetExpr ::= 'let' ( Binding ( ',' Binding )* ','? )? 'in' Identifier? DelimitedExpr
-
 VarExpr ::= Identifier
+
+LiteralExpr ::= TStr | TInt | TFloat
+
+DelimitedExpr ::= BlockExpr | BracketExpr
+
+BlockExpr ::= '{' ( Statement (','|'\n') )* Expr '}'
 
 BracketExpr ::= '(' Expr ')'
 
-LiteralExpr ::= TStr | TInt | TFloat
+IfExpr ::= 'if' Expr BlockExpr
+           ( 'else' 'if' Expr BlockExpr )*
+           ( 'else' BlockExpr )?
+
+LetExpr ::= 'let' ( Binding ( ',' Binding )* ','? )? 'in' Identifier? DelimitedExpr

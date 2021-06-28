@@ -224,7 +224,7 @@ namespace fsm {
         }
       }
       optimised.initial = grouped[initial];
-      return std::move(optimised);
+      return optimised;
     }
   };
 }

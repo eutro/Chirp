@@ -136,7 +136,7 @@ namespace fsm {
       for (auto state : current) {
         Finished<F>::merge(ret, states[state].finished);
       }
-      return std::move(ret);
+      return ret;
     }
 
     /**
@@ -195,7 +195,7 @@ namespace fsm {
       DFA<S, F> dfa;
       std::set<size_t> init = initial;
       dfa.initial = addToDfa(stateMapping, dfa, init);
-      return std::move(dfa);
+      return dfa;
     }
 
   private:

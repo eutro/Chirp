@@ -289,6 +289,6 @@ namespace fsm::re {
       unionVec.push_back(std::move(top));
       ret.children = std::move(unionVec);
     }
-    return std::move(ret);
+    return ret;
   }
 }

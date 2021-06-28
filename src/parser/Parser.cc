@@ -57,7 +57,7 @@ namespace parser {
           lastLoc = tok.loc;
           lastLoc.add(tok.value);
           lookahead.pop_front();
-          return std::move(tok);
+          return tok;
         }
       }
       while (true) {
@@ -68,7 +68,7 @@ namespace parser {
           lastLoc.add(tok.value);
           ++iter;
           lookahead.clear();
-          return std::move(tok);
+          return tok;
         }
         if (!canSkip(iter->type)) {
           lastLoc = iter->loc;
@@ -147,6 +147,8 @@ namespace parser {
 
   std::unique_ptr<Expr> parseExpr(ParserStream &stream);
 
+  std::unique_ptr<Statement> parseStatement(ParserStream &stream);
+
   RawBinding parseRawBinding(ParserStream &stream) {
     return {
         .name = parseIdent(stream),
@@ -180,7 +182,7 @@ namespace parser {
     binding.typeHint = parseTypeHint(stream);
     binding.eqToken = stream.require(Tok::TEq, "= expected");
     binding.value = parseExpr(stream);
-    return std::move(binding);
+    return binding;
   }
 
   std::unique_ptr<DelimitedExpr> parseBracketExpr(ParserStream &stream, Token &&openToken) {
@@ -196,21 +198,38 @@ namespace parser {
     expr.openToken = openToken;
 
     do {
-      std::unique_ptr<Expr> value = parseExpr(stream);
-
-      auto token = stream.optional(Tok::TBrClose);
-      if (token) {
-        expr.value = std::move(value);
-        expr.closeToken = std::move(*token);
-        return std::make_unique<BlockExpr>(std::move(expr));
+      BlockExpr::Stmt stmt;
+      auto defnToken = stream.optional(Tok::TDefn);
+      if (defnToken) {
+        Defn defn;
+        defn.defnToken = std::move(*defnToken);
+        defn.binding = parseBinding(stream);
+        stmt.statement = std::make_unique<Defn>(std::move(defn));
+        goto putstmt;
       }
 
-      BlockExpr::Stmt stmt;
-      stmt.statement = std::move(value);
+      {
+        std::unique_ptr<Expr> value = parseExpr(stream);
+
+        auto token = stream.optional(Tok::TBrClose);
+        if (token) {
+          expr.value = std::move(value);
+          expr.closeToken = std::move(*token);
+          return std::make_unique<BlockExpr>(std::move(expr));
+        }
+
+        stmt.statement = std::move(value);
+      }
+
+    putstmt:
       stmt.delimiter = stream.require({Tok::TLinebreak, Tok::TComma},
                                       "line break or , or } expected");
       expr.statements.push_back(std::move(stmt));
     } while (true);
+  }
+
+  std::unique_ptr<DelimitedExpr> parseBlockExpr(ParserStream &stream) {
+    return parseBlockExpr(stream, stream.require(Tok::TBrOpen, "{ expected"));
   }
 
   std::unique_ptr<DelimitedExpr> parseDelimitedExpr(ParserStream &stream) {
@@ -265,7 +284,7 @@ namespace parser {
         IfExpr expr;
         expr.ifToken = std::move(*token);
         expr.predExpr = parseExpr(stream);
-        expr.thenExpr = parseDelimitedExpr(stream);
+        expr.thenExpr = parseBlockExpr(stream);
         while ((token = stream.optional(Tok::TElse))) {
           Token elseToken = std::move(*token);
           if ((token = stream.optional(Tok::TIf))) {
@@ -273,12 +292,12 @@ namespace parser {
             elseIf.elseToken = std::move(elseToken);
             elseIf.ifToken = std::move(*token);
             elseIf.predExpr = parseExpr(stream);
-            elseIf.thenExpr = parseDelimitedExpr(stream);
+            elseIf.thenExpr = parseBlockExpr(stream);
             expr.elseIfClauses.push_back(std::move(elseIf));
           } else {
             IfExpr::Else elseClause;
             elseClause.elseToken = std::move(elseToken);
-            elseClause.thenExpr = parseDelimitedExpr(stream);
+            elseClause.thenExpr = parseBlockExpr(stream);
             expr.elseClause = std::move(elseClause);
             break;
           }
@@ -311,7 +330,7 @@ namespace parser {
     std::unique_ptr<Expr> expr = parsePrimaryExpr(stream);
     auto openToken = stream.optional(Tok::TParOpen);
     if (!openToken) {
-      return std::move(expr);
+      return expr;
     }
     FunCallExpr callExpr;
     callExpr.function = std::move(expr);
@@ -358,7 +377,7 @@ namespace parser {
       hinted.hint = std::move(*hint);
       return std::make_unique<HintedExpr>(std::move(hinted));
     } else {
-      return std::move(expr);
+      return expr;
     }
   }
 
@@ -379,7 +398,7 @@ namespace parser {
     std::unique_ptr<Expr> lhs = parseBinaryExpr(stream, index + 1);
     std::optional<Token> opToken = stream.optional(binaryOperators[index]);
     if (!opToken) {
-      return std::move(lhs);
+      return lhs;
     }
     BinaryExpr expr;
     expr.lhs = std::move(lhs);
@@ -414,7 +433,7 @@ namespace parser {
     while (!stream.isEmpty()) {
       program.statements.push_back(parseStatement(stream));
     }
-    return std::move(program);
+    return program;
   }
 
   Program parseProgram(lexer::TokenIter<Tok> &&tokens) {
