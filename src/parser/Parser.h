@@ -17,7 +17,7 @@ namespace parser {
     lexer::SrcLoc loc;
 
     ParseError(const std::string &message, const lexer::SrcLoc &loc);
-    const char *what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override;
+    const char *what() const noexcept override;
   };
 
   Program parseProgram(lexer::TokenIter<Tok> &&tokens);

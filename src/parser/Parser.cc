@@ -42,7 +42,7 @@ namespace parser {
         lookahead.push_back(std::move(*iter));
         ++iter;
       }
-      return canSkip(iter->type);
+      return iter == end || canSkip(iter->type);
     }
 
     bool canSkip(Tok type) {
