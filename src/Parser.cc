@@ -333,27 +333,28 @@ namespace parser {
   std::unique_ptr<Expr> parsePostfixExpr(ParserStream &stream) {
     std::unique_ptr<Expr> expr = parsePrimaryExpr(stream);
     auto openToken = stream.optional(Tok::TParOpen);
-    if (!openToken) {
-      return expr;
-    }
-    FunCallExpr callExpr;
-    callExpr.function = std::move(expr);
-    callExpr.openToken = std::move(*openToken);
-    while (true) {
-      auto closeToken = stream.optional(Tok::TParClose);
-      if (closeToken) {
-        callExpr.closeToken = std::move(*closeToken);
-        break;
+    while (openToken) {
+      FunCallExpr callExpr;
+      callExpr.function = std::move(expr);
+      callExpr.openToken = std::move(*openToken);
+      while (true) {
+        auto closeToken = stream.optional(Tok::TParClose);
+        if (closeToken) {
+          callExpr.closeToken = std::move(*closeToken);
+          break;
+        }
+        callExpr.arguments.push_back(parseExpr(stream));
+        auto comma = stream.optional(Tok::TComma);
+        if (!comma) {
+          callExpr.closeToken = stream.require(Tok::TParClose, ") or , expected");
+          break;
+        }
+        callExpr.commas.push_back(std::move(*comma));
       }
-      callExpr.arguments.push_back(parseExpr(stream));
-      auto comma = stream.optional(Tok::TComma);
-      if (!comma) {
-        callExpr.closeToken = stream.require(Tok::TParClose, ") or , expected");
-        break;
-      }
-      callExpr.commas.push_back(std::move(*comma));
+      expr = std::make_unique<FunCallExpr>(std::move(callExpr));
+      openToken = stream.optional(Tok::TParOpen);
     }
-    return std::make_unique<FunCallExpr>(std::move(callExpr));
+    return expr;
   }
 
   std::unique_ptr<Expr> parsePrefixExpr(ParserStream &stream) {

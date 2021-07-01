@@ -38,9 +38,7 @@ HintedExpr ::= PrefixExpr TypeHint?
 
 PrefixExpr ::= ('+'|'-')* PostfixExpr
 
-PostfixExpr ::= PrimaryExpr | FunCalLExpr
-
-FunCallExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )
+PostfixExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )*
 
 PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr
 
