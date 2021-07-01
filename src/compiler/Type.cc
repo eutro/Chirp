@@ -62,21 +62,24 @@ namespace compiler {
         break;
       case 1:
         const auto &aggr = std::get<1>(t.value);
-        os << *aggr.base << "<";
-        for (auto it = aggr.values.begin(); it != aggr.values.end();) {
-          os << (**it).get();
-          if (++it != aggr.values.end()) {
-            os << ", ";
+        os << *aggr.base;
+        if (!aggr.values.empty()) {
+          os << "<";
+          for (auto it = aggr.values.begin(); it != aggr.values.end();) {
+            os << (**it).get();
+            if (++it != aggr.values.end()) {
+              os << ", ";
+            }
           }
+          os << ">";
         }
-        os << ">";
         break;
     }
     return os;
   }
 
   std::ostream &operator<<(std::ostream &os, const PolyType &t) {
-    if (t.bound.size()) {
+    if (!t.bound.empty()) {
       os << "<";
       for (auto it = t.bound.begin(); it != t.bound.end();) {
         os << **it;
@@ -131,10 +134,10 @@ namespace compiler {
       Aggregate &ta = std::get<1>(value);
       Aggregate &oa = std::get<1>(o.value);
       if (ta.base != oa.base) {
-        throw std::runtime_error("Differing primitive type");
+        throw std::runtime_error("Mismatched primitive type");
       } else {
         if (ta.values.size() != oa.values.size()) {
-          throw std::runtime_error("Differing arities");
+          throw std::runtime_error("Mismatched arities");
         }
         auto ti = ta.values.begin();
         auto oi = oa.values.begin();

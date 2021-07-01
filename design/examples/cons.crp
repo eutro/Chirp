@@ -1,0 +1,10 @@
+defn cons(x, y) =
+  let app(f) = f(x, y) in { app }
+
+defn car(pair) =
+  let f(x, y) = x in { pair(f) }
+
+defn cdr(pair) =
+  let f(x, y) = y in { pair(f) }
+
+cdr(car(cons(cons(1, 1.0), "three")))

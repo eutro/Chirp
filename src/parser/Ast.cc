@@ -116,9 +116,11 @@ namespace parser {
     os << ")";
   }
   void IfExpr::inferTypes(ParseContext &ctx) {
-    // TODO unify with bool
+    CType *boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+    boolType->unify(*predExpr->infer(ctx));
     thenExpr->inferTypes(ctx);
     for (auto &clause : this->elseIfClauses) {
+      boolType->unify(*clause.predExpr->infer(ctx));
       clause.thenExpr->inferTypes(ctx);
     }
     if (elseClause) {
@@ -127,12 +129,14 @@ namespace parser {
   }
   CType *IfExpr::inferType(ParseContext &ctx) {
     if (!elseClause) {
-      // unit return
       inferTypes(ctx);
-      return nullptr; // TODO unit type
+      return ctx.tc.push(CType::aggregate(ctx.unitType, {}));
     }
+    CType *boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+    boolType->unify(*predExpr->infer(ctx));
     CType *type = thenExpr->infer(ctx);
     for (auto &clause : elseIfClauses) {
+      boolType->unify(*clause.predExpr->infer(ctx));
       type->get().unify(clause.thenExpr->infer(ctx)->get());
     }
     type->get().unify(elseClause->thenExpr->infer(ctx)->get());
@@ -151,10 +155,30 @@ namespace parser {
   CType *LetExpr::inferType(ParseContext &ctx) {
     size_t oldSize = ctx.tc.bound.size();
     ctx.scopes.emplace_back();
-    for (auto &b : bindings) {
-      ctx.tc.bound.push_back(b.inferType(ctx));
+
+    CType *type;
+    if (name) {
+      type = ctx.tc.fresh();
+      std::vector<CType *> args(bindings.size() + 1, nullptr);
+      size_t i = 0;
+      for (auto &b : bindings) {
+        auto inferred = b.inferType(ctx);
+        if (!inferred->bound.empty()) {
+          throw std::runtime_error("Named 'let' may not have polymorphic bindings");
+        }
+        args[i++] = inferred->type;
+        ctx.tc.bound.push_back(inferred);
+      }
+      args[i] = type;
+      CType *funcType = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(args)));
+      ctx.introduce(name->ident.value, funcType);
+      body->infer(ctx)->get().unify(type->get());
+    } else {
+      for (auto &b : bindings) {
+        ctx.tc.bound.push_back(b.inferType(ctx));
+      }
+      type = body->infer(ctx);
     }
-    CType *type = body->infer(ctx);
     ctx.scopes.pop_back();
     ctx.tc.bound.resize(oldSize);
     return type;
@@ -225,12 +249,24 @@ namespace parser {
     os << ")";
   }
   CType *BinaryExpr::inferType(ParseContext &ctx) {
-    // TODO wacko
     CType *argType = lhs->infer(ctx);
     for (auto &rhs : terms) {
       argType->get().unify(rhs.expr->infer(ctx)->get());
     }
-    return argType;
+    switch (terms[0].operatorToken.type) {
+    case Tok::TNe:
+    case Tok::TEq2:
+    case Tok::TEq:
+    case Tok::TLt:
+    case Tok::TGt:
+    case Tok::TLe:
+    case Tok::TGe:
+    case Tok::TOr2:
+    case Tok::TAnd2:
+      return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+    default:
+      return argType;
+    }
   }
 
   void PrefixExpr::print(std::ostream &os) const {
@@ -304,10 +340,12 @@ namespace parser {
         auto var = ctx.introduce(rb.name.ident.value, params[i++] = ctx.tc.fresh());
         ctx.tc.bound.push_back(var->type);
       }
-      params[i] = value->infer(ctx);
+      CType *retType = params[i] = ctx.tc.fresh();
+      type = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+      ctx.introduce(name.ident.value, type);
+      value->infer(ctx)->get().unify(retType->get());
       ctx.tc.bound.resize(oldSize);
       ctx.scopes.pop_back();
-      type = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
     } else {
       type = value->infer(ctx);
     }
