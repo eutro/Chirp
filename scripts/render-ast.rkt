@@ -2,6 +2,8 @@
 
 #lang racket
 
+;; Generate an SVG render of an AST, as output by `in2ast` and `in2types`.
+
 (require pict pict/tree-layout racket/draw)
 
 (define (framed-text str)

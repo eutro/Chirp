@@ -2,6 +2,8 @@
 
 #lang racket
 
+;; Generate a C++ header file from a list of tokens.
+
 (let loop
     ([line (read-line)]
      [enum '()]
