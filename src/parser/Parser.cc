@@ -249,6 +249,8 @@ namespace parser {
             Tok::TStr,
             Tok::TInt,
             Tok::TFloat,
+            Tok::TTrue,
+            Tok::TFalse,
             Tok::TBrOpen,
             Tok::TParOpen,
         });
@@ -266,9 +268,9 @@ namespace parser {
             break;
           }
           expr.bindings.push_back(parseBinding(stream));
-          auto comma = stream.optional(Tok::TComma);
+          auto comma = stream.optional({Tok::TComma, Tok::TLinebreak});
           if (!comma) {
-            expr.inToken = stream.require(Tok::TIn, "in or , expected");
+            expr.inToken = stream.require(Tok::TIn, "line break or , or 'in' expected");
             break;
           }
           expr.commas.push_back(std::move(*comma));
@@ -311,7 +313,9 @@ namespace parser {
       }
       case Tok::TStr:
       case Tok::TInt:
-      case Tok::TFloat: {
+      case Tok::TFloat:
+      case Tok::TTrue:
+      case Tok::TFalse: {
         LiteralExpr expr;
         expr.value = *token;
         return std::make_unique<LiteralExpr>(expr);

@@ -24,7 +24,7 @@ namespace compiler {
     return os;
   }
 
-  Type::Aggregate::Aggregate(BaseType &&base, std::vector<Type *> &&values)
+  Type::Aggregate::Aggregate(BaseType &base, std::vector<Type *> &&values)
       : base(base), values(values) {}
 
   Type::Type(std::variant<Named, Aggregate> &&value) : value(value) {}
@@ -32,16 +32,16 @@ namespace compiler {
       : value((Named) {
       .name = name,
       .size = 1,
-      .parent = this,
+      .parent = nullptr,
   }) {}
 
   Type Type::named(Name &&name) {
     return Type(std::forward<Name>(name));
   }
-  Type Type::aggregate(BaseType &&base, std::vector<Type *> &&params) {
+  Type Type::aggregate(BaseType &base, std::vector<Type *> &&params) {
     return Type(std::variant<Named, Aggregate>
                     (std::in_place_type<Aggregate>,
-                     std::forward<BaseType>(base),
+                     base,
                      std::forward<std::vector<Type *>>(params)));
   }
 
@@ -78,14 +78,24 @@ namespace compiler {
     return os;
   }
 
+  std::ostream &operator<<(std::ostream &os, const PolyType &t) {
+    if (t.bound.size()) {
+      os << "<";
+      for (auto it = t.bound.begin(); it != t.bound.end();) {
+        if (++it != t.bound.end()) os << ", ";
+      }
+      os << "> ";
+    }
+    os << *t.type;
+    return os;
+  }
+
   Type &Type::get() {
     switch (value.index()) {
       case 0: {
         Type::Named &named = std::get<0>(value);
-        if (this != named.parent) {
-          named.parent = &named.parent->get();
-        }
-        return *named.parent;
+        if (named.parent == nullptr) return *this;
+        return *(named.parent = &named.parent->get());
       }
       default:
         return *this;
@@ -168,7 +178,7 @@ namespace compiler {
     Type &gotten = type->get();
     PolyType pType(&gotten);
     std::set<Type *> free;
-    for (PolyType *b : bound) {
+    for (auto &b : bound) {
       b->getFree([&free](Type *v) { free.insert(v); });
     }
     gotten.getFree([&pType, &free](Type *v) {
@@ -199,7 +209,7 @@ namespace compiler {
         if (newValues == aggr.values) {
           return this;
         } else {
-          return ctx.push(Type::aggregate(BaseType(aggr.base), std::move(newValues)));
+          return ctx.push(Type::aggregate(aggr.base, std::move(newValues)));
         }
       }
     }

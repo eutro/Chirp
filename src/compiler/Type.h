@@ -46,7 +46,7 @@ namespace compiler {
       BaseType base;
       std::vector<Type *> values;
 
-      Aggregate(BaseType &&base, std::vector<Type *> &&values);
+      Aggregate(BaseType &base, std::vector<Type *> &&values);
     };
 
     std::variant<Named, Aggregate> value;
@@ -55,7 +55,7 @@ namespace compiler {
     Type(Name &&name);
   public:
     static Type named(Name &&name);
-    static Type aggregate(BaseType &&base, std::vector<Type *> &&params);
+    static Type aggregate(BaseType &base, std::vector<Type *> &&params);
     void getFree(const std::function<void(Type *)> &acc);
     friend std::ostream &operator<<(std::ostream &os, const Type &t);
     Type &get();
@@ -69,13 +69,14 @@ namespace compiler {
     Type *type;
     PolyType(Type *type);
     void getFree(const std::function<void(Type *)> &acc);
+    friend std::ostream &operator<<(std::ostream &os, const PolyType &t);
   };
 
   class TypeContext {
   public:
-    std::vector<PolyType *> bound;
+    std::vector<std::shared_ptr<PolyType>> bound;
     std::vector<std::unique_ptr<Type>> types;
-    size_t counter;
+    size_t counter = 0;
 
     Type *push(Type &&type);
     Type *fresh();

@@ -46,7 +46,7 @@ PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr
 
 VarExpr ::= Identifier
 
-LiteralExpr ::= TStr | TInt | TFloat
+LiteralExpr ::= TStr | TInt | TFloat | TTrue | TFalse
 
 DelimitedExpr ::= BlockExpr | BracketExpr
 
@@ -58,4 +58,4 @@ IfExpr ::= 'if' Expr BlockExpr
            ( 'else' 'if' Expr BlockExpr )*
            ( 'else' BlockExpr )?
 
-LetExpr ::= 'let' ( Binding ( ',' Binding )* ','? )? 'in' Identifier? DelimitedExpr
+LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr

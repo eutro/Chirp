@@ -1,8 +1,10 @@
 #pragma once
 
 #include "../lexer/Lexer.tcc"
+#include "../compiler/Type.h"
 #include "Tokens.h"
 
+#include <deque>
 #include <vector>
 #include <optional>
 #include <memory>
@@ -11,6 +13,38 @@
 
 namespace parser {
   using Token = lexer::Token<Tok>;
+  using CType = compiler::Type;
+  using PType = compiler::PolyType;
+
+  class Var {
+  public:
+    std::shared_ptr<PType> type;
+
+    Var(PType &&type);
+  };
+
+  class Scope {
+  public:
+    std::map<std::string, std::shared_ptr<Var>> bindings;
+  };
+
+  class ParseContext {
+  public:
+    compiler::TypeContext &tc;
+    size_t rawTypes = 6;
+    compiler::BaseType funcType;
+    compiler::BaseType unitType;
+    compiler::BaseType intType;
+    compiler::BaseType floatType;
+    compiler::BaseType boolType;
+    compiler::BaseType stringType;
+    std::deque<Scope> scopes;
+
+    std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);
+    std::shared_ptr<Var> &lookup(const std::string &name);
+
+    ParseContext(compiler::TypeContext &tc);
+  };
 
   std::ostream &operator<<(std::ostream &os, const Token &token);
 
@@ -18,6 +52,7 @@ namespace parser {
   public:
     virtual ~Statement() = default;
 
+    virtual void inferTypes(ParseContext &ctx) = 0;
     virtual void print(std::ostream &os) const = 0;
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Statement> &statement);
   };
@@ -79,12 +114,18 @@ namespace parser {
   };
 
   class Expr : public Statement {
+  protected:
+    CType *type = nullptr;
+    virtual CType *inferType(ParseContext &ctx) = 0;
   public:
+    void inferTypes(ParseContext &ctx) override;
+    CType *infer(ParseContext &ctx);    
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Expr> &statement);
   };
 
   class Binding {
   public:
+    std::shared_ptr<PType> type = nullptr;
     Identifier name;
 
     struct Arguments {
@@ -102,6 +143,8 @@ namespace parser {
     std::unique_ptr<Expr> value;
 
     friend std::ostream &operator<<(std::ostream &os, const Binding &binding);
+
+    std::shared_ptr<PType> &inferType(ParseContext &ctx);
   };
 
   class Defn : public Statement {
@@ -110,6 +153,7 @@ namespace parser {
     Binding binding;
 
     void print(std::ostream &os) const override;
+    void inferTypes(ParseContext &ctx) override;
   };
 
   class Program {
@@ -117,6 +161,7 @@ namespace parser {
     std::vector<std::unique_ptr<Statement>> statements;
 
     friend std::ostream &operator<<(std::ostream &os, const Program &program);
+    void inferTypes(ParseContext &ctx);
   };
 
   class PrimaryExpr : public Expr {
@@ -152,6 +197,8 @@ namespace parser {
     std::optional<Else> elseClause;
 
     void print(std::ostream &os) const override;
+    void inferTypes(ParseContext &ctx) override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class LetExpr : public Expr {
@@ -164,6 +211,7 @@ namespace parser {
     std::unique_ptr<DelimitedExpr> body;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class BlockExpr : public DelimitedExpr {
@@ -182,6 +230,7 @@ namespace parser {
     Token closeToken;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class BracketExpr : public DelimitedExpr {
@@ -191,6 +240,7 @@ namespace parser {
     Token closeToken;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class LiteralExpr : public PrimaryExpr {
@@ -198,6 +248,7 @@ namespace parser {
     Token value;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class VarExpr : public PrimaryExpr {
@@ -205,6 +256,7 @@ namespace parser {
     Identifier name;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class BinaryExpr : public Expr {
@@ -221,6 +273,7 @@ namespace parser {
     std::vector<Rhs> terms;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class PrefixExpr : public Expr {
@@ -229,6 +282,7 @@ namespace parser {
     std::unique_ptr<Expr> expr;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class FunCallExpr : public Expr {
@@ -240,6 +294,7 @@ namespace parser {
     Token closeToken;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 
   class HintedExpr : public Expr {
@@ -248,5 +303,6 @@ namespace parser {
     TypeHint hint;
 
     void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
   };
 }
