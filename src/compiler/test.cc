@@ -1,4 +1,4 @@
-#include "Expr.h"
+#include "Type.h"
 
 int main() {
   compiler::Type a = compiler::Type::named(0);
