@@ -15,6 +15,7 @@ namespace ast {
     TIn,
     TTrue,
     TFalse,
+    TFn,
     TInt,
     TFloat,
     TStr,
@@ -43,6 +44,8 @@ namespace ast {
     TMul,
     TDiv,
     TRem,
+    TBackslash,
+    TDot,
   };
 }
 
@@ -59,6 +62,7 @@ namespace ast {
   {ast::Tok::TIn, "in"},\
   {ast::Tok::TTrue, "true"},\
   {ast::Tok::TFalse, "false"},\
+  {ast::Tok::TFn, "fn"},\
   {ast::Tok::TInt, "0|[1-9][0-9]*"},\
   {ast::Tok::TFloat, "[0-9]+\\.[0-9]+"},\
   {ast::Tok::TStr, "\"([^\"\\\\]|\\\\[\"\\\\])*\""},\
@@ -87,4 +91,6 @@ namespace ast {
   {ast::Tok::TMul, "\\*"},\
   {ast::Tok::TDiv, "/"},\
   {ast::Tok::TRem, "%"},\
+  {ast::Tok::TBackslash, "\\\\"},\
+  {ast::Tok::TDot, "\\."},\
 }

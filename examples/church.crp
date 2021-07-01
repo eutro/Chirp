@@ -1,26 +1,17 @@
-defn zero(f) =
- let zero(x) = x in { zero }
+defn zero(f) = fn(x) = x
 
-defn one(f) =
- let one(x) = f(x) in { one }
+defn one(f) = fn(x) = f(x)
 
-defn two(f) =
- let two(x) = f(f(x)) in { two }
+defn two(f) = fn(x) = f(f(x))
 
-defn three(f) =
- let three(x) = f(f(f(x))) in { three }
+defn three(f) = fn(x) = f(f(f(x)))
 
-defn add(a, b) =
- let sum(f) =
-  let added(x) = a(f)(b(f)(x)) in {added}
-   in {sum}
+defn add(a, b) = \f.\x.a(f)(b(f)(x))
 
-defn mul(a, b) =
- let prod(f) =
-  let multiplied(x) = a(b(f))(x) in {multiplied}
-   in {prod}
+defn mul(a, b) = \f.\x.a(b(f))(x)
 
-defn pow(a, b) =
- let pow(f) =
-  let exp(x) = a(b)(f)(x) in {exp}
-   in {pow}
+defn pow(a, b) = \f.\x.a(b)(f)(x)
+
+defn church2int(n) = n(\x.x + 1)(0)
+
+church2int(mul(two, pow(three, three)))

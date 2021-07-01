@@ -213,6 +213,29 @@ namespace ast {
     CType *inferType(ParseContext &ctx) override;
   };
 
+  class FnExpr : public Expr {
+  public:
+    Token fnToken;
+    std::optional<Identifier> name;
+    Binding::Arguments arguments;
+    Token eqToken;
+    std::unique_ptr<Expr> body;
+
+    void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
+  };
+  class LambdaExpr : public Expr {
+  public:
+    Token lambdaToken;
+    std::vector<RawBinding> arguments;
+    std::vector<Token> commas;
+    Token dotToken;
+    std::unique_ptr<Expr> body;
+
+    void print(std::ostream &os) const override;
+    CType *inferType(ParseContext &ctx) override;
+  };
+
   class BlockExpr : public DelimitedExpr {
   public:
     Token openToken;

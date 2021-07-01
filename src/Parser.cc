@@ -30,7 +30,7 @@ namespace parser {
 
     lexer::SrcLoc lastLoc;
 
-    ParserStream(lexer::TokenIter<Tok> tokenStream) :
+    ParserStream(lexer::TokenIter<Tok> &tokenStream) :
         iter(tokenStream.begin()),
         end(tokenStream.end()) {}
 
@@ -54,9 +54,9 @@ namespace parser {
         if (types.count(it->type)) {
           lookahead.erase(lookahead.begin(), it);
           Token tok = std::move(lookahead.front());
+          lookahead.pop_front();
           lastLoc = tok.loc;
           lastLoc.add(tok.value);
-          lookahead.pop_front();
           return tok;
         }
       }
@@ -64,9 +64,9 @@ namespace parser {
         if (iter == end) return std::nullopt;
         if (types.count(iter->type)) {
           Token tok = std::move(*iter);
+          ++iter;
           lastLoc = tok.loc;
           lastLoc.add(tok.value);
-          ++iter;
           lookahead.clear();
           return tok;
         }
@@ -97,8 +97,20 @@ namespace parser {
     }
   };
 
+  Identifier parseIdent(Token &&token) {
+    return {.ident = token};
+  }
+
   Identifier parseIdent(ParserStream &stream) {
-    return {.ident = stream.require(Tok::TIdent, "Identifier expected")};
+    return parseIdent(stream.require(Tok::TIdent, "Identifier expected"));
+  }
+
+  std::optional<Identifier> maybeParseIdent(ParserStream &stream) {
+    auto token = stream.optional(Tok::TIdent);
+    if (token) {
+      return parseIdent(std::move(*token));
+    }
+    return std::nullopt;
   }
 
   std::unique_ptr<Type> parseType(ParserStream &stream) {
@@ -156,28 +168,32 @@ namespace parser {
     };
   }
 
+  Binding::Arguments parseArgs(Token &&openToken, ParserStream &stream) {
+    Binding::Arguments args;
+    args.openToken = std::move(openToken);
+    while (true) {
+      auto closeToken = stream.optional(Tok::TParClose);
+      if (closeToken) {
+        args.closeToken = std::move(*closeToken);
+        break;
+      }
+      args.bindings.push_back(parseRawBinding(stream));
+      auto comma = stream.optional(Tok::TComma);
+      if (!comma) {
+        args.closeToken = stream.require(Tok::TParClose, ") or , expected");
+        break;
+      }
+      args.commas.push_back(std::move(*comma));
+    }
+    return args;
+  }
+
   Binding parseBinding(ParserStream &stream) {
     Binding binding;
     binding.name = parseIdent(stream);
     auto openToken = stream.optional(Tok::TParOpen);
     if (openToken) {
-      Binding::Arguments args;
-      args.openToken = std::move(*openToken);
-      while (true) {
-        auto closeToken = stream.optional(Tok::TParClose);
-        if (closeToken) {
-          args.closeToken = std::move(*closeToken);
-          break;
-        }
-        args.bindings.push_back(parseRawBinding(stream));
-        auto comma = stream.optional(Tok::TComma);
-        if (!comma) {
-          args.closeToken = stream.require(Tok::TParClose, ") or , expected");
-          break;
-        }
-        args.commas.push_back(std::move(*comma));
-      }
-      binding.arguments = std::move(args);
+      binding.arguments = parseArgs(std::move(*openToken), stream);
     }
     binding.typeHint = parseTypeHint(stream);
     binding.eqToken = stream.require(Tok::TEq, "= expected");
@@ -245,6 +261,8 @@ namespace parser {
         {
             Tok::TLet,
             Tok::TIf,
+            Tok::TFn,
+            Tok::TBackslash,
             Tok::TIdent,
             Tok::TStr,
             Tok::TInt,
@@ -275,10 +293,7 @@ namespace parser {
           }
           expr.commas.push_back(std::move(*comma));
         }
-        auto identToken = stream.optional(Tok::TIdent);
-        if (identToken) {
-          expr.name = {.ident = *identToken};
-        }
+        expr.name = maybeParseIdent(stream);
         expr.body = parseDelimitedExpr(stream);
         return std::make_unique<LetExpr>(std::move(expr));
       }
@@ -306,9 +321,38 @@ namespace parser {
         }
         return std::make_unique<IfExpr>(std::move(expr));
       }
+      case Tok::TFn: {
+        FnExpr expr;
+        expr.fnToken = std::move(*token);
+        expr.name = maybeParseIdent(stream);
+        expr.arguments = parseArgs(stream.require(Tok::TParOpen, "( expected"), stream);
+        expr.eqToken = stream.require(Tok::TEq, "= expected");
+        expr.body = parseExpr(stream);
+        return std::make_unique<FnExpr>(std::move(expr));
+      }
+      case Tok::TBackslash: {
+        LambdaExpr expr;
+        expr.lambdaToken = std::move(*token);
+        auto ident = stream.optional(Tok::TIdent);
+        if (ident) {
+          Token arg = std::move(*ident);
+          while (true) {
+            expr.arguments.push_back((RawBinding) {.name = parseIdent(std::move(arg))});
+            auto comma = stream.optional(Tok::TComma);
+            if (comma) {
+              expr.commas.push_back(std::move(*comma));
+            } else {
+              break;
+            }
+          }
+        }
+        expr.dotToken = stream.require(Tok::TDot, ". expected");
+        expr.body = parseExpr(stream);
+        return std::make_unique<LambdaExpr>(std::move(expr));
+      }
       case Tok::TIdent: {
         VarExpr expr;
-        expr.name.ident = *token;
+        expr.name = parseIdent(std::move(*token));
         return std::make_unique<VarExpr>(std::move(expr));
       }
       case Tok::TStr:
@@ -433,16 +477,12 @@ namespace parser {
     }
   }
 
-  Program parseProgram(ParserStream &stream) {
+  Program parseProgram(lexer::TokenIter<Tok> &&tokens) {
+    ParserStream stream = ParserStream(tokens);
     Program program;
     while (!stream.isEmpty()) {
       program.statements.push_back(parseStatement(stream));
     }
     return program;
-  }
-
-  Program parseProgram(lexer::TokenIter<Tok> &&tokens) {
-    ParserStream stream = ParserStream(tokens);
-    return parseProgram(stream);
   }
 }

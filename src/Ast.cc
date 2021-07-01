@@ -13,6 +13,9 @@ namespace ast {
         case '"':
           os << "\\\"";
           break;
+        case '\\':
+          os << "\\\\";
+          break;
         default:
           os << c;
       }
@@ -329,27 +332,61 @@ namespace ast {
     os << " " << binding.eqToken << " " << binding.value << ")";
     return os;
   }
+
+  CType *inferFuncType(ParseContext &ctx,
+                       std::vector<RawBinding> &bindings,
+                       Identifier *name,
+                       std::unique_ptr<Expr> &value) {
+    CType *inferred;
+    ctx.scopes.emplace_back();
+    size_t oldSize = ctx.tc.bound.size();
+    std::vector<CType *> params(bindings.size() + 1, nullptr);
+    size_t i = 0;
+    for (auto &rb : bindings) {
+      auto var = ctx.introduce(rb.name.ident.value, params[i++] = ctx.tc.fresh());
+      ctx.tc.bound.push_back(var->type);
+    }
+    CType *retType = params[i] = ctx.tc.fresh();
+    inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+    if (name) {
+      ctx.introduce(name->ident.value, inferred);
+    }
+    value->infer(ctx)->get().unify(retType->get());
+    ctx.tc.bound.resize(oldSize);
+    ctx.scopes.pop_back();
+    return inferred;
+  }
+
   std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
     CType *inferred;
     if (arguments) {
-      ctx.scopes.emplace_back();
-      size_t oldSize = ctx.tc.bound.size();
-      std::vector<CType *> params(arguments->bindings.size() + 1, nullptr);
-      size_t i = 0;
-      for (auto &rb : arguments->bindings) {
-        auto var = ctx.introduce(rb.name.ident.value, params[i++] = ctx.tc.fresh());
-        ctx.tc.bound.push_back(var->type);
-      }
-      CType *retType = params[i] = ctx.tc.fresh();
-      inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
-      ctx.introduce(name.ident.value, inferred);
-      value->infer(ctx)->get().unify(retType->get());
-      ctx.tc.bound.resize(oldSize);
-      ctx.scopes.pop_back();
+      inferred = inferFuncType(ctx, arguments->bindings, &name, value);
     } else {
       inferred = value->infer(ctx);
     }
     return type = ctx.introduce(name.ident.value, ctx.tc.gen(inferred))->type;
+  }
+
+  void FnExpr::print(std::ostream &os) const {
+    os << "(FnExpr ";
+    if (type) os << "#\"" << type->get() << "\" ";
+    os << fnToken << " ";
+    if (name) os << *name << " ";
+    os << arguments << " " << eqToken << " " << body << ")";
+  }
+  CType *FnExpr::inferType(ParseContext &ctx) {
+    return inferFuncType(ctx, arguments.bindings, name ? &*name : nullptr, body);
+  }
+
+  void LambdaExpr::print(std::ostream &os) const {
+    os << "(LambdaExpr";
+    if (type) os << " #\"" << type->get() << "\"";
+    os << " " << lambdaToken;
+    printMulti(os, arguments, commas);
+    os << " " << dotToken << " " << body << ")";
+  }
+  CType *LambdaExpr::inferType(ParseContext &ctx) {
+    return inferFuncType(ctx, arguments, nullptr, body);
   }
 
   std::ostream &operator<<(std::ostream &os, const Identifier &identifier) {

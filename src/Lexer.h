@@ -8,6 +8,7 @@
 #include <utility>
 #include <string>
 #include <iostream>
+#include <optional>
 
 namespace lexer {
   /**
@@ -92,10 +93,10 @@ namespace lexer {
     /**
      * Get the next token from the stream, if any.
      *
-     * @param tok The token in which to store data.
-     * @return True if a token was read.
+     * @return The next token.
      */
-    bool next(Token<TokenType> &tok) {
+    std::optional<Token<TokenType>> next() {
+      Token<TokenType> tok;
       char c;
       while (relexing ?
              (c = raw[pos], true) :
@@ -130,7 +131,7 @@ namespace lexer {
           tok.loc = loc;
           loc.add(tok.value);
           state = dfa.initial;
-          return true;
+          return tok;
         } else if (dfa.states[state].finished != fsm::Finished<TokenType>().rejecting()) {
           lastMatchPos = pos;
           lastMatchState = state;
@@ -140,7 +141,7 @@ namespace lexer {
       if (pos != 0) {
         goto addTok;
       }
-      return false;
+      return std::nullopt;
     }
   };
 
@@ -161,37 +162,36 @@ namespace lexer {
      */
     struct Iter {
       TokenIter &iter;
-      Token<TokenType> tok;
-      bool end;
+      std::optional<Token<TokenType>> tok;
 
       bool operator==(const Iter &o) {
-        return end && o.end;
+        return !tok && !o.tok;
       }
 
       bool operator!=(const Iter &o) {
-        return !end || !o.end;
+        return tok || o.tok;
       }
 
       Iter &operator++() {
-        end = !iter.stream.next(tok);
+        tok = iter.stream.next();
         return *this;
       }
 
       Token<TokenType> &operator*() {
-        return tok;
+        return *tok;
       }
 
       Token<TokenType> *operator->() {
-        return &tok;
+        return &*tok;
       }
     };
 
     Iter begin() {
-      return ++(Iter{*this, Token<TokenType>(), false});
+      return ++(Iter{*this, std::nullopt});
     }
 
     Iter end() {
-      return Iter{*this, Token<TokenType>(), true};
+      return Iter{*this, std::nullopt};
     }
   };
 

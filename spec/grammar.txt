@@ -4,7 +4,9 @@ Statement ::= Defn | Expr
 
 Defn ::= 'defn' Binding
 
-Binding ::= Identifier ( '(' ( RawBinding ( ',' RawBinding )? )? ')' )? TypeHint? '=' Expr
+Binding ::= Identifier Arguments? TypeHint? '=' Expr
+
+Arguments ::= ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
 
 RawBinding ::= Identifier TypeHint?
 
@@ -40,7 +42,7 @@ PrefixExpr ::= ('+'|'-')* PostfixExpr
 
 PostfixExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )*
 
-PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr
+PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr | FnExpr | LambdaExpr
 
 VarExpr ::= Identifier
 
@@ -57,3 +59,7 @@ IfExpr ::= 'if' Expr BlockExpr
            ( 'else' BlockExpr )?
 
 LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr
+
+FnExpr ::= 'fn' Identifier? Arguments TypeHint? '=' Expr
+
+LambdaExpr ::= TBackslash ( Identifier ( ',' Identifier )* )? '.' Expr

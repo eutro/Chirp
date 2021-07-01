@@ -1,0 +1,6 @@
+/**
+ * recursive type:
+ * a = a -> b
+ * cannot be unified
+ */
+\x.x(x)
