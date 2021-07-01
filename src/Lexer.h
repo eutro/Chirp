@@ -1,8 +1,8 @@
 #pragma once
 
-#include "fsm/NFA.tcc"
-#include "fsm/DFA.tcc"
-#include "fsm/RegEx.tcc"
+#include "NFA.h"
+#include "DFA.h"
+#include "RegEx.h"
 
 #include <vector>
 #include <utility>
@@ -24,25 +24,10 @@ namespace lexer {
      */
     size_t col;
 
-    SrcLoc(): line(1), col(0) {}
-
-    SrcLoc(size_t line, size_t col): line(line), col(col) {}
-
-    friend std::ostream &operator<<(std::ostream &os, const SrcLoc &loc) {
-      os << loc.line << ":" << loc.col;
-      return os;
-    }
-
-    void add(const std::string &s) {
-      for (char c : s) {
-        if (c == '\n') {
-          ++line;
-          col = 0;
-        } else {
-          ++col;
-        }
-      }
-    }
+    SrcLoc();
+    SrcLoc(size_t line, size_t col);
+    friend std::ostream &operator<<(std::ostream &os, const SrcLoc &loc);
+    void add(const std::string &s);
   };
 
   /**
@@ -50,7 +35,7 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template <typename TokenType>
+  template<typename TokenType>
   class Token {
   public:
     /**
@@ -66,7 +51,7 @@ namespace lexer {
      */
     SrcLoc loc;
 
-    Token(): type(fsm::Finished<TokenType>().rejecting()) {}
+    Token() : type(fsm::Finished<TokenType>().rejecting()) {}
 
     Token(TokenType type, std::string &&value, const SrcLoc &loc) : type(type), value(value), loc(loc) {}
   };
@@ -76,14 +61,14 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template <typename TokenType>
+  template<typename TokenType>
   class TokenStream {
   public:
     const fsm::DFA<char, TokenType> &dfa;
-    
+
     std::istream &in;
-    
-    TokenStream(const fsm::DFA<char, TokenType> &dfa, std::istream &in): dfa(dfa), in(in) {}
+
+    TokenStream(const fsm::DFA<char, TokenType> &dfa, std::istream &in) : dfa(dfa), in(in) {}
 
     /**
      * The state of the DFA.
@@ -164,12 +149,12 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template <typename TokenType>
+  template<typename TokenType>
   class TokenIter {
     TokenStream<TokenType> stream;
 
   public:
-    TokenIter(TokenStream<TokenType> &&stream): stream(stream) {}
+    TokenIter(TokenStream<TokenType> &&stream) : stream(stream) {}
 
     /**
      * The iterator type. Satisfies std::input_iterator_tag.
@@ -216,7 +201,7 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template <typename TokenType>
+  template<typename TokenType>
   class Lexer {
   public:
     /**

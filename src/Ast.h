@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../lexer/Lexer.tcc"
-#include "../compiler/Type.h"
+#include "Lexer.h"
+#include "Type.h"
 #include "Tokens.h"
 
 #include <deque>
@@ -11,10 +11,10 @@
 #include <variant>
 #include <ostream>
 
-namespace parser {
+namespace ast {
   using Token = lexer::Token<Tok>;
-  using CType = compiler::Type;
-  using PType = compiler::PolyType;
+  using CType = type::Type;
+  using PType = type::PolyType;
 
   class Var {
   public:
@@ -30,19 +30,19 @@ namespace parser {
 
   class ParseContext {
   public:
-    compiler::TypeContext &tc;
-    std::shared_ptr<compiler::BaseType> funcType;
-    std::shared_ptr<compiler::BaseType> unitType;
-    std::shared_ptr<compiler::BaseType> intType;
-    std::shared_ptr<compiler::BaseType> floatType;
-    std::shared_ptr<compiler::BaseType> boolType;
-    std::shared_ptr<compiler::BaseType> stringType;
+    type::TypeContext &tc;
+    std::shared_ptr<type::BaseType> funcType;
+    std::shared_ptr<type::BaseType> unitType;
+    std::shared_ptr<type::BaseType> intType;
+    std::shared_ptr<type::BaseType> floatType;
+    std::shared_ptr<type::BaseType> boolType;
+    std::shared_ptr<type::BaseType> stringType;
     std::deque<Scope> scopes;
 
     std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);
     std::shared_ptr<Var> &lookup(const std::string &name);
 
-    ParseContext(compiler::TypeContext &tc);
+    ParseContext(type::TypeContext &tc);
   };
 
   std::ostream &operator<<(std::ostream &os, const Token &token);
@@ -118,7 +118,7 @@ namespace parser {
     virtual CType *inferType(ParseContext &ctx) = 0;
   public:
     void inferTypes(ParseContext &ctx) override;
-    CType *infer(ParseContext &ctx);    
+    CType *infer(ParseContext &ctx);
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Expr> &statement);
   };
 

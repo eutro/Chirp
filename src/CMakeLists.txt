@@ -14,8 +14,16 @@ add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(llvm_libs core analysis)
 
+add_library(fsm RegEx.cc RegEx.h DFA.h NFA.h)
+
+add_library(lexer Lexer.cc)
+target_link_libraries(lexer fsm)
+
+add_library(parser Ast.cc Parser.cc Type.cc)
+target_link_libraries(parser lexer)
+
+add_subdirectory(bin)
+
 enable_testing()
 
-add_subdirectory(lexer)
-add_subdirectory(parser)
-add_subdirectory(compiler)
+add_subdirectory(test)

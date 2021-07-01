@@ -1,6 +1,6 @@
 #include "Type.h"
 
-namespace compiler {
+namespace type {
   Name::Name(size_t index) : index(index) {}
   bool Name::operator<(const Name &o) const { return index < o.index; }
   bool Name::operator==(const Name &o) const { return index == o.index; }

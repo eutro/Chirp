@@ -1,11 +1,11 @@
 #include <sstream>
 #include "Parser.h"
 
-parser::Tok fsm::Finished<parser::Tok>::rejecting() {
-  return parser::Tok::TInvalid;
+ast::Tok fsm::Finished<ast::Tok>::rejecting() {
+  return ast::Tok::TInvalid;
 }
 
-void fsm::Finished<parser::Tok>::merge(parser::Tok &lhs, parser::Tok rhs) {
+void fsm::Finished<ast::Tok>::merge(ast::Tok &lhs, ast::Tok rhs) {
   lhs = std::max(lhs, rhs);
 }
 
@@ -25,8 +25,8 @@ namespace parser {
   class ParserStream {
   public:
     std::deque<Token> lookahead;
-    lexer::TokenIter<parser::Tok>::Iter iter;
-    lexer::TokenIter<parser::Tok>::Iter end;
+    lexer::TokenIter<ast::Tok>::Iter iter;
+    lexer::TokenIter<ast::Tok>::Iter end;
 
     lexer::SrcLoc lastLoc;
 
@@ -221,7 +221,7 @@ namespace parser {
         stmt.statement = std::move(value);
       }
 
-    putstmt:
+     putstmt:
       stmt.delimiter = stream.require({Tok::TLinebreak, Tok::TComma},
                                       "line break or , or } expected");
       expr.statements.push_back(std::move(stmt));

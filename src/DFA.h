@@ -1,7 +1,7 @@
 #pragma once
 
 namespace fsm {
-  template <typename F>
+  template<typename F>
   struct Finished {
     F rejecting();
     void merge(F &lhs, F rhs) {
@@ -25,7 +25,7 @@ namespace fsm {
    * @tparam S The type of symbols that the DFA can accept.
    * @tparam F The type of the "finished" tag of states.
    */
-  template <typename S, typename F>
+  template<typename S, typename F>
   class DFAState {
   public:
     /**
@@ -50,7 +50,7 @@ namespace fsm {
    * @tparam S The type of symbols that the DFA can accept.
    * @tparam F The type of the "finished" tag of states.
    */
-  template <typename S, typename F>
+  template<typename S, typename F>
   class DFA {
   public:
     /**

@@ -10,7 +10,7 @@
 #include <vector>
 #include <functional>
 
-namespace compiler {
+namespace type {
   class Name {
   public:
     size_t index;

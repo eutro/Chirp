@@ -14,7 +14,6 @@ defn add(a, b) =
  let sum(f) =
   let added(x) = (a(f))((b(f))(x)) in {added}
    in {sum}
-  
 
 defn mul(a, b) =
  let prod(f) =

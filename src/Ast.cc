@@ -1,7 +1,8 @@
 #include "Ast.h"
+
 #include <stdexcept>
 
-namespace parser {
+namespace ast {
   std::ostream &operator<<(std::ostream &os, const Token &token) {
     os << '"';
     for (char c : token.value) {
@@ -67,15 +68,14 @@ namespace parser {
     return os;
   }
 
-  ParseContext::ParseContext(compiler::TypeContext &tc):
-    tc(tc),
-    funcType(std::make_shared<compiler::BaseType>("fn")),
-    unitType(std::make_shared<compiler::BaseType>("unit")),
-    intType(std::make_shared<compiler::BaseType>("int")),
-    floatType(std::make_shared<compiler::BaseType>("float")),
-    boolType(std::make_shared<compiler::BaseType>("bool")),
-    stringType(std::make_shared<compiler::BaseType>("string"))
-  {
+  ParseContext::ParseContext(type::TypeContext &tc) :
+      tc(tc),
+      funcType(std::make_shared<type::BaseType>("fn")),
+      unitType(std::make_shared<type::BaseType>("unit")),
+      intType(std::make_shared<type::BaseType>("int")),
+      floatType(std::make_shared<type::BaseType>("float")),
+      boolType(std::make_shared<type::BaseType>("bool")),
+      stringType(std::make_shared<type::BaseType>("string")) {
     scopes.emplace_back();
   }
 
@@ -219,18 +219,18 @@ namespace parser {
   }
   CType *LiteralExpr::inferType(ParseContext &ctx) {
     switch (value.type) {
-    case Tok::TStr:
-      return ctx.tc.push(CType::aggregate(ctx.stringType, {}));
-    case Tok::TInt:
-      return ctx.tc.push(CType::aggregate(ctx.intType, {}));
-    case Tok::TFloat:
-      return ctx.tc.push(CType::aggregate(ctx.floatType, {}));
-    default:
-      return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+      case Tok::TStr:
+        return ctx.tc.push(CType::aggregate(ctx.stringType, {}));
+      case Tok::TInt:
+        return ctx.tc.push(CType::aggregate(ctx.intType, {}));
+      case Tok::TFloat:
+        return ctx.tc.push(CType::aggregate(ctx.floatType, {}));
+      default:
+        return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
     }
   }
 
-  Var::Var(PType &&type): type(std::make_shared<PType>(type)) {}
+  Var::Var(PType &&type) : type(std::make_shared<PType>(type)) {}
 
   void VarExpr::print(std::ostream &os) const {
     os << "(VarExpr ";
@@ -254,18 +254,18 @@ namespace parser {
       argType->get().unify(rhs.expr->infer(ctx)->get());
     }
     switch (terms[0].operatorToken.type) {
-    case Tok::TNe:
-    case Tok::TEq2:
-    case Tok::TEq:
-    case Tok::TLt:
-    case Tok::TGt:
-    case Tok::TLe:
-    case Tok::TGe:
-    case Tok::TOr2:
-    case Tok::TAnd2:
-      return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-    default:
-      return argType;
+      case Tok::TNe:
+      case Tok::TEq2:
+      case Tok::TEq:
+      case Tok::TLt:
+      case Tok::TGt:
+      case Tok::TLe:
+      case Tok::TGe:
+      case Tok::TOr2:
+      case Tok::TAnd2:
+        return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+      default:
+        return argType;
     }
   }
 
@@ -330,7 +330,7 @@ namespace parser {
     return os;
   }
   std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
-    CType *type;
+    CType *inferred;
     if (arguments) {
       ctx.scopes.emplace_back();
       size_t oldSize = ctx.tc.bound.size();
@@ -341,15 +341,15 @@ namespace parser {
         ctx.tc.bound.push_back(var->type);
       }
       CType *retType = params[i] = ctx.tc.fresh();
-      type = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
-      ctx.introduce(name.ident.value, type);
+      inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+      ctx.introduce(name.ident.value, inferred);
       value->infer(ctx)->get().unify(retType->get());
       ctx.tc.bound.resize(oldSize);
       ctx.scopes.pop_back();
     } else {
-      type = value->infer(ctx);
+      inferred = value->infer(ctx);
     }
-    return this->type = ctx.introduce(name.ident.value, ctx.tc.gen(type))->type;
+    return type = ctx.introduce(name.ident.value, ctx.tc.gen(inferred))->type;
   }
 
   std::ostream &operator<<(std::ostream &os, const Identifier &identifier) {

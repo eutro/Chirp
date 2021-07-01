@@ -1,5 +1,5 @@
-#include "NFA.tcc"
-#include "RegEx.tcc"
+#include "../NFA.h"
+#include "../RegEx.h"
 
 #include <cstdlib>
 #include <iostream>

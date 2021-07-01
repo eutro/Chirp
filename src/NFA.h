@@ -5,7 +5,7 @@
 #include <vector>
 #include <queue>
 #include <iostream>
-#include "DFA.tcc"
+#include "DFA.h"
 
 namespace fsm {
   /**
@@ -211,7 +211,7 @@ namespace fsm {
       std::map<S, std::set<size_t>> allOut;
       for (size_t state : cur) {
         Finished<F>().merge(dfa.states[curState].finished,
-                           states[state].finished);
+                            states[state].finished);
         for (const std::pair<S, std::set<size_t>> &transition : states[state].transitions) {
           allOut[transition.first].insert(transition.second.begin(), transition.second.end());
         }

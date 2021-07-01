@@ -5,12 +5,15 @@
 
 #include "Ast.h"
 
-template<> struct fsm::Finished<parser::Tok> {
-  parser::Tok rejecting();
-  void merge(parser::Tok &lhs, parser::Tok rhs);
+template<>
+struct fsm::Finished<ast::Tok> {
+  ast::Tok rejecting();
+  void merge(ast::Tok &lhs, ast::Tok rhs);
 };
 
 namespace parser {
+  using namespace ast;
+
   class ParseError : public std::runtime_error {
   public:
     std::string message;
