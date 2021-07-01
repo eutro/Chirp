@@ -1,0 +1,10 @@
+defn factorial(x) =
+  let fact = 1 // base
+      i = 2 // counter
+    in loop {
+      if i > x {
+        fact
+      } else {
+        loop(fact * i, i + 1)
+      }
+    }

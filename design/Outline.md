@@ -45,7 +45,7 @@
 
 ## Syntax Draft
 
-See [tokens](spec/tokens.txt) and [grammar](spec/grammar.txt).
+See [tokens](../spec/tokens.txt) and [grammar](../spec/grammar.txt).
 
 ### Examples:
 

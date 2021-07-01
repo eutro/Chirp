@@ -2,7 +2,7 @@
 
 #lang racket
 
-(require pict pict/tree-layout file/convertible)
+(require pict pict/tree-layout racket/draw)
 
 (define (framed-text str)
   (define txt (text str 'modern 32))
@@ -38,4 +38,14 @@
     (ast->tree (read))
     #:y-spacing 64)))
 
-(write-bytes (convert (pict->bitmap tree) 'png-bytes))
+(define svg
+  (new svg-dc%
+       [width (pict-width tree)]
+       [height (pict-height tree)]
+       [output (current-output-port)]))
+
+(send svg start-doc "")
+(send svg start-page)
+(draw-pict tree svg 0 0)
+(send svg end-page)
+(send svg end-doc)

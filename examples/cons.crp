@@ -1,4 +1,4 @@
-defn cons(x, y) =
+defn cons(x, y) = // this is a comment
   let app(f) = f(x, y) in { app }
 
 defn car(pair) =

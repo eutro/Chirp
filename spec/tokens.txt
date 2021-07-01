@@ -1,4 +1,6 @@
 TWhitespace ::= /[ \t\v\f\r]+/
+TBlockComment ::= //\*.*\*//
+TLineComment ::= ///[^\n]*/
 TLinebreak ::= /[ \t\v\f\r]*\n/
 
 TIdent ::= /[a-zA-Z_][a-zA-Z_0-9]*/

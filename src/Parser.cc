@@ -46,7 +46,7 @@ namespace parser {
     }
 
     bool canSkip(Tok type) {
-      return type == Tok::TWhitespace || type == Tok::TLinebreak;
+      return Tok::TWhitespace <= type && type <= Tok::TLinebreak;
     }
 
     std::optional<Token> optional(const std::set<Tok> &types) {
