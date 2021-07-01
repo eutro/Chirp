@@ -23,11 +23,8 @@ namespace compiler {
 
   class BaseType {
   public:
-    size_t index;
-    BaseType(size_t index);
-    bool operator<(const BaseType &o) const;
-    bool operator==(const BaseType &o) const;
-    bool operator!=(const BaseType &o) const;
+    std::string name;
+    BaseType(const std::string &name);
     friend std::ostream &operator<<(std::ostream &os, const BaseType &b);
   };
 
@@ -43,10 +40,10 @@ namespace compiler {
 
     class Aggregate {
     public:
-      BaseType base;
+      std::shared_ptr<BaseType> base;
       std::vector<Type *> values;
 
-      Aggregate(BaseType &base, std::vector<Type *> &&values);
+      Aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&values);
     };
 
     std::variant<Named, Aggregate> value;
@@ -55,7 +52,7 @@ namespace compiler {
     Type(Name &&name);
   public:
     static Type named(Name &&name);
-    static Type aggregate(BaseType &base, std::vector<Type *> &&params);
+    static Type aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&params);
     void getFree(const std::function<void(Type *)> &acc);
     friend std::ostream &operator<<(std::ostream &os, const Type &t);
     Type &get();

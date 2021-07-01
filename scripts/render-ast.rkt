@@ -17,9 +17,15 @@
 (define (ast->tree node)
   (cond
     [(list? node)
-     (apply tree-layout
-            #:pict (framed-text (symbol->string (car node)))
-            (map ast->tree (cdr node)))]
+     (define typed? (bytes? (cadr node)))
+     (define ast-node
+       (apply tree-layout
+              #:pict (framed-text (symbol->string (car node)))
+              (map ast->tree ((if typed? cddr cdr) node))))
+     (if typed?
+         (tree-layout #:pict (framed-text (~a (cadr node)))
+                      (tree-edge ast-node #:edge-style 'dot))
+         ast-node)]
 
     [(string? node)
      (tree-layout

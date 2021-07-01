@@ -31,13 +31,12 @@ namespace parser {
   class ParseContext {
   public:
     compiler::TypeContext &tc;
-    size_t rawTypes = 6;
-    compiler::BaseType funcType;
-    compiler::BaseType unitType;
-    compiler::BaseType intType;
-    compiler::BaseType floatType;
-    compiler::BaseType boolType;
-    compiler::BaseType stringType;
+    std::shared_ptr<compiler::BaseType> funcType;
+    std::shared_ptr<compiler::BaseType> unitType;
+    std::shared_ptr<compiler::BaseType> intType;
+    std::shared_ptr<compiler::BaseType> floatType;
+    std::shared_ptr<compiler::BaseType> boolType;
+    std::shared_ptr<compiler::BaseType> stringType;
     std::deque<Scope> scopes;
 
     std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);

@@ -15,16 +15,13 @@ namespace compiler {
     }
   }
 
-  BaseType::BaseType(size_t index) : index(index) {}
-  bool BaseType::operator<(const BaseType &o) const { return index < o.index; }
-  bool BaseType::operator==(const BaseType &o) const { return index == o.index; }
-  bool BaseType::operator!=(const BaseType &o) const { return index != o.index; }
+  BaseType::BaseType(const std::string &name) : name(name) {}
   std::ostream &operator<<(std::ostream &os, const BaseType &b) {
-    os << "fn";
+    os << b.name;
     return os;
   }
 
-  Type::Aggregate::Aggregate(BaseType &base, std::vector<Type *> &&values)
+  Type::Aggregate::Aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&values)
       : base(base), values(values) {}
 
   Type::Type(std::variant<Named, Aggregate> &&value) : value(value) {}
@@ -38,7 +35,7 @@ namespace compiler {
   Type Type::named(Name &&name) {
     return Type(std::forward<Name>(name));
   }
-  Type Type::aggregate(BaseType &base, std::vector<Type *> &&params) {
+  Type Type::aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&params) {
     return Type(std::variant<Named, Aggregate>
                     (std::in_place_type<Aggregate>,
                      base,
@@ -65,7 +62,7 @@ namespace compiler {
         break;
       case 1:
         const auto &aggr = std::get<1>(t.value);
-        os << aggr.base << "<";
+        os << *aggr.base << "<";
         for (auto it = aggr.values.begin(); it != aggr.values.end();) {
           os << (**it).get();
           if (++it != aggr.values.end()) {
@@ -82,6 +79,7 @@ namespace compiler {
     if (t.bound.size()) {
       os << "<";
       for (auto it = t.bound.begin(); it != t.bound.end();) {
+        os << **it;
         if (++it != t.bound.end()) os << ", ";
       }
       os << "> ";

@@ -69,12 +69,12 @@ namespace parser {
 
   ParseContext::ParseContext(compiler::TypeContext &tc):
     tc(tc),
-    funcType(0),
-    unitType(1),
-    intType(2),
-    floatType(3),
-    boolType(4),
-    stringType(5)
+    funcType(std::make_shared<compiler::BaseType>("fn")),
+    unitType(std::make_shared<compiler::BaseType>("unit")),
+    intType(std::make_shared<compiler::BaseType>("int")),
+    floatType(std::make_shared<compiler::BaseType>("float")),
+    boolType(std::make_shared<compiler::BaseType>("bool")),
+    stringType(std::make_shared<compiler::BaseType>("string"))
   {
     scopes.emplace_back();
   }
@@ -109,7 +109,7 @@ namespace parser {
 
   void IfExpr::print(std::ostream &os) const {
     os << "(IfExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << ifToken << " " << predExpr << " " << thenExpr;
     printMulti(os, this->elseIfClauses);
     if (this->elseClause) os << " " << *this->elseClause;
@@ -141,7 +141,7 @@ namespace parser {
 
   void LetExpr::print(std::ostream &os) const {
     os << "(LetExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << letToken;
     printMulti(os, bindings, commas);
     os << " " << inToken;
@@ -162,7 +162,7 @@ namespace parser {
 
   void BlockExpr::print(std::ostream &os) const {
     os << "(BlockExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << openToken;
     printMulti(os, statements);
     os << " " << value << " " << closeToken << ")";
@@ -181,7 +181,7 @@ namespace parser {
 
   void BracketExpr::print(std::ostream &os) const {
     os << "(BracketExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << openToken << " " << value << " " << closeToken << ")";
   }
   CType *BracketExpr::inferType(ParseContext &ctx) {
@@ -190,7 +190,7 @@ namespace parser {
 
   void LiteralExpr::print(std::ostream &os) const {
     os << "(LiteralExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << value << ")";
   }
   CType *LiteralExpr::inferType(ParseContext &ctx) {
@@ -210,7 +210,7 @@ namespace parser {
 
   void VarExpr::print(std::ostream &os) const {
     os << "(VarExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << name << ")";
   }
   CType *VarExpr::inferType(ParseContext &ctx) {
@@ -219,7 +219,7 @@ namespace parser {
 
   void BinaryExpr::print(std::ostream &os) const {
     os << "(BinaryExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << this->lhs;
     printMulti(os, this->terms);
     os << ")";
@@ -235,7 +235,7 @@ namespace parser {
 
   void PrefixExpr::print(std::ostream &os) const {
     os << "(PrefixExpr";
-    if (type) os << " #\"" << *type << "\"";
+    if (type) os << " #\"" << type->get() << "\"";
     printMulti(os, this->prefixes);
     os << " " << this->expr << ")";
   }
@@ -245,28 +245,27 @@ namespace parser {
 
   void FunCallExpr::print(std::ostream &os) const {
     os << "(FunCallExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << this->function << " " << this->openToken;
     printMulti(os, this->arguments, this->commas);
     os << " " << this->closeToken << ")";
   }
   CType *FunCallExpr::inferType(ParseContext &ctx) {
     CType *funcType = function->infer(ctx);
-    std::vector<CType *> argTypes(arguments.size() + 1);
+    std::vector<CType *> argTypes(arguments.size() + 1, nullptr);
     size_t i = 0;
     for (auto &arg : arguments) {
       argTypes[i++] = arg->infer(ctx);
     }
     CType *type = ctx.tc.fresh();
-    argTypes.back() = type;
-    CType inferredFuncType = CType::aggregate(ctx.funcType, std::move(argTypes));
-    funcType->get().unify(inferredFuncType);
+    argTypes[i] = type;
+    funcType->get().unify(*ctx.tc.push(CType::aggregate(ctx.funcType, std::move(argTypes))));
     return type;
   }
 
   void HintedExpr::print(std::ostream &os) const {
     os << "(HintedExpr ";
-    if (type) os << "#\"" << *type << "\" ";
+    if (type) os << "#\"" << type->get() << "\" ";
     os << this->expr << " " << this->hint << ")";
   }
   CType *HintedExpr::inferType(ParseContext &ctx) {
@@ -299,7 +298,7 @@ namespace parser {
     if (arguments) {
       ctx.scopes.emplace_back();
       size_t oldSize = ctx.tc.bound.size();
-      std::vector<CType *> params(arguments->bindings.size() + 1);
+      std::vector<CType *> params(arguments->bindings.size() + 1, nullptr);
       size_t i = 0;
       for (auto &rb : arguments->bindings) {
         auto var = ctx.introduce(rb.name.ident.value, params[i++] = ctx.tc.fresh());
