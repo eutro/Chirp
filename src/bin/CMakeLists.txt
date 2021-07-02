@@ -9,3 +9,7 @@ target_include_directories(in2ast PUBLIC parser)
 add_executable(in2types in2types.cc)
 target_link_libraries(in2types parser)
 target_include_directories(in2types PUBLIC parser)
+
+add_executable(in2llvm in2llvm.cc)
+target_link_libraries(in2llvm parser)
+target_include_directories(in2llvm PUBLIC parser)

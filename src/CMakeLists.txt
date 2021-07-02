@@ -19,8 +19,12 @@ add_library(fsm RegEx.cc RegEx.h DFA.h NFA.h)
 add_library(lexer Lexer.cc)
 target_link_libraries(lexer fsm)
 
-add_library(parser Ast.cc Parser.cc Type.cc)
-target_link_libraries(parser lexer)
+add_library(ast Ast.cc Type.cc)
+target_link_libraries(ast lexer)
+target_link_libraries(ast ${llvm_libs})
+
+add_library(parser Parser.cc)
+target_link_libraries(parser ast)
 
 add_subdirectory(bin)
 

@@ -4,7 +4,13 @@
 #include "Type.h"
 #include "Tokens.h"
 
+#include <functional>
+#include <llvm-6.0/llvm/IR/IRBuilder.h>
+
 #include <deque>
+#include <llvm-6.0/llvm/IR/LLVMContext.h>
+#include <llvm-6.0/llvm/IR/Module.h>
+#include <llvm-6.0/llvm/IR/Type.h>
 #include <vector>
 #include <optional>
 #include <memory>
@@ -45,6 +51,21 @@ namespace ast {
     ParseContext(type::TypeContext &tc);
   };
 
+  class CompileContext {
+  public:
+    llvm::LLVMContext &ctx;
+    llvm::IRBuilder<> &builder;
+    llvm::Module &module;
+
+    std::map<std::shared_ptr<type::BaseType>,
+             std::function<llvm::Type*(CompileContext&, CType*)>> transformers;
+
+    CompileContext(llvm::LLVMContext &ctx,
+                   llvm::IRBuilder<> &builder,
+                   llvm::Module &module,
+                   ParseContext &pc);
+  };
+
   std::ostream &operator<<(std::ostream &os, const Token &token);
 
   class Statement {
@@ -52,6 +73,7 @@ namespace ast {
     virtual ~Statement() = default;
 
     virtual void inferTypes(ParseContext &ctx) = 0;
+    virtual void compileStatement(CompileContext &ctx) = 0;
     virtual void print(std::ostream &os) const = 0;
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Statement> &statement);
   };
@@ -119,6 +141,9 @@ namespace ast {
   public:
     void inferTypes(ParseContext &ctx) override;
     CType *infer(ParseContext &ctx);
+
+    void compileStatement(CompileContext &ctx) override;
+    virtual llvm::Value *compileExpr(CompileContext &ctx) = 0;
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Expr> &statement);
   };
 
@@ -153,6 +178,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     void inferTypes(ParseContext &ctx) override;
+    void compileStatement(CompileContext &ctx) override;
   };
 
   class Program {
@@ -161,6 +187,7 @@ namespace ast {
 
     friend std::ostream &operator<<(std::ostream &os, const Program &program);
     void inferTypes(ParseContext &ctx);
+    void compile(CompileContext &ctx);
   };
 
   class PrimaryExpr : public Expr {
@@ -198,6 +225,9 @@ namespace ast {
     void print(std::ostream &os) const override;
     void inferTypes(ParseContext &ctx) override;
     CType *inferType(ParseContext &ctx) override;
+    void compileStatement(CompileContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
+    llvm::Value *compileIf(CompileContext &ctx, bool statement);
   };
 
   class LetExpr : public Expr {
@@ -211,6 +241,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class FnExpr : public Expr {
@@ -223,6 +254,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
   class LambdaExpr : public Expr {
   public:
@@ -234,6 +266,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class BlockExpr : public DelimitedExpr {
@@ -253,6 +286,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class BracketExpr : public DelimitedExpr {
@@ -263,6 +297,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class LiteralExpr : public PrimaryExpr {
@@ -271,14 +306,17 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class VarExpr : public PrimaryExpr {
   public:
     Identifier name;
+    std::shared_ptr<Var> var;
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class BinaryExpr : public Expr {
@@ -296,6 +334,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class PrefixExpr : public Expr {
@@ -305,6 +344,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class FunCallExpr : public Expr {
@@ -317,6 +357,7 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 
   class HintedExpr : public Expr {
@@ -326,5 +367,6 @@ namespace ast {
 
     void print(std::ostream &os) const override;
     CType *inferType(ParseContext &ctx) override;
+    llvm::Value *compileExpr(CompileContext &ctx) override;
   };
 }
