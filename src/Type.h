@@ -11,6 +11,11 @@
 #include <functional>
 
 namespace type {
+  class TypeError : public std::runtime_error {
+  public:
+    TypeError(const std::string &message);
+  };
+
   class Name {
   public:
     size_t index;

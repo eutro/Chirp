@@ -64,13 +64,25 @@ namespace lexer {
    */
   template<typename TokenType>
   class TokenStream {
-  public:
+  private:
     const fsm::DFA<char, TokenType> &dfa;
-
     std::istream &in;
+    bool yieldLines = false;
+
+  public:
+    std::vector<std::string> lines;
 
     TokenStream(const fsm::DFA<char, TokenType> &dfa, std::istream &in) : dfa(dfa), in(in) {}
 
+    /**
+     * Set this lexer to store each line it reads.
+     */
+    void setYieldLines() {
+      yieldLines = true;
+      lines.emplace_back();
+    }
+
+  private:
     /**
      * The state of the DFA.
      */
@@ -90,6 +102,8 @@ namespace lexer {
 
     bool relexing = false;
 
+  public:
+
     /**
      * Get the next token from the stream, if any.
      *
@@ -108,6 +122,13 @@ namespace lexer {
           }
         } else {
           raw.push_back(c);
+          if (yieldLines) {
+            if (c == '\n') {
+              lines.emplace_back();
+            } else {
+              lines.back().push_back(c);
+            }
+          }
         }
         if (!dfa.accept(state, c)) {
          addTok:
@@ -152,9 +173,9 @@ namespace lexer {
    */
   template<typename TokenType>
   class TokenIter {
+  public:
     TokenStream<TokenType> stream;
 
-  public:
     TokenIter(TokenStream<TokenType> &&stream) : stream(stream) {}
 
     /**

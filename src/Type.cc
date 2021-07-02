@@ -1,4 +1,5 @@
 #include "Type.h"
+#include <sstream>
 
 namespace type {
   Name::Name(size_t index) : index(index) {}
@@ -103,6 +104,20 @@ namespace type {
     }
   }
 
+  TypeError::TypeError(const std::string &message) :
+    runtime_error(message) {};
+
+  TypeError typeError(Type &base, Type &other,
+                      const std::string &reason) {
+    std::stringstream buf;
+    buf << "Could not unify\n    "
+        << base
+        << "\n   and\n    "
+        << other << "\n"
+        << "   because " << reason;
+    return TypeError(buf.str());
+  }
+
   void Type::unify(Type &o) {
     if (this == &o)
       return;
@@ -124,7 +139,7 @@ namespace type {
         std::set<Type *> free;
         o.getFree([&free](Type *v) { free.insert(v); });
         if (free.count(this)) {
-          throw std::runtime_error("Recursive type");
+          throw typeError(o, *this, "it would create a recursive type");
         }
         tn.parent = &o;
       }
@@ -134,10 +149,10 @@ namespace type {
       Aggregate &ta = std::get<1>(value);
       Aggregate &oa = std::get<1>(o.value);
       if (ta.base != oa.base) {
-        throw std::runtime_error("Mismatched primitive type");
+        throw typeError(o, *this, "the base types are different");
       } else {
         if (ta.values.size() != oa.values.size()) {
-          throw std::runtime_error("Mismatched arities");
+          throw typeError(o, *this, "the number of parameters is different");
         }
         auto ti = ta.values.begin();
         auto oi = oa.values.begin();

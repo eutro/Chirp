@@ -2,6 +2,7 @@
 
 #include "NFA.h"
 
+#include <stdexcept>
 #include <vector>
 #include <utility>
 

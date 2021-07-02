@@ -1,4 +1,5 @@
 #include <sstream>
+#include "Lexer.h"
 #include "Parser.h"
 
 ast::Tok fsm::Finished<ast::Tok>::rejecting() {
@@ -13,26 +14,23 @@ namespace parser {
   ParseError::ParseError(const std::string &message, const lexer::SrcLoc &loc) :
       runtime_error(message),
       loc(loc) {
-    std::stringstream ss;
-    ss << message << " at " << loc;
-    this->message = ss.str();
   }
 
-  const char *ParseError::what() const noexcept {
-    return message.c_str();
-  }
+  ParseError parseError(const std::string &message, ParserStream &stream);
 
   class ParserStream {
   public:
     std::deque<Token> lookahead;
+    lexer::TokenIter<Tok> &stream;
     lexer::TokenIter<ast::Tok>::Iter iter;
     lexer::TokenIter<ast::Tok>::Iter end;
 
     lexer::SrcLoc lastLoc;
 
-    ParserStream(lexer::TokenIter<Tok> &tokenStream) :
-        iter(tokenStream.begin()),
-        end(tokenStream.end()) {}
+    ParserStream(lexer::TokenIter<Tok> &stream) :
+      stream(stream),
+      iter(stream.begin()),
+      end(stream.end()) {}
 
     bool isEmpty() {
       if (!lookahead.empty() && !canSkip(lookahead.back().type)) {
@@ -89,13 +87,27 @@ namespace parser {
       if (opt) {
         return std::move(*opt);
       }
-      throw ParseError(msg, lastLoc);
+      throw parseError(msg, *this);
     }
 
     Token require(Tok type, const std::string &msg) {
       return require((std::set<Tok>) {type}, msg);
     }
   };
+
+  ParseError parseError(const std::string &message, ParserStream &stream) {
+    std::stringstream buf;
+    buf << message;
+    buf << "\n";
+    size_t start = buf.tellp();
+    buf << stream.lastLoc.line << ": ";
+    size_t margin = (size_t) buf.tellp() - start;
+    buf << stream.stream.stream.lines[stream.lastLoc.line - 1] << '\n';
+    std::string indent(margin + stream.lastLoc.col, ' ');
+    buf << std::move(indent)
+        << "^ here";
+    return ParseError(buf.str(), stream.lastLoc);
+  }
 
   Identifier parseIdent(Token &&token) {
     return {.ident = token};
@@ -273,7 +285,7 @@ namespace parser {
             Tok::TParOpen,
         });
     if (!token) {
-      throw ParseError("Expression expected", stream.lastLoc);
+      throw parseError("Expression expected", stream);
     }
     switch (token->type) {
       case Tok::TLet: {
@@ -370,7 +382,7 @@ namespace parser {
         return parseBracketExpr(stream, std::move(*token));
       }
       default:
-        throw std::runtime_error("Unexpected token.");
+        throw parseError("Unexpected token", stream);
     }
   }
 
@@ -478,6 +490,7 @@ namespace parser {
   }
 
   Program parseProgram(lexer::TokenIter<Tok> &&tokens) {
+    tokens.stream.setYieldLines();
     ParserStream stream = ParserStream(tokens);
     Program program;
     while (!stream.isEmpty()) {
