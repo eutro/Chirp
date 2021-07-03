@@ -9,27 +9,6 @@
 #include <stdexcept>
 
 namespace ast {
-  std::ostream &operator<<(std::ostream &os, const Token &token) {
-    os << '"';
-    for (char c : token.value) {
-      switch (c) {
-        case '\n':
-          os << "\\n";
-          break;
-        case '"':
-          os << "\\\"";
-          break;
-        case '\\':
-          os << "\\\\";
-          break;
-        default:
-          os << c;
-      }
-    }
-    os << '"';
-    return os;
-  }
-
   llvm::Type *toLLVM(CompileContext &ctx, CType *type) {
     CType &t = type->get();
     if (t.value.index() == 0) {
@@ -57,7 +36,7 @@ namespace ast {
     }
   }
 
-  llvm::FunctionType *getFuncType(CompileContext &ctx, type::Type *instType) {
+  llvm::FunctionType *getFuncType(CompileContext &ctx, CType *instType) {
     CType::Aggregate &aggr = std::get<CType::Aggregate>(instType->get().value);
     llvm::Type *retType;
     std::vector<llvm::Type *> argTypes;
@@ -71,32 +50,6 @@ namespace ast {
     return llvm::FunctionType::get(retType, argTypes, false);
   }
 
-  template<typename Iterable>
-  void printMulti(std::ostream &os, const Iterable &ts) {
-    for (const auto &el : ts) {
-      os << " " << el;
-    }
-  }
-
-  template<typename IterableA, typename IterableB>
-  void printMulti(std::ostream &os, const IterableA &ts, const IterableB &commas) {
-    auto it = ts.begin();
-    auto ci = commas.begin();
-    for (; it != ts.end(); ++it) {
-      os << " " << *it;
-      if (ci != commas.end()) {
-        os << " " << *ci;
-        ++ci;
-      }
-    }
-  }
-
-  std::ostream &operator<<(std::ostream &os, const Program &program) {
-    os << "(Program";
-    printMulti(os, program.statements);
-    os << ")";
-    return os;
-  }
   void Program::inferTypes(ParseContext &ctx) {
     for (auto &stmt : statements) {
       stmt->inferTypes(ctx);
@@ -113,21 +66,6 @@ namespace ast {
       stmt->compileStatement(ctx);
     }
     ctx.builder.CreateRet(llvm::ConstantInt::get(ctx.ctx, llvm::APInt(32, 0, true)));
-  }
-
-  std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Statement> &statement) {
-    statement->print(os);
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Expr> &statement) {
-    statement->print(os);
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const std::unique_ptr<DelimitedExpr> &statement) {
-    statement->print(os);
-    return os;
   }
 
   ParseContext::ParseContext(type::TypeContext &tc) :
@@ -172,9 +110,6 @@ namespace ast {
     // TODO transformers[pc.stringType] = [](auto _c, auto _t) {};
   }
 
-  void Defn::print(std::ostream &os) const {
-    os << "(Defn " << defnToken << " " << binding << ")";
-  }
   void Defn::inferTypes(ParseContext &ctx) {
     ctx.tc.bound.push_back(this->binding.inferType(ctx));
   }
@@ -193,14 +128,6 @@ namespace ast {
     compileExpr(ctx, Position::Statement);
   }
 
-  void IfExpr::print(std::ostream &os) const {
-    os << "(IfExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << ifToken << " " << predExpr << " " << thenExpr;
-    printMulti(os, this->elseIfClauses);
-    if (this->elseClause) os << " " << *this->elseClause;
-    os << ")";
-  }
   void IfExpr::inferTypes(ParseContext &ctx) {
     CType *boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
     boolType->unify(*predExpr->infer(ctx));
@@ -283,15 +210,6 @@ namespace ast {
     return ctx.unitValue;
   }
 
-  void LetExpr::print(std::ostream &os) const {
-    os << "(LetExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << letToken;
-    printMulti(os, bindings, commas);
-    os << " " << inToken;
-    if (name) os << " " << *name;
-    os << " " << body << ")";
-  }
   CType *LetExpr::inferType(ParseContext &ctx) {
     size_t oldSize = ctx.tc.bound.size();
     ctx.scopes.emplace_back();
@@ -330,13 +248,6 @@ namespace ast {
     return body->compileExpr(ctx, pos);
   }
 
-  void BlockExpr::print(std::ostream &os) const {
-    os << "(BlockExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << openToken;
-    printMulti(os, statements);
-    os << " " << value << " " << closeToken << ")";
-  }
   CType *BlockExpr::inferType(ParseContext &ctx) {
     size_t oldSize = ctx.tc.bound.size();
     ctx.scopes.emplace_back();
@@ -355,11 +266,6 @@ namespace ast {
     return value->compileExpr(ctx, pos);
   }
 
-  void BracketExpr::print(std::ostream &os) const {
-    os << "(BracketExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << openToken << " " << value << " " << closeToken << ")";
-  }
   CType *BracketExpr::inferType(ParseContext &ctx) {
     return value->infer(ctx);
   }
@@ -367,11 +273,6 @@ namespace ast {
     return value->compileExpr(ctx, pos);
   }
 
-  void LiteralExpr::print(std::ostream &os) const {
-    os << "(LiteralExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << value << ")";
-  }
   CType *LiteralExpr::inferType(ParseContext &ctx) {
     switch (value.type) {
       case Tok::TStr:
@@ -402,11 +303,6 @@ namespace ast {
 
   Var::Var(PType &&type) : type(std::make_shared<PType>(type)) {}
 
-  void VarExpr::print(std::ostream &os) const {
-    os << "(VarExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << name << ")";
-  }
   CType *VarExpr::inferType(ParseContext &ctx) {
     var = ctx.lookup(name.ident.value);
     return ctx.tc.inst(*var->type);
@@ -415,19 +311,21 @@ namespace ast {
     return var->emit(ctx, type);
   }
 
-  void BinaryExpr::print(std::ostream &os) const {
-    os << "(BinaryExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << this->lhs;
-    printMulti(os, this->terms);
-    os << ")";
-  }
   CType *BinaryExpr::inferType(ParseContext &ctx) {
     CType *argType = lhs->infer(ctx);
     for (auto &rhs : terms) {
       argType->get().unify(rhs.expr->infer(ctx)->get());
     }
     switch (terms[0].operatorToken.type) {
+      case Tok::TOr1:
+      case Tok::TAnd1:
+      case Tok::TShLeft:
+      case Tok::TShRight2:
+      case Tok::TShRight3: {
+        CType *intType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
+        argType->get().unify(*intType);
+        return intType;
+      }
       case Tok::TNe:
       case Tok::TEq2:
       case Tok::TEq:
@@ -535,12 +433,6 @@ namespace ast {
     return lhsV;
   }
 
-  void PrefixExpr::print(std::ostream &os) const {
-    os << "(PrefixExpr";
-    if (type) os << " #\"" << type->get() << "\"";
-    printMulti(os, this->prefixes);
-    os << " " << this->expr << ")";
-  }
   CType *PrefixExpr::inferType(ParseContext &ctx) {
     return expr->infer(ctx);
   }
@@ -555,13 +447,6 @@ namespace ast {
     return value;
   }
 
-  void FunCallExpr::print(std::ostream &os) const {
-    os << "(FunCallExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << this->function << " " << this->openToken;
-    printMulti(os, this->arguments, this->commas);
-    os << " " << this->closeToken << ")";
-  }
   CType *FunCallExpr::inferType(ParseContext &ctx) {
     CType *funcType = function->infer(ctx);
     std::vector<CType *> argTypes(arguments.size() + 1, nullptr);
@@ -585,11 +470,6 @@ namespace ast {
     return ctx.builder.CreateCall(funcType, callee, args);
   }
 
-  void HintedExpr::print(std::ostream &os) const {
-    os << "(HintedExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << this->expr << " " << this->hint << ")";
-  }
   CType *HintedExpr::inferType(ParseContext &ctx) {
     // TODO type hints
     return expr->infer(ctx);
@@ -650,13 +530,6 @@ namespace ast {
     return func;
   }
 
-  void FnExpr::print(std::ostream &os) const {
-    os << "(FnExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
-    os << fnToken << " ";
-    if (name) os << *name << " ";
-    os << arguments << " " << eqToken << " " << body << ")";
-  }
   CType *FnExpr::inferType(ParseContext &ctx) {
     return inferFuncType(ctx, arguments.bindings, name ? &*name : nullptr, &recurVar, body);
   }
@@ -664,39 +537,11 @@ namespace ast {
     return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? "" : name->ident.value, body);
   }
 
-  void LambdaExpr::print(std::ostream &os) const {
-    os << "(LambdaExpr";
-    if (type) os << " #\"" << type->get() << "\"";
-    os << " " << lambdaToken;
-    printMulti(os, arguments, commas);
-    os << " " << dotToken << " " << body << ")";
-  }
   CType *LambdaExpr::inferType(ParseContext &ctx) {
     return inferFuncType(ctx, arguments, nullptr, nullptr, body);
   }
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
     return compileFunc(ctx, type, arguments, nullptr, "", body);
-  }
-
-  std::ostream &operator<<(std::ostream &os, const IfExpr::ElseIf &anIf) {
-    os << "(ElseIf " << anIf.elseToken << " " << anIf.ifToken << " " << anIf.predExpr
-       << " " << anIf.thenExpr << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const IfExpr::Else &anElse) {
-    os << "(Else " << anElse.elseToken << " " << anElse.thenExpr << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const Binding &binding) {
-    os << "(Binding ";
-    if (binding.var) os << "#\"" << *binding.var->type << "\" ";
-    os << binding.name;
-    if (binding.arguments) os << " " << *binding.arguments;
-    if (binding.typeHint) os << " " << *binding.typeHint;
-    os << " " << binding.eqToken << " " << binding.value << ")";
-    return os;
   }
 
   std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
@@ -722,9 +567,9 @@ namespace ast {
     ctx.builder.SetInsertPoint(postinstsBlock);
     var->emit = [this, jump](CompileContext &ctx, CType *type) -> llvm::Value * {
       std::map<CType *, CType *> subs;
-      type::Type *instType = ctx.pc.tc.inst(*var->type, subs);
+      CType *instType = ctx.pc.tc.inst(*var->type, subs);
       instType->get().unify(type->get());
-      type::Type *unit = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
+      CType *unit = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
       std::map<CType *, CType *> unitReplacements;
       instType->get().getFree([&unitReplacements, unit](CType *v) { unitReplacements[v] = unit; });
       instType = instType->get().replace(ctx.pc.tc, unitReplacements);
@@ -748,61 +593,5 @@ namespace ast {
       ctx.subs = nullptr;
       return insts[type] = ret;
     };
-  }
-
-  std::ostream &operator<<(std::ostream &os, const Identifier &identifier) {
-    os << "(Identifier " << identifier.ident << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const Binding::Arguments &arguments) {
-    os << "(Arguments " << arguments.openToken << " ";
-    printMulti(os, arguments.bindings, arguments.commas);
-    os << " " << arguments.closeToken << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const TypeHint &hint) {
-    os << "(TypeHint " << hint.colon << " " << hint.type << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const RawBinding &binding) {
-    os << "(RawBinding " << binding.name;
-    if (binding.typeHint) os << *binding.typeHint;
-    os << ")";
-    return os;
-  }
-
-  void PlaceholderType::print(std::ostream &os) const {
-    os << "(PlaceholderType " << placeholder << ")";
-  }
-
-  void NamedType::print(std::ostream &os) const {
-    os << "(NamedType " << raw;
-    if (this->parameters) os << " " << *this->parameters;
-    os << ")";
-  }
-
-  std::ostream &operator<<(std::ostream &os, const NamedType::TypeParameters &parameters) {
-    os << "(TypeParameters " << parameters.openToken << " ";
-    printMulti(os, parameters.types, parameters.commas);
-    os << " " << parameters.closeToken << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Type> &statement) {
-    statement->print(os);
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const BlockExpr::Stmt &stmt) {
-    os << "(Statement " << stmt.statement << " " << stmt.delimiter << ")";
-    return os;
-  }
-
-  std::ostream &operator<<(std::ostream &os, const BinaryExpr::Rhs &rhs) {
-    os << rhs.operatorToken << " " << rhs.expr;
-    return os;
   }
 }
