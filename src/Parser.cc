@@ -28,9 +28,9 @@ namespace parser {
     lexer::SrcLoc lastLoc;
 
     ParserStream(lexer::TokenIter<Tok> &stream) :
-      stream(stream),
-      iter(stream.begin()),
-      end(stream.end()) {}
+        stream(stream),
+        iter(stream.begin()),
+        end(stream.end()) {}
 
     bool isEmpty() {
       if (!lookahead.empty() && !canSkip(lookahead.back().type)) {
@@ -444,12 +444,12 @@ namespace parser {
 
   const std::vector<std::set<Tok>> binaryOperators{
       {Tok::TAnd2,   Tok::TOr2},
-      {Tok::TNe,     Tok::TEq,  Tok::TEq2},
-      {Tok::TLt,     Tok::TLe,  Tok::TGt, Tok::TGe},
+      {Tok::TNe,     Tok::TEq,       Tok::TEq2},
+      {Tok::TLt,     Tok::TLe,       Tok::TGt, Tok::TGe},
       {Tok::TOr1,    Tok::TAnd1},
-      {Tok::TShLeft, Tok::TShRight},
+      {Tok::TShLeft, Tok::TShRight2, Tok::TShRight3},
       {Tok::TAdd,    Tok::TSub},
-      {Tok::TMul,    Tok::TDiv, Tok::TRem}
+      {Tok::TMul,    Tok::TDiv,      Tok::TRem}
   };
 
   std::unique_ptr<Expr> parseBinaryExpr(ParserStream &stream, size_t index) {
@@ -462,6 +462,7 @@ namespace parser {
       return lhs;
     }
     BinaryExpr expr;
+    expr.precedence = index;
     expr.lhs = std::move(lhs);
     do {
       expr.terms.push_back((BinaryExpr::Rhs) {

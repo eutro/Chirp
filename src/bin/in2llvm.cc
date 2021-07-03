@@ -1,5 +1,5 @@
 #include "../Parser.h"
-#include <llvm-6.0/llvm/Support/raw_ostream.h>
+#include <llvm/Support/raw_ostream.h>
 
 int main() {
   lexer::Lexer<ast::Tok> lexer(TOKEN_PATTERNS);

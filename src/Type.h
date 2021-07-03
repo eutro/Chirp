@@ -41,6 +41,8 @@ namespace type {
       Name name;
       size_t size;
       Type *parent;
+
+      bool operator<(const Named &rhs) const;
     };
 
     class Aggregate {
@@ -49,6 +51,8 @@ namespace type {
       std::vector<Type *> values;
 
       Aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&values);
+
+      bool operator<(const Aggregate &rhs) const;
     };
 
     std::variant<Named, Aggregate> value;
@@ -63,6 +67,12 @@ namespace type {
     Type &get();
     Type *replace(TypeContext &ctx, std::map<Type *, Type *> &subs);
     void unify(Type &o);
+
+    bool operator<(const Type &rhs) const;
+  };
+
+  struct CompareType {
+    bool operator()(Type *a, Type *b) const;
   };
 
   class PolyType {
@@ -83,6 +93,7 @@ namespace type {
     Type *push(Type &&type);
     Type *fresh();
     Type *inst(const PolyType &poly);
+    Type *inst(const PolyType &poly, std::map<Type *, Type *> &subs);
     PolyType gen(Type *type);
   };
 }

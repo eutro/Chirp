@@ -41,7 +41,8 @@ TAnd1 ::= '&'
 TAnd2 ::= '&&'
 
 TShLeft ::= '<<'
-TShRight ::= '>>'
+TShRight2 ::= '>>'
+TShRight3 ::= '>>>'
 
 TAdd ::= '+'
 TSub ::= '-'

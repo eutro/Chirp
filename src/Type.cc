@@ -105,7 +105,7 @@ namespace type {
   }
 
   TypeError::TypeError(const std::string &message) :
-    runtime_error(message) {};
+    runtime_error(message) {}
 
   TypeError typeError(Type &base, Type &other,
                       const std::string &reason) {
@@ -184,6 +184,9 @@ namespace type {
 
   Type *TypeContext::inst(const PolyType &poly) {
     std::map<Type *, Type *> subs;
+    return inst(poly, subs);
+  }
+  Type *TypeContext::inst(const PolyType &poly, std::map<Type *, Type *> &subs) {
     for (Type *b : poly.bound) {
       subs[&b->get()] = &fresh()->get();
     }
@@ -229,5 +232,27 @@ namespace type {
         }
       }
     }
+  }
+
+  bool CompareType::operator()(Type *a, Type *b) const {
+    return a->get() < b->get();
+  }
+
+  bool Type::operator<(const Type &rhs) const {
+    return value < rhs.value;
+  }
+
+  bool Type::Aggregate::operator<(const Type::Aggregate &rhs) const {
+    if (base < rhs.base) return true;
+    if (rhs.base < base) return false;
+    if (values.size() < rhs.values.size()) return true;
+    if (rhs.values.size() < values.size()) return false;
+    return std::lexicographical_compare(values.begin(), values.end(),
+                                        rhs.values.begin(), rhs.values.end(),
+                                        CompareType());
+  }
+
+  bool Type::Named::operator<(const Type::Named &rhs) const {
+    return name < rhs.name;
   }
 }
