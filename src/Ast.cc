@@ -704,16 +704,79 @@ namespace ast {
 
   std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
     CType *inferred;
-    if (arguments) {
-      inferred = inferFuncType(ctx, arguments->bindings, &name, &arguments->recurVar, arguments->closed, value);
+    if (value) {
+      if (arguments) {
+        inferred = inferFuncType(ctx, arguments->bindings, &name, &arguments->recurVar, arguments->closed, value);
+      } else {
+        inferred = value->inferExpr(ctx, Position::Expr);
+      }
+      var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
     } else {
-      inferred = value->inferExpr(ctx, Position::Expr);
+      if (arguments) {
+        std::vector<CType *> params(arguments->bindings.size() + 1);
+        for (auto &param : params) {
+          param = ctx.tc.fresh();
+        }
+        inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+      } else {
+        inferred = ctx.tc.fresh();
+      }
+      // don't generalise FFI types
+      var = ctx.introduce(name.ident.value, inferred);
     }
-    var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
     return var->type;
   }
 
   void Binding::compile(CompileContext &ctx) {
+    if (foreignToken) {
+      llvm::Constant *global;
+      if (arguments) {
+        llvm::PointerType *refType;
+        llvm::FunctionType *invokerFuncType;
+        std::tie(refType, invokerFuncType) = getFuncType(ctx, var->type->type);
+
+        std::vector<llvm::Type *> types(invokerFuncType->getNumParams() - 1);
+        for (int i = 1; i < invokerFuncType->getNumParams(); ++i) {
+          types[i - 1] = invokerFuncType->getParamType(i);
+        }
+        llvm::FunctionType *funcType = llvm::FunctionType::get(invokerFuncType->getReturnType(), types, false);
+        auto func = ctx.module.getOrInsertFunction(name.ident.value, funcType);
+        
+        llvm::StructType *structType = static_cast<llvm::StructType *>(refType->getPointerElementType());
+        
+        auto invoker = llvm::Function::Create(invokerFuncType,
+                                              llvm::Function::ExternalLinkage,
+                                              name.ident.value + ".invoker",
+                                              &ctx.module);
+
+        llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
+        llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+
+        llvm::BasicBlock *entry = llvm::BasicBlock::Create(ctx.ctx, "entry", invoker);
+        ctx.builder.SetInsertPoint(entry);
+        std::vector<llvm::Value *> args(invoker->arg_size() - 1);
+        for (int i = 1; i < invoker->arg_size(); ++i) {
+          args[i - 1] = invoker->getArg(i);
+        }
+        ctx.builder.CreateRet(ctx.builder.CreateCall(func, args));
+        ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+        
+        llvm::Constant *constant = llvm::ConstantStruct::get(structType,{invoker});
+        
+        global = new llvm::GlobalVariable(ctx.module,
+                                          structType,
+                                          true,
+                                          llvm::GlobalValue::ExternalLinkage,
+                                          constant);
+      } else {
+        global = ctx.module.getOrInsertGlobal(name.ident.value, toLLVM(ctx, var->type->type));
+      }
+      var->emit = [global](ast::CompileContext &, ast::CType *) {
+        return global;
+      };
+      return;
+    }
+
     llvm::Function *function = ctx.builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *instsBlock = llvm::BasicBlock::Create(ctx.ctx, "insts");
     llvm::BasicBlock *postinstsBlock = llvm::BasicBlock::Create(ctx.ctx, "postinsts");

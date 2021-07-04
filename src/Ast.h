@@ -191,7 +191,9 @@ namespace ast {
     std::optional<Arguments> arguments;
     std::optional<TypeHint> typeHint;
     Token eqToken;
+
     std::unique_ptr<Expr> value;
+    std::optional<Token> foreignToken;
 
     friend std::ostream &operator<<(std::ostream &os, const Binding &binding);
 

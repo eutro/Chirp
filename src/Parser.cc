@@ -209,7 +209,12 @@ namespace parser {
     }
     binding.typeHint = parseTypeHint(stream);
     binding.eqToken = stream.require(Tok::TEq, "= expected");
-    binding.value = parseExpr(stream);
+    auto foreign = stream.optional(Tok::TForeign);
+    if (foreign) {
+      binding.foreignToken = foreign;
+    } else {
+      binding.value = parseExpr(stream);
+    }
     return binding;
   }
 

@@ -26,6 +26,8 @@ target_link_libraries(ast ${llvm_libs})
 add_library(parser Parser.cc)
 target_link_libraries(parser ast)
 
+add_library(crp Runtime.c)
+
 add_subdirectory(bin)
 
 enable_testing()

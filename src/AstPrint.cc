@@ -175,7 +175,10 @@ namespace ast {
     os << binding.name;
     if (binding.arguments) os << " " << *binding.arguments;
     if (binding.typeHint) os << " " << *binding.typeHint;
-    os << " " << binding.eqToken << " " << binding.value << ")";
+    os << " " << binding.eqToken << " ";
+    if (binding.value) os << binding.value;
+    else os << *binding.foreignToken;
+    os << ")";
     return os;
   }
 

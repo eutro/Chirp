@@ -16,6 +16,7 @@ namespace ast {
     TTrue,
     TFalse,
     TFn,
+    TForeign,
     TInt,
     TFloat,
     TStr,
@@ -64,6 +65,7 @@ namespace ast {
   {ast::Tok::TTrue, "true"},\
   {ast::Tok::TFalse, "false"},\
   {ast::Tok::TFn, "fn"},\
+  {ast::Tok::TForeign, "foreign"},\
   {ast::Tok::TInt, "0|[1-9][0-9]*"},\
   {ast::Tok::TFloat, "[0-9]+\\.[0-9]+"},\
   {ast::Tok::TStr, "\"([^\"\\\\]|\\\\[\"\\\\])*\""},\

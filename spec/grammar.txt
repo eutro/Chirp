@@ -4,7 +4,7 @@ Statement ::= Defn | Expr
 
 Defn ::= 'defn' Binding
 
-Binding ::= Identifier Arguments? TypeHint? '=' Expr
+Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
 
 Arguments ::= ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
 

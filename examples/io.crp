@@ -1,0 +1,5 @@
+defn putf(d) = foreign
+defn println() = foreign
+
+putf(1.0)
+println()
