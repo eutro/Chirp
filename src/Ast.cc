@@ -364,8 +364,8 @@ namespace ast {
       llvm::FunctionCallee malloc = ctx.module
           .getOrInsertFunction("malloc", llvm::Type::getInt8PtrTy(ctx.ctx), i32Ty);
       llvm::Value *allocated = // TODO garbage collector :)
-          ctx.builder.CreateBitOrPointerCast(ctx.builder.CreateCall(malloc, {size}),
-                                             closurePointerType, "closure");
+          ctx.builder.CreatePointerCast(ctx.builder.CreateCall(malloc, {size}),
+                                        closurePointerType, "closure");
       llvm::Value *thisGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
                                                            {llvm::ConstantInt::get(i32Ty, 0),
                                                             llvm::ConstantInt::get(i32Ty, 0)});
