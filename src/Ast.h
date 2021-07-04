@@ -57,6 +57,8 @@ namespace ast {
     llvm::StructType *unitType;
     llvm::Constant *unitValue;
 
+    std::map<CType *, llvm::PointerType *, type::CompareType> fTypeCache;
+
     std::map<CType *, CType *> *subs;
 
     std::map<std::shared_ptr<type::BaseType>,
@@ -139,6 +141,7 @@ namespace ast {
   class RawBinding {
   public:
     std::shared_ptr<Var> var;
+
     Identifier name;
     std::optional<TypeHint> typeHint;
 
@@ -191,6 +194,7 @@ namespace ast {
 
     std::shared_ptr<PType> &inferType(ParseContext &ctx);
     void compile(CompileContext &ctx);
+    llvm::Value *compileExpr(CompileContext &ctx, CType *instType);
   };
 
   class Defn : public Statement {
@@ -251,6 +255,8 @@ namespace ast {
 
   class LetExpr : public Expr {
   public:
+    std::shared_ptr<Var> nameVar;
+
     Token letToken;
     std::vector<Binding> bindings;
     std::vector<Token> commas;
