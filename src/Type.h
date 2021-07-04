@@ -77,7 +77,7 @@ namespace type {
 
   class PolyType {
   public:
-    std::set<Type *> bound;
+    std::set<Type *, CompareType> bound;
     Type *type;
     PolyType(Type *type);
     void getFree(const std::function<void(Type *)> &acc);
