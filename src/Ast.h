@@ -27,6 +27,10 @@ namespace ast {
   class Scope {
   public:
     std::map<std::string, std::shared_ptr<Var>> bindings;
+    /**
+     * Variables lower in the scope stack that have been referenced.
+     */
+    std::set<std::shared_ptr<Var>> referenced;
   };
 
   class ParseContext {
@@ -58,8 +62,6 @@ namespace ast {
     llvm::Constant *unitValue;
 
     std::map<CType *, llvm::PointerType *, type::CompareType> fTypeCache;
-
-    std::map<CType *, CType *> *subs;
 
     std::map<std::shared_ptr<type::BaseType>,
         std::function<llvm::Type *(CompileContext &, CType *)>> transformers;
@@ -176,6 +178,7 @@ namespace ast {
 
     struct Arguments {
       std::shared_ptr<Var> recurVar;
+      std::set<std::shared_ptr<Var>> closed;
 
       Token openToken;
       std::vector<RawBinding> bindings;
@@ -256,6 +259,7 @@ namespace ast {
   class LetExpr : public Expr {
   public:
     std::shared_ptr<Var> nameVar;
+    std::set<std::shared_ptr<Var>> closed;
 
     Token letToken;
     std::vector<Binding> bindings;
@@ -272,6 +276,7 @@ namespace ast {
   class FnExpr : public Expr {
   public:
     std::shared_ptr<Var> recurVar;
+    std::set<std::shared_ptr<Var>> closed;
 
     Token fnToken;
     std::optional<Identifier> name;
@@ -286,6 +291,8 @@ namespace ast {
 
   class LambdaExpr : public Expr {
   public:
+    std::set<std::shared_ptr<Var>> closed;
+
     Token lambdaToken;
     std::vector<RawBinding> arguments;
     std::vector<Token> commas;

@@ -7,18 +7,12 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Type.h>
 #include <stdexcept>
+#include <sstream>
 
 namespace ast {
   llvm::Type *toLLVM(CompileContext &ctx, CType *type) {
     CType &t = type->get();
     if (t.value.index() == 0) {
-      if (ctx.subs) {
-        auto found = ctx.subs->find(&t);
-        if (found != ctx.subs->end()) {
-          return toLLVM(ctx, found->second);
-        }
-        // falling through here may be an error?
-      }
       // Unbounded type
       // This may suggest an infinite loop:
       // e.g. `let in endless { endless() }`
@@ -57,7 +51,9 @@ namespace ast {
     }
     CType::Aggregate &aggr = std::get<CType::Aggregate>(instType->get().value);
     llvm::Type *retType;
-    llvm::StructType *structType = llvm::StructType::create(ctx.ctx, "fn");
+    std::stringstream ss;
+    ss << instType->get();
+    llvm::StructType *structType = llvm::StructType::create(ctx.ctx, ss.str());
     llvm::PointerType *pointerType = llvm::PointerType::getUnqual(structType);
     std::vector<llvm::Type *> argTypes(aggr.values.size());
     argTypes[0] = pointerType;
@@ -110,7 +106,11 @@ namespace ast {
     for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
       auto found = it->bindings.find(name);
       if (found != it->bindings.end()) {
-        return found->second;
+        std::shared_ptr<Var> &var = found->second;
+        while (it != scopes.rbegin()) {
+          (--it)->referenced.insert(var);
+        }
+        return var;
       }
     }
     throw std::runtime_error("Undefined");
@@ -228,7 +228,9 @@ namespace ast {
 
   CType *inferFuncType(ParseContext &ctx,
                        std::vector<RawBinding> &bindings,
-                       Identifier *name, std::shared_ptr<Var> *recurVar,
+                       Identifier *name,
+                       std::shared_ptr<Var> *recurVar,
+                       std::set<std::shared_ptr<Var>> &closed,
                        std::unique_ptr<Expr> &value) {
     CType *inferred;
     ctx.scopes.emplace_back();
@@ -246,6 +248,7 @@ namespace ast {
     }
     value->inferExpr(ctx, Position::Expr)->get().unify(retType->get());
     ctx.tc.bound.resize(oldSize);
+    closed = std::move(ctx.scopes.back().referenced);
     ctx.scopes.pop_back();
     return inferred;
   }
@@ -254,6 +257,7 @@ namespace ast {
                            std::vector<RawBinding> &bindings,
                            Var *recurVar,
                            const std::string &name,
+                           const std::set<std::shared_ptr<Var>> &closedVars,
                            Expr &value) {
     llvm::FunctionType *funcType;
     llvm::PointerType *refType;
@@ -262,39 +266,118 @@ namespace ast {
                                        llvm::Function::ExternalLinkage,
                                        name,
                                        &ctx.module);
+    llvm::Argument *thisArg = func->getArg(0);
+    thisArg->setName(name);
     if (recurVar) {
-      llvm::Argument *thisArg = func->getArg(0);
       recurVar->emit = [thisArg](ast::CompileContext &, ast::CType *) {
         return thisArg;
       };
     }
     for (size_t arg = 0; arg < bindings.size(); ++arg) {
       llvm::Argument *argV = func->getArg(arg + 1);
+      argV->setName(bindings[arg].name.ident.value);
       bindings[arg].var->emit = [argV](ast::CompileContext &, ast::CType *) {
         return argV;
       };
     }
 
-    llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
-    llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+    llvm::BasicBlock *emitBlock = ctx.builder.GetInsertBlock();
+    llvm::BasicBlock::iterator emitPoint = ctx.builder.GetInsertPoint();
 
     auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", func);
     ctx.builder.SetInsertPoint(block);
+
+    std::vector<llvm::Value *> closureEmitted;
+    std::vector<std::function<llvm::Value *(CompileContext &, CType *)>>
+        oldEmissions(closedVars.size(), [](auto, auto) { return nullptr; });
+    llvm::StructType *closureStructType;
+    llvm::PointerType *closurePointerType;
+    std::vector<llvm::Type *> closureTypes;
+
+    if (!closedVars.empty()) {
+      closureTypes = {llvm::PointerType::getUnqual(funcType)};
+      std::stringstream ss;
+      closureStructType = llvm::StructType::create(ctx.ctx, name + ".clo");
+      closureStructType->setBody(closureTypes);
+      closurePointerType = llvm::PointerType::getUnqual(closureStructType);
+      llvm::Value *closurePtr = ctx.builder.CreatePointerCast(thisArg, closurePointerType);
+
+      std::map<llvm::Value *, llvm::Value *> cache;
+      size_t i = 0;
+      for (auto &cv : closedVars) {
+        auto &oldEmit = oldEmissions[i++] = std::move(cv->emit);
+        cv->emit = [closurePtr, closureStructType, &closureTypes, oldEmit, &closureEmitted, &cache, emitBlock, emitPoint]
+            (ast::CompileContext &ctx, ast::CType *type) -> llvm::Value * {
+          llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
+          llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+          ctx.builder.SetInsertPoint(emitBlock, emitPoint);
+          llvm::Value *emitted = oldEmit(ctx, type);
+          ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+          if (llvm::isa<llvm::Constant>(emitted)) {
+            return emitted;
+          }
+          auto found = cache.find(emitted);
+          if (found != cache.end()) {
+            return found->second;
+          }
+          closureEmitted.push_back(emitted);
+
+          closureTypes.push_back(emitted->getType());
+          closureStructType->setBody(closureTypes);
+          unsigned int idx = closureTypes.size() - 1;
+          llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+          llvm::Value *varRef =
+              ctx.builder.CreateGEP(closurePtr,
+                                    {llvm::ConstantInt::get(i32Ty, 0),
+                                     llvm::ConstantInt::get(i32Ty, idx)});
+          llvm::LoadInst *load = ctx.builder.CreateLoad(varRef);
+          return cache[emitted] = load;
+        };
+      }
+    }
+
     ctx.builder.CreateRet(value.compileExpr(ctx, Position::Tail));
 
-    ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+    ctx.builder.SetInsertPoint(emitBlock, emitPoint);
 
-    // TODO closures
+    {
+      size_t i = 0;
+      for (auto &cv : closedVars) {
+        cv->emit = std::move(oldEmissions[i]);
+      }
+    }
+
     llvm::StructType *structType = static_cast<llvm::StructType *>(refType->getPointerElementType());
-    llvm::Constant *constant = llvm::ConstantStruct::get(structType, {func});
-    llvm::GlobalVariable *global = new llvm::GlobalVariable(ctx.module,
-                                                            structType,
-                                                            true,
-                                                            llvm::GlobalValue::ExternalLinkage,
-                                                            constant,
-                                                            name);
-
-    return global;
+    if (closureEmitted.empty()) {
+      llvm::Constant *constant = llvm::ConstantStruct::get(structType, {func});
+      llvm::GlobalVariable *global = new llvm::GlobalVariable(ctx.module,
+                                                              structType,
+                                                              true,
+                                                              llvm::GlobalValue::ExternalLinkage,
+                                                              constant,
+                                                              name);
+      return global;
+    } else {
+      llvm::Constant *size = llvm::ConstantExpr::getSizeOf(closureStructType);
+      llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+      size = llvm::ConstantExpr::getTruncOrBitCast(size, i32Ty);
+      llvm::FunctionCallee malloc = ctx.module
+          .getOrInsertFunction("malloc", llvm::Type::getInt8PtrTy(ctx.ctx), i32Ty);
+      llvm::Value *allocated = // TODO garbage collector :)
+          ctx.builder.CreateBitOrPointerCast(ctx.builder.CreateCall(malloc, {size}),
+                                             closurePointerType, "closure");
+      llvm::Value *thisGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
+                                                           {llvm::ConstantInt::get(i32Ty, 0),
+                                                            llvm::ConstantInt::get(i32Ty, 0)});
+      ctx.builder.CreateStore(func, thisGep);
+      for (unsigned int i = 0; i < closureEmitted.size(); ++i) {
+        llvm::Value *gep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
+                                                         {llvm::ConstantInt::get(i32Ty, 0),
+                                                          llvm::ConstantInt::get(i32Ty, i + 1)});
+        ctx.builder.CreateStore(closureEmitted[i], gep);
+      }
+      return ctx.builder.CreatePointerCast(allocated, llvm::PointerType::getUnqual(structType));
+    }
   }
   llvm::Value *compileCall(CompileContext &ctx,
                            CType *functionType,
@@ -305,9 +388,13 @@ namespace ast {
     std::tie(refType, funcType) = getFuncType(ctx, functionType);
     std::vector<llvm::Value *> trueArgs = {function};
     trueArgs.insert(trueArgs.begin() + 1, callArgs.begin(), callArgs.end());
-    llvm::LoadInst *refValue = ctx.builder.CreateLoad(refType->getPointerElementType(), function);
-    llvm::Value *funcValue = ctx.builder.CreateExtractValue(refValue, {0});
-    return ctx.builder.CreateCall(funcType, funcValue, trueArgs);
+    llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+    llvm::Value *funcPtr
+        = ctx.builder.CreateInBoundsGEP(function,
+                                        {llvm::ConstantInt::get(i32Ty, 0),
+                                         llvm::ConstantInt::get(i32Ty, 0)});
+    llvm::Value *funcValuePtr = ctx.builder.CreateLoad(funcPtr, "f");
+    return ctx.builder.CreateCall(funcType, funcValuePtr, trueArgs);
   }
 
   CType *LetExpr::inferType(ParseContext &ctx, Position pos) {
@@ -329,8 +416,14 @@ namespace ast {
       }
       args[i] = type;
       CType *funcType = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(args)));
+      ctx.scopes.emplace_back();
       nameVar = ctx.introduce(name->ident.value, funcType);
       body->inferExpr(ctx, pos)->get().unify(type->get());
+      closed = std::move(ctx.scopes.back().referenced);
+      for (const auto &b : bindings) {
+        closed.erase(b.var);
+      }
+      ctx.scopes.pop_back();
     } else {
       for (auto &b : bindings) {
         ctx.tc.bound.push_back(b.inferType(ctx));
@@ -346,11 +439,14 @@ namespace ast {
       std::vector<RawBinding> rbs(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {
         rbs[i].var = bindings[i].var;
+        rbs[i].name = bindings[i].name;
       }
-      llvm::Value *func = compileFunc(ctx, nameVar->type->type, rbs, nameVar.get(), name->ident.value, *body);
+      llvm::Value *func = compileFunc(ctx, nameVar->type->type, rbs, nameVar.get(), name->ident.value, closed, *body);
       std::vector<llvm::Value *> args(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {
-        args[i] = bindings[i].compileExpr(ctx, bindings[i].var->type->type);
+        std::shared_ptr<Var> &var = bindings[i].var;
+        bindings[i].compile(ctx);
+        args[i] = var->emit(ctx, var->type->type);
       }
       return compileCall(ctx, nameVar->type->type, func, args);
     } else {
@@ -593,23 +689,23 @@ namespace ast {
   }
 
   CType *FnExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments.bindings, name ? &*name : nullptr, &recurVar, body);
+    return inferFuncType(ctx, arguments.bindings, name ? &*name : nullptr, &recurVar, closed, body);
   }
   llvm::Value *FnExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? "" : name->ident.value, *body);
+    return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "", closed, *body);
   }
 
   CType *LambdaExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments, nullptr, nullptr, body);
+    return inferFuncType(ctx, arguments, nullptr, nullptr, closed, body);
   }
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments, nullptr, "", *body);
+    return compileFunc(ctx, type, arguments, nullptr, "", closed, *body);
   }
 
   std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
     CType *inferred;
     if (arguments) {
-      inferred = inferFuncType(ctx, arguments->bindings, &name, &arguments->recurVar, value);
+      inferred = inferFuncType(ctx, arguments->bindings, &name, &arguments->recurVar, arguments->closed, value);
     } else {
       inferred = value->inferExpr(ctx, Position::Expr);
     }
@@ -630,18 +726,25 @@ namespace ast {
     var->emit = [this, jump](CompileContext &ctx, CType *type) -> llvm::Value * {
 
       std::map<CType *, CType *> subs;
-      CType *instType = ctx.pc.tc.inst(*var->type, subs);
-      instType->get().unify(type->get());
-      CType *unit = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
-      std::map<CType *, CType *> unitReplacements;
-      instType->get().getFree([&unitReplacements, unit](CType *v) { unitReplacements[v] = unit; });
-      instType = instType->get().replace(ctx.pc.tc, unitReplacements);
+      type::Type &thisType = this->var->type->type->get();
+      thisType.getFree([&subs, &ctx](CType *t) { subs[t] = ctx.pc.tc.fresh(); });
+      type::Type *instType = thisType.replace(ctx.pc.tc, subs);
+      type->get().unify(instType->get());
+      type::Type *unitType = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
+      for (const auto &sub : subs) {
+        type::Type &target = sub.second->get();
+        if (target.value.index() == 0) {
+          // unbounded type
+          target.unify(*unitType);
+        }
+        std::get<0>(sub.first->value).weakParent = &target;
+      }
 
       auto found = insts.find(instType);
       if (found != insts.end()) {
         return found->second;
       }
-      ctx.subs = &subs; // TODO this might not be null?
+
       llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
       llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
 
@@ -649,13 +752,19 @@ namespace ast {
       llvm::Value *ret = compileExpr(ctx, instType);
       ctx.builder.SetInsertPoint(oldBlock, oldPoint);
 
-      ctx.subs = nullptr;
+      ret->setName(name.ident.value);
+
+      for (const auto &sub : subs) {
+        std::get<0>(sub.first->value).weakParent = nullptr;
+      }
+
       return insts[type] = ret;
     };
   }
-  llvm::Value * Binding::compileExpr(CompileContext &ctx, CType *instType) {
+  llvm::Value *Binding::compileExpr(CompileContext &ctx, CType *instType) {
     if (arguments) {
-      return compileFunc(ctx, instType, arguments->bindings, arguments->recurVar.get(), name.ident.value, *value);
+      return compileFunc(ctx, instType, arguments->bindings, arguments->recurVar.get(), name.ident.value,
+                         arguments->closed, *value);
     } else {
       return value->compileExpr(ctx, Position::Expr);
     }

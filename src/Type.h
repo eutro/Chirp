@@ -40,7 +40,14 @@ namespace type {
     struct Named {
       Name name;
       size_t size;
+      /**
+       * Compressed path
+       */
       Type *parent;
+      /**
+       * Uncompressed path for temporary replacements
+       */
+      Type *weakParent;
 
       bool operator<(const Named &rhs) const;
     };
@@ -64,6 +71,7 @@ namespace type {
     static Type aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&params);
     void getFree(const std::function<void(Type *)> &acc);
     friend std::ostream &operator<<(std::ostream &os, const Type &t);
+    Type &weakGet();
     Type &get();
     Type *replace(TypeContext &ctx, std::map<Type *, Type *> &subs);
     void unify(Type &o);

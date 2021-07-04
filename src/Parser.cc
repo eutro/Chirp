@@ -353,6 +353,7 @@ namespace parser {
             auto comma = stream.optional(Tok::TComma);
             if (comma) {
               expr.commas.push_back(std::move(*comma));
+              arg = stream.require(Tok::TIdent, "identifier expected");
             } else {
               break;
             }

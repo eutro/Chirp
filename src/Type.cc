@@ -92,12 +92,27 @@ namespace type {
     return os;
   }
 
-  Type &Type::get() {
+  Type &Type::weakGet() {
     switch (value.index()) {
       case 0: {
         Type::Named &named = std::get<0>(value);
         if (named.parent == nullptr) return *this;
         return *(named.parent = &named.parent->get());
+      }
+      default:
+        return *this;
+    }
+  }
+
+  Type &Type::get() {
+    switch (value.index()) {
+      case 0: {
+        Type::Named &named = std::get<0>(value);
+        if (named.parent == nullptr) {
+          if (named.weakParent == nullptr) return *this;
+          return named.weakParent->get();
+        }
+        return (named.parent = &named.parent->weakGet())->get();
       }
       default:
         return *this;
