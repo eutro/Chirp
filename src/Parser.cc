@@ -174,10 +174,10 @@ namespace parser {
   std::unique_ptr<Statement> parseStatement(ParserStream &stream);
 
   RawBinding parseRawBinding(ParserStream &stream) {
-    return {
-        .name = parseIdent(stream),
-        .typeHint = parseTypeHint(stream),
-    };
+    RawBinding rb;
+    rb.name = parseIdent(stream);
+    rb.typeHint = parseTypeHint(stream);
+    return rb;
   }
 
   Binding::Arguments parseArgs(Token &&openToken, ParserStream &stream) {
@@ -354,7 +354,9 @@ namespace parser {
         if (ident) {
           Token arg = std::move(*ident);
           while (true) {
-            expr.arguments.push_back((RawBinding) {.name = parseIdent(std::move(arg))});
+            RawBinding rb;
+            rb.name = parseIdent(std::move(arg));
+            expr.arguments.push_back(std::move(rb));
             auto comma = stream.optional(Tok::TComma);
             if (comma) {
               expr.commas.push_back(std::move(*comma));

@@ -24,5 +24,5 @@ For example (from the build folder):
 ```shell
 ./bin/in2llvm < prog.crp > prog.ll
 llc --filetype=obj prog.ll
-gcc -o prog prog.o -L. -lcrp
+gcc --static -o prog prog.o -L. -lcrp
 ```

@@ -593,7 +593,9 @@ namespace ast {
               pred = isInt ? llvm::CmpInst::ICMP_SGE : llvm::CmpInst::FCMP_OGE;
               break;
           }
-          lhsV = ctx.builder.CreateCmp(pred, lhsV, rhsV);
+          lhsV = isInt ?
+            ctx.builder.CreateICmp(pred, lhsV, rhsV) :
+            ctx.builder.CreateFCmp(pred, lhsV, rhsV);
         }
         break;
       }
