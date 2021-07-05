@@ -226,6 +226,17 @@ namespace ast {
     return ctx.unitValue;
   }
 
+  llvm::Value *heapAlloc(CompileContext &ctx, llvm::Type *type) {
+    llvm::Type *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+    llvm::Constant *size = llvm::ConstantExpr::getSizeOf(type);
+    size = llvm::ConstantExpr::getTruncOrBitCast(size, i32Ty);
+    llvm::FunctionCallee malloc = ctx.module
+      .getOrInsertFunction("malloc", llvm::Type::getInt8PtrTy(ctx.ctx), i32Ty);
+    // TODO garbage collector :)
+    return ctx.builder.CreatePointerCast(ctx.builder.CreateCall(malloc, {size}),
+                                         llvm::PointerType::getUnqual(type));
+  }
+
   CType *inferFuncType(ParseContext &ctx,
                        std::vector<RawBinding> &bindings,
                        Identifier *name,
@@ -358,14 +369,8 @@ namespace ast {
                                                               name);
       return global;
     } else {
-      llvm::Constant *size = llvm::ConstantExpr::getSizeOf(closureStructType);
+      llvm::Value *allocated = heapAlloc(ctx, closureStructType);
       llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
-      size = llvm::ConstantExpr::getTruncOrBitCast(size, i32Ty);
-      llvm::FunctionCallee malloc = ctx.module
-          .getOrInsertFunction("malloc", llvm::Type::getInt8PtrTy(ctx.ctx), i32Ty);
-      llvm::Value *allocated = // TODO garbage collector :)
-          ctx.builder.CreatePointerCast(ctx.builder.CreateCall(malloc, {size}),
-                                        closurePointerType, "closure");
       llvm::Value *thisGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
                                                            {llvm::ConstantInt::get(i32Ty, 0),
                                                             llvm::ConstantInt::get(i32Ty, 0)});
