@@ -35,6 +35,10 @@ namespace type {
 
   class TypeContext;
 
+  class Type;
+
+  using TPtr = std::shared_ptr<Type>;
+
   class Type {
   public:
     struct Named {
@@ -43,11 +47,11 @@ namespace type {
       /**
        * Compressed path
        */
-      Type *parent;
+      TPtr parent;
       /**
        * Uncompressed path for temporary replacements
        */
-      Type *weakParent;
+      TPtr weakParent;
 
       bool operator<(const Named &rhs) const;
     };
@@ -55,9 +59,9 @@ namespace type {
     class Aggregate {
     public:
       std::shared_ptr<BaseType> base;
-      std::vector<Type *> values;
+      std::vector<TPtr> values;
 
-      Aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&values);
+      Aggregate(std::shared_ptr<BaseType> &base, std::vector<TPtr> &&values);
 
       bool operator<(const Aggregate &rhs) const;
     };
@@ -68,40 +72,41 @@ namespace type {
     Type(Name &&name);
   public:
     static Type named(Name &&name);
-    static Type aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&params);
-    void getFree(const std::function<void(Type *)> &acc);
+    static Type aggregate(std::shared_ptr<BaseType> &base, std::vector<TPtr> &&params);
     friend std::ostream &operator<<(std::ostream &os, const Type &t);
-    Type &weakGet();
-    Type &get();
-    Type *replace(TypeContext &ctx, std::map<Type *, Type *> &subs);
-    void unify(Type &o);
+
+    static void getFree(TPtr self, const std::function<void(const TPtr &)> &acc);
+    static TPtr weakGet(TPtr self);
+    static TPtr get(TPtr self);
+    static TPtr replace(TPtr self, TypeContext &ctx, std::map<TPtr, TPtr> &subs);
+    static void unify(TPtr t, TPtr o);
+    static void getAndUnify(TPtr t, TPtr o);
 
     bool operator<(const Type &rhs) const;
   };
 
   struct CompareType {
-    bool operator()(Type *a, Type *b) const;
+    bool operator()(TPtr a, TPtr b) const;
   };
 
   class PolyType {
   public:
-    std::set<Type *, CompareType> bound;
-    Type *type;
-    PolyType(Type *type);
-    void getFree(const std::function<void(Type *)> &acc);
+    std::set<TPtr, CompareType> bound;
+    TPtr type;
+    PolyType(TPtr type);
+    void getFree(const std::function<void(TPtr)> &acc);
     friend std::ostream &operator<<(std::ostream &os, const PolyType &t);
   };
 
   class TypeContext {
   public:
     std::vector<std::shared_ptr<PolyType>> bound;
-    std::vector<std::unique_ptr<Type>> types;
     size_t counter = 0;
 
-    Type *push(Type &&type);
-    Type *fresh();
-    Type *inst(const PolyType &poly);
-    Type *inst(const PolyType &poly, std::map<Type *, Type *> &subs);
-    PolyType gen(Type *type);
+    TPtr push(Type &&type);
+    TPtr fresh();
+    TPtr inst(const PolyType &poly);
+    TPtr inst(const PolyType &poly, std::map<TPtr, TPtr> &subs);
+    PolyType gen(TPtr type);
   };
 }

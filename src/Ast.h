@@ -20,6 +20,7 @@
 namespace ast {
   using Token = lexer::Token<Tok>;
   using CType = type::Type;
+  using TPtr = type::TPtr;
   using PType = type::PolyType;
 
   class Var;
@@ -61,10 +62,10 @@ namespace ast {
     llvm::StructType *unitType;
     llvm::Constant *unitValue;
 
-    std::map<CType *, llvm::PointerType *, type::CompareType> fTypeCache;
+    std::map<TPtr, llvm::PointerType *, type::CompareType> fTypeCache;
 
     std::map<std::shared_ptr<type::BaseType>,
-        std::function<llvm::Type *(CompileContext &, CType *)>> transformers;
+        std::function<llvm::Type *(CompileContext &, TPtr)>> transformers;
 
     CompileContext(llvm::LLVMContext &ctx,
                    llvm::IRBuilder<> &builder,
@@ -75,7 +76,7 @@ namespace ast {
   class Var {
   public:
     std::shared_ptr<PType> type;
-    std::function<llvm::Value *(CompileContext &, CType *)> emit;
+    std::function<llvm::Value *(CompileContext &, TPtr)> emit;
 
     Var(PType &&type);
   };
@@ -158,12 +159,12 @@ namespace ast {
 
   class Expr : public Statement {
   protected:
-    virtual CType *inferType(ParseContext &ctx, Position pos) = 0;
+    virtual TPtr inferType(ParseContext &ctx, Position pos) = 0;
   public:
-    CType *type = nullptr;
+    TPtr type = nullptr;
 
     void inferStatement(ParseContext &ctx) override;
-    CType *inferExpr(ParseContext &ctx, Position pos);
+    TPtr inferExpr(ParseContext &ctx, Position pos);
 
     void compileStatement(CompileContext &ctx) override;
     virtual llvm::Value *compileExpr(CompileContext &ctx, Position pos) = 0;
@@ -173,7 +174,7 @@ namespace ast {
   class Binding {
   public:
     std::shared_ptr<Var> var;
-    std::map<CType *, llvm::Value *, type::CompareType> insts;
+    std::map<TPtr, llvm::Value *, type::CompareType> insts;
     Identifier name;
 
     struct Arguments {
@@ -199,7 +200,7 @@ namespace ast {
 
     std::shared_ptr<PType> &inferType(ParseContext &ctx);
     void compile(CompileContext &ctx);
-    llvm::Value *compileExpr(CompileContext &ctx, CType *instType);
+    llvm::Value *compileExpr(CompileContext &ctx, TPtr instType);
   };
 
   class Defn : public Statement {
@@ -254,7 +255,7 @@ namespace ast {
     std::optional<Else> elseClause;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -271,7 +272,7 @@ namespace ast {
     std::unique_ptr<DelimitedExpr> body;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -287,7 +288,7 @@ namespace ast {
 
     std::unique_ptr<Expr> body;
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -302,7 +303,7 @@ namespace ast {
     std::unique_ptr<Expr> body;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -322,7 +323,7 @@ namespace ast {
     Token closeToken;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -333,7 +334,7 @@ namespace ast {
     Token closeToken;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -342,7 +343,7 @@ namespace ast {
     Token value;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -352,7 +353,7 @@ namespace ast {
     std::shared_ptr<Var> var;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -371,7 +372,7 @@ namespace ast {
     std::vector<Rhs> terms;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -381,7 +382,7 @@ namespace ast {
     std::unique_ptr<Expr> expr;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -394,7 +395,7 @@ namespace ast {
     Token closeToken;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -404,7 +405,7 @@ namespace ast {
     TypeHint hint;
 
     void print(std::ostream &os) const override;
-    CType *inferType(ParseContext &ctx, Position pos) override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 }

@@ -56,7 +56,7 @@ namespace fsm::re {
      * @return A pair of the start and end states that were added to the NFA.
      */
     template<typename F>
-    std::pair<size_t, size_t> toNfa(NFA<S, F> &nfa) const {
+    std::pair<size_t, size_t> toNfa(NFA <S, F> &nfa) const {
       switch (type) {
         case Type::Literal: {
           size_t start = nfa.push();

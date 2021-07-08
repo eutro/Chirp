@@ -22,7 +22,7 @@ namespace type {
     return os;
   }
 
-  Type::Aggregate::Aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&values)
+  Type::Aggregate::Aggregate(std::shared_ptr<BaseType> &base, std::vector<TPtr> &&values)
       : base(base), values(values) {}
 
   Type::Type(std::variant<Named, Aggregate> &&value) : value(value) {}
@@ -36,21 +36,21 @@ namespace type {
   Type Type::named(Name &&name) {
     return Type(std::forward<Name>(name));
   }
-  Type Type::aggregate(std::shared_ptr<BaseType> &base, std::vector<Type *> &&params) {
+  Type Type::aggregate(std::shared_ptr<BaseType> &base, std::vector<TPtr> &&params) {
     return Type(std::variant<Named, Aggregate>
                     (std::in_place_type<Aggregate>,
                      base,
-                     std::forward<std::vector<Type *>>(params)));
+                     std::forward<std::vector<TPtr >>(params)));
   }
 
-  void Type::getFree(const std::function<void(Type *)> &acc) {
-    switch (value.index()) {
+  void Type::getFree(TPtr self, const std::function<void(const TPtr &)> &acc) {
+    switch (self->value.index()) {
       case 0:
-        acc(this);
+        acc(self);
         break;
       case 1:
-        for (Type *t : std::get<1>(value).values) {
-          t->get().getFree(acc);
+        for (TPtr t : std::get<1>(self->value).values) {
+          Type::getFree(Type::get(t), acc);
         }
         break;
     }
@@ -67,7 +67,7 @@ namespace type {
         if (!aggr.values.empty()) {
           os << "<";
           for (auto it = aggr.values.begin(); it != aggr.values.end();) {
-            os << (**it).get();
+            os << *Type::get(*it);
             if (++it != aggr.values.end()) {
               os << ", ";
             }
@@ -92,35 +92,35 @@ namespace type {
     return os;
   }
 
-  Type &Type::weakGet() {
-    switch (value.index()) {
+  TPtr Type::weakGet(TPtr self) {
+    switch (self->value.index()) {
       case 0: {
-        Type::Named &named = std::get<0>(value);
-        if (named.parent == nullptr) return *this;
-        return *(named.parent = &named.parent->get());
+        Type::Named &named = std::get<0>(self->value);
+        if (named.parent == nullptr) return self;
+        return named.parent = Type::get(named.parent);
       }
       default:
-        return *this;
+        return self;
     }
   }
 
-  Type &Type::get() {
-    switch (value.index()) {
+  TPtr Type::get(TPtr self) {
+    switch (self->value.index()) {
       case 0: {
-        Type::Named &named = std::get<0>(value);
+        Type::Named &named = std::get<0>(self->value);
         if (named.parent == nullptr) {
-          if (named.weakParent == nullptr) return *this;
-          return named.weakParent->get();
+          if (named.weakParent == nullptr) return self;
+          return Type::get(named.weakParent);
         }
-        return (named.parent = &named.parent->weakGet())->get();
+        return Type::get(named.parent = Type::weakGet(named.parent));
       }
       default:
-        return *this;
+        return self;
     }
   }
 
   TypeError::TypeError(const std::string &message) :
-    runtime_error(message) {}
+      runtime_error(message) {}
 
   TypeError typeError(Type &base, Type &other,
                       const std::string &reason) {
@@ -133,89 +133,89 @@ namespace type {
     return TypeError(buf.str());
   }
 
-  void Type::unify(Type &o) {
-    if (this == &o)
+  void Type::unify(TPtr t, TPtr o) {
+    if (t == o) {
       return;
-    if (value.index() == 0) {
-      Named &tn = std::get<0>(value);
-      if (o.value.index() == 0) {
-        Named &on = std::get<0>(o.value);
-        Type *min, *max;
+    }
+    if (t->value.index() == 0) {
+      Named &tn = std::get<0>(t->value);
+      if (o->value.index() == 0) {
+        Named &on = std::get<0>(o->value);
+        TPtr *min, *max;
         if (tn.size < on.size) {
-          min = this;
+          min = &t;
           max = &o;
         } else {
-          max = this;
+          max = &t;
           min = &o;
         }
-        std::get<0>(max->value).size += std::get<0>(min->value).size;
-        std::get<0>(min->value).parent = max;
+        std::get<0>((*max)->value).size += std::get<0>((*min)->value).size;
+        std::get<0>((*min)->value).parent = *max;
       } else {
-        std::set<Type *> free;
-        o.getFree([&free](Type *v) { free.insert(v); });
-        if (free.count(this)) {
-          throw typeError(o, *this, "it would create a recursive type");
+        std::set<TPtr> free;
+        Type::getFree(o, [&free](TPtr v) { free.insert(v); });
+        if (free.count(t)) {
+          throw typeError(*o, *t, "it would create a recursive type");
         }
-        tn.parent = &o;
+        tn.parent = o;
       }
-    } else if (o.value.index() == 0) {
-      o.unify(*this);
+    } else if (o->value.index() == 0) {
+      Type::unify(o, t);
     } else {
-      Aggregate &ta = std::get<1>(value);
-      Aggregate &oa = std::get<1>(o.value);
+      Aggregate &ta = std::get<1>(t->value);
+      Aggregate &oa = std::get<1>(o->value);
       if (ta.base != oa.base) {
-        throw typeError(o, *this, "the base types are different");
+        throw typeError(*o, *t, "the base types are different");
       } else {
         if (ta.values.size() != oa.values.size()) {
-          throw typeError(o, *this, "the number of parameters is different");
+          throw typeError(*o, *t, "the number of parameters is different");
         }
         auto ti = ta.values.begin();
         auto oi = oa.values.begin();
         for (; ti != ta.values.end(); ++ti, ++oi) {
-          (**ti).get().unify((**oi).get());
+          getAndUnify(*ti, *oi);
         }
       }
     }
   }
 
-  PolyType::PolyType(Type *type) : type(type) {}
+  PolyType::PolyType(TPtr type) : type(type) {}
 
-  void PolyType::getFree(const std::function<void(Type *)> &acc) {
-    type->get().getFree([&acc, this](Type *v) {
+  void PolyType::getFree(const std::function<void(TPtr)> &acc) {
+    Type::getFree(Type::get(type), [&acc, this](const TPtr &v) {
       if (!bound.count(v)) {
         acc(v);
       }
     });
   }
 
-  Type *TypeContext::push(Type &&type) {
-    types.push_back(std::make_unique<Type>(type));
-    return &*types.back();
+  TPtr TypeContext::push(Type &&type) {
+    return std::make_shared<Type>(type);
   }
 
-  Type *TypeContext::fresh() {
+  TPtr TypeContext::fresh() {
     return push(Type::named(counter++));
   }
 
-  Type *TypeContext::inst(const PolyType &poly) {
-    std::map<Type *, Type *> subs;
+  TPtr TypeContext::inst(const PolyType &poly) {
+    std::map<TPtr, TPtr> subs;
     return inst(poly, subs);
   }
-  Type *TypeContext::inst(const PolyType &poly, std::map<Type *, Type *> &subs) {
-    for (Type *b : poly.bound) {
-      subs[&b->get()] = &fresh()->get();
+  TPtr TypeContext::inst(const PolyType &poly, std::map<TPtr, TPtr> &subs) {
+    for (TPtr b : poly.bound) {
+      subs[Type::get(b)] = Type::get(fresh());
     }
-    return poly.type->get().replace(*this, subs);
+    return Type::replace(Type::get(poly.type), *this, subs);
   }
 
-  PolyType TypeContext::gen(Type *type) {
-    Type &gotten = type->get();
-    PolyType pType(&gotten);
-    std::set<Type *> free;
+  PolyType TypeContext::gen(TPtr type) {
+    TPtr gotten = Type::get(type);
+    PolyType pType(gotten);
+    std::set<TPtr> free;
     for (auto &b : bound) {
-      b->getFree([&free](Type *v) { free.insert(v); });
+      b->getFree([&free](TPtr v) { free.insert(v); });
     }
-    gotten.getFree([&pType, &free](Type *v) {
+    Type::getFree(gotten, [&pType, &free](const TPtr &v) {
       if (!free.count(v)) {
         pType.bound.insert(v);
       }
@@ -223,25 +223,25 @@ namespace type {
     return pType;
   }
 
-  Type *Type::replace(TypeContext &ctx, std::map<Type *, Type *> &subs) {
-    switch (value.index()) {
+  TPtr Type::replace(TPtr self, TypeContext &ctx, std::map<TPtr, TPtr> &subs) {
+    switch (self->value.index()) {
       case 0: {
-        auto found = subs.find(this);
+        auto found = subs.find(self);
         if (found == subs.end()) {
-          return this;
+          return self;
         } else {
           return found->second;
         }
       }
       default: {
-        Type::Aggregate &aggr = std::get<Type::Aggregate>(value);
-        std::vector<Type *> newValues(aggr.values.size());
+        Type::Aggregate &aggr = std::get<Type::Aggregate>(self->value);
+        std::vector<TPtr> newValues(aggr.values.size());
         size_t i = 0;
-        for (Type *v : aggr.values) {
-          newValues[i++] = v->get().replace(ctx, subs);
+        for (TPtr v : aggr.values) {
+          newValues[i++] = replace(Type::get(v), ctx, subs);
         }
         if (newValues == aggr.values) {
-          return this;
+          return self;
         } else {
           return ctx.push(Type::aggregate(aggr.base, std::move(newValues)));
         }
@@ -249,12 +249,16 @@ namespace type {
     }
   }
 
-  bool CompareType::operator()(Type *a, Type *b) const {
-    return a->get() < b->get();
+  bool CompareType::operator()(TPtr a, TPtr b) const {
+    return *Type::get(a) < *Type::get(b);
   }
 
   bool Type::operator<(const Type &rhs) const {
     return value < rhs.value;
+  }
+
+  void Type::getAndUnify(TPtr t, TPtr o) {
+    unify(get(t), get(o));
   }
 
   bool Type::Aggregate::operator<(const Type::Aggregate &rhs) const {

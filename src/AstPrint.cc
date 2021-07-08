@@ -70,7 +70,7 @@ namespace ast {
 
   void IfExpr::print(std::ostream &os) const {
     os << "(IfExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << ifToken << " " << predExpr << " " << thenExpr;
     printMulti(os, this->elseIfClauses);
     if (this->elseClause) os << " " << *this->elseClause;
@@ -79,7 +79,7 @@ namespace ast {
 
   void LetExpr::print(std::ostream &os) const {
     os << "(LetExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << letToken;
     printMulti(os, bindings, commas);
     os << " " << inToken;
@@ -89,7 +89,7 @@ namespace ast {
 
   void BlockExpr::print(std::ostream &os) const {
     os << "(BlockExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << openToken;
     printMulti(os, statements);
     os << " " << value << " " << closeToken << ")";
@@ -97,25 +97,25 @@ namespace ast {
 
   void BracketExpr::print(std::ostream &os) const {
     os << "(BracketExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << openToken << " " << value << " " << closeToken << ")";
   }
 
   void LiteralExpr::print(std::ostream &os) const {
     os << "(LiteralExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << value << ")";
   }
 
   void VarExpr::print(std::ostream &os) const {
     os << "(VarExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << name << ")";
   }
 
   void BinaryExpr::print(std::ostream &os) const {
     os << "(BinaryExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << this->lhs;
     printMulti(os, this->terms);
     os << ")";
@@ -123,14 +123,14 @@ namespace ast {
 
   void PrefixExpr::print(std::ostream &os) const {
     os << "(PrefixExpr";
-    if (type) os << " #\"" << type->get() << "\"";
+    if (type) os << " #\"" << *CType::get(type) << "\"";
     printMulti(os, this->prefixes);
     os << " " << this->expr << ")";
   }
 
   void FunCallExpr::print(std::ostream &os) const {
     os << "(FunCallExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << this->function << " " << this->openToken;
     printMulti(os, this->arguments, this->commas);
     os << " " << this->closeToken << ")";
@@ -138,13 +138,13 @@ namespace ast {
 
   void HintedExpr::print(std::ostream &os) const {
     os << "(HintedExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << this->expr << " " << this->hint << ")";
   }
 
   void FnExpr::print(std::ostream &os) const {
     os << "(FnExpr ";
-    if (type) os << "#\"" << type->get() << "\" ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << fnToken << " ";
     if (name) os << *name << " ";
     os << arguments << " " << eqToken << " " << body << ")";
@@ -152,7 +152,7 @@ namespace ast {
 
   void LambdaExpr::print(std::ostream &os) const {
     os << "(LambdaExpr";
-    if (type) os << " #\"" << type->get() << "\"";
+    if (type) os << " #\"" << *CType::get(type) << "\"";
     os << " " << lambdaToken;
     printMulti(os, arguments, commas);
     os << " " << dotToken << " " << body << ")";
