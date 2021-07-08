@@ -58,10 +58,18 @@ namespace type {
 
   std::ostream &operator<<(std::ostream &os, const Type &t) {
     switch (t.value.index()) {
-      case 0:
-        os << std::get<0>(t.value).name;
+      case 0: {
+        const Type::Named &n = std::get<0>(t.value);
+        os << n.name;
+        if (!n.traits.empty()) {
+          os << ":";
+          for (const auto &trait : n.traits) {
+            os << " " << *trait;
+          }
+        }
         break;
-      case 1:
+      }
+      case 1: {
         const auto &aggr = std::get<1>(t.value);
         os << *aggr.base;
         if (!aggr.values.empty()) {
@@ -75,6 +83,7 @@ namespace type {
           os << ">";
         }
         break;
+      }
     }
     return os;
   }
@@ -149,13 +158,22 @@ namespace type {
           max = &t;
           min = &o;
         }
-        std::get<0>((*max)->value).size += std::get<0>((*min)->value).size;
-        std::get<0>((*min)->value).parent = *max;
+        Named &mxv = std::get<0>((*max)->value);
+        Named &mnv = std::get<0>((*min)->value);
+        mxv.size += mnv.size;
+        mnv.parent = *max;
+        mxv.traits.insert(mnv.traits.begin(), mnv.traits.end());
       } else {
         std::set<TPtr> free;
         Type::getFree(o, [&free](TPtr v) { free.insert(v); });
         if (free.count(t)) {
           throw typeError(*o, *t, "it would create a recursive type");
+        }
+        Aggregate aggr = std::get<1>(o->value);
+        for (const auto &trait : tn.traits) {
+          if (!aggr.base->impls.count(trait)) {
+            throw typeError(*o, *t, "trait '" + trait->name + "' is not implemented");
+          }
         }
         tn.parent = o;
       }
@@ -273,5 +291,13 @@ namespace type {
 
   bool Type::Named::operator<(const Type::Named &rhs) const {
     return name < rhs.name;
+  }
+
+  Trait::Trait(const std::string &name) : name(name) {
+  }
+
+  std::ostream &operator<<(std::ostream &os, const Trait &t) {
+    os << t.name;
+    return os;
   }
 }

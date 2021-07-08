@@ -88,6 +88,17 @@ namespace ast {
     ctx.builder.CreateRet(llvm::ConstantInt::get(ctx.ctx, llvm::APInt(32, 0, true)));
   }
 
+  class BinaryTrait : public type::TraitImpl {
+  public:
+    using Fn = std::function<llvm::Value *(CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs)>;
+
+    Fn app;
+    BinaryTrait(Fn &&app) : app(app) {}
+  };
+
+  class CmpTrait : public type::TraitImpl {
+  };
+
   ParseContext::ParseContext(type::TypeContext &tc) :
       tc(tc),
       funcType(std::make_shared<type::BaseType>("fn")),
@@ -95,8 +106,38 @@ namespace ast {
       intType(std::make_shared<type::BaseType>("int")),
       floatType(std::make_shared<type::BaseType>("float")),
       boolType(std::make_shared<type::BaseType>("bool")),
-      stringType(std::make_shared<type::BaseType>("string")) {
+      stringType(std::make_shared<type::BaseType>("string")),
+
+      addTrait(std::make_shared<type::Trait>("Add")),
+      mulTrait(std::make_shared<type::Trait>("Mul")),
+      subTrait(std::make_shared<type::Trait>("Sub")),
+      divTrait(std::make_shared<type::Trait>("Div")),
+      remTrait(std::make_shared<type::Trait>("Rem")),
+
+      cmpTrait(std::make_shared<type::Trait>("Cmp")) {
     scopes.emplace_back();
+
+    intType->impls[addTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateAdd(lhs, rhs); });
+    intType->impls[mulTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateMul(lhs, rhs); });
+    intType->impls[subTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateSub(lhs, rhs); });
+    intType->impls[divTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateSDiv(lhs, rhs); });
+    intType->impls[remTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateSRem(lhs, rhs); });
+
+    floatType->impls[addTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFAdd(lhs, rhs); });
+    floatType->impls[mulTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFMul(lhs, rhs); });
+    floatType->impls[subTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFSub(lhs, rhs); });
+    floatType->impls[divTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFDiv(lhs, rhs); });
+    floatType->impls[remTrait] = std::make_unique<BinaryTrait>
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFRem(lhs, rhs); });
   }
 
   std::shared_ptr<Var> &ParseContext::introduce(const std::string &name, PType &&type) {
@@ -539,18 +580,49 @@ namespace ast {
         CType::getAndUnify(argType, intType);
         return intType;
       }
+      case Tok::TOr2:
+      case Tok::TAnd2: {
+        TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+        CType::getAndUnify(argType, boolType);
+        return boolType;
+      }
       case Tok::TNe:
       case Tok::TEq2:
       case Tok::TEq:
       case Tok::TLt:
       case Tok::TGt:
       case Tok::TLe:
-      case Tok::TGe:
-      case Tok::TOr2:
-      case Tok::TAnd2:
+      case Tok::TGe: {
+        TPtr cmp = ctx.tc.fresh();
+        std::get<0>(cmp->value).traits.insert(ctx.cmpTrait);
+        CType::getAndUnify(argType, cmp);
         return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-      default:
+      }
+      default: {
+        TPtr trait = ctx.tc.fresh();
+        auto &traits = std::get<0>(trait->value).traits;
+        for (auto &rhs : terms) {
+          switch (rhs.operatorToken.type) {
+            case Tok::TAdd:
+              traits.insert(ctx.addTrait);
+              break;
+            case Tok::TSub:
+              traits.insert(ctx.subTrait);
+              break;
+            case Tok::TMul:
+              traits.insert(ctx.mulTrait);
+              break;
+            case Tok::TDiv:
+              traits.insert(ctx.divTrait);
+              break;
+            default: // Tok::TRem
+              traits.insert(ctx.remTrait);
+              break;
+          }
+        }
+        CType::getAndUnify(argType, trait);
         return argType;
+      }
     }
   }
   llvm::Value *BinaryExpr::compileExpr(CompileContext &ctx, Position pos) {

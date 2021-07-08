@@ -37,12 +37,22 @@ namespace ast {
   class ParseContext {
   public:
     type::TypeContext &tc;
+
     std::shared_ptr<type::BaseType> funcType;
     std::shared_ptr<type::BaseType> unitType;
     std::shared_ptr<type::BaseType> intType;
     std::shared_ptr<type::BaseType> floatType;
     std::shared_ptr<type::BaseType> boolType;
     std::shared_ptr<type::BaseType> stringType;
+
+    std::shared_ptr<type::Trait> addTrait;
+    std::shared_ptr<type::Trait> mulTrait;
+    std::shared_ptr<type::Trait> subTrait;
+    std::shared_ptr<type::Trait> divTrait;
+    std::shared_ptr<type::Trait> remTrait;
+
+    std::shared_ptr<type::Trait> cmpTrait;
+
     std::deque<Scope> scopes;
 
     std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);

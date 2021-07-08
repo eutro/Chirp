@@ -26,9 +26,24 @@ namespace type {
     friend std::ostream &operator<<(std::ostream &os, const Name &n);
   };
 
+  class Trait {
+  public:
+    std::string name;
+    Trait(const std::string &name);
+    virtual ~Trait() = default;
+
+    friend std::ostream &operator<<(std::ostream &os, const Trait &t);
+  };
+
+  class TraitImpl {
+  public:
+    virtual ~TraitImpl() = default;
+  };
+
   class BaseType {
   public:
     std::string name;
+    std::map<std::shared_ptr<Trait>, std::unique_ptr<TraitImpl>> impls;
     BaseType(const std::string &name);
     friend std::ostream &operator<<(std::ostream &os, const BaseType &b);
   };
@@ -52,6 +67,8 @@ namespace type {
        * Uncompressed path for temporary replacements
        */
       TPtr weakParent;
+
+      std::set<std::shared_ptr<Trait>> traits;
 
       bool operator<(const Named &rhs) const;
     };
