@@ -6,9 +6,18 @@ defn two<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(x))
 
 defn three<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(f(x)))
 
+defn inc<T>(n: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
+  = \f.\x.f(n(f)(x))
+
+defn dec<T, F>(n: fn<F, F>): fn<fn<T, T>, fn<T, T>>
+  = \f.\x.n(\g.\h.h(g(f)))(\u.x)(\x.x)
+
 defn add<T>(a: fn<fn<T, T>, fn<T, T>>,
             b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
   = \f.\x.a(f)(b(f)(x))
+
+defn sub<T>(a, b): fn<fn<T, T>, fn<T, T>>
+  = b(dec)(a)
 
 defn mul<T>(a: fn<fn<T, T>, fn<T, T>>,
             b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
@@ -29,4 +38,4 @@ defn seven<T>(f: fn<T, T>): fn<T, T> = add(three, four)(f)
 
 defn church2int(n) = n(\x.x + 1)(0)
 
-church2int(mul(two, pow(three, two)))
+church2int(dec(mul(two, pow(three, two))))
