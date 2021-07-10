@@ -21,7 +21,7 @@ target_link_libraries(lexer fsm)
 
 add_library(err Err.cc)
 
-add_library(ast Ast.cc Type.cc AstPrint.cc)
+add_library(ast Type.cc AstCodegen.cc AstPrint.cc AstInfer.cc Ast.cc)
 target_link_libraries(ast lexer err)
 target_link_libraries(ast ${llvm_libs})
 
