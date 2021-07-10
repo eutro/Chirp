@@ -93,16 +93,23 @@ namespace ast {
   }
 
   TPtr NamedType::get(ParseContext &ctx) const {
-    std::shared_ptr<type::BaseType> &base = ctx.lookupType(raw.ident.value);
+    auto &found = ctx.lookupType(raw.ident.value);
     if (parameters) {
       std::vector<TPtr> typeParams(parameters->types.size());
       size_t i = 0;
       for (const auto &param : parameters->types) {
         typeParams[i++] = param->get(ctx);
       }
-      return ctx.tc.push(CType::aggregate(base, std::move(typeParams)));
+      if (found.index() != 0) {
+        throw std::runtime_error("Names a non-generic type");
+      }
+      return ctx.tc.push(CType::aggregate(std::get<0>(found), std::move(typeParams)));
     } else {
-      return ctx.tc.push(CType::aggregate(base, {}));
+      if (found.index() == 0) {
+        return ctx.tc.push(CType::aggregate(std::get<0>(found), {}));
+      } else {
+        return std::get<1>(found);
+      }
     }
   }
 
@@ -185,7 +192,7 @@ namespace ast {
     throw std::runtime_error("Undefined");
   }
 
-  std::shared_ptr<type::BaseType> &ParseContext::lookupType(const std::string &name) {
+  std::variant<std::shared_ptr<type::BaseType>, TPtr> &ParseContext::lookupType(const std::string &name) {
     for (auto it = typeScopes.rbegin(); it != typeScopes.rend(); ++it) {
       auto found = it->bindings.find(name);
       if (found != it->bindings.end()) {
@@ -321,6 +328,7 @@ namespace ast {
   }
 
   TPtr inferFuncType(ParseContext &ctx,
+                     const std::optional<Binding::TypeArguments> &typeArguments,
                      std::vector<RawBinding> &bindings,
                      const std::optional<TypeHint> &returnHint,
                      Identifier *name,
@@ -328,6 +336,16 @@ namespace ast {
                      std::set<std::shared_ptr<Var>> &closed,
                      std::unique_ptr<Expr> &value) {
     TPtr inferred;
+    if (typeArguments) {
+      ctx.typeScopes.emplace_back();
+      auto &typeBindings = ctx.typeScopes.back().bindings;
+      for (const auto &ident : typeArguments->idents) {
+        if (typeBindings.count(ident.ident.value)) {
+          throw std::runtime_error("Name already bound");
+        }
+        typeBindings[ident.ident.value] = ctx.tc.fresh();
+      }
+    }
     ctx.scopes.emplace_back();
     size_t oldSize = ctx.tc.bound.size();
     std::vector<TPtr> params(bindings.size() + 1, nullptr);
@@ -345,6 +363,9 @@ namespace ast {
     ctx.tc.bound.resize(oldSize);
     closed = std::move(ctx.scopes.back().referenced);
     ctx.scopes.pop_back();
+    if (typeArguments) {
+      ctx.typeScopes.pop_back();
+    }
     return inferred;
   }
   llvm::Value *compileFunc(CompileContext &ctx,
@@ -623,10 +644,7 @@ namespace ast {
     }
     switch (terms[0].operatorToken.type) {
       case Tok::TOr1:
-      case Tok::TAnd1:
-      case Tok::TShLeft:
-      case Tok::TShRight2:
-      case Tok::TShRight3: {
+      case Tok::TAnd1: {
         TPtr intType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
         CType::getAndUnify(ctx.tc, argType, intType);
         return intType;
@@ -728,7 +746,6 @@ namespace ast {
       }
       default: {
         // Tok::TOr1, Tok::TAnd1
-        // Tok::TShLeft, Tok::TShRight2, Tok::TShRight3
         // Tok::TAdd, Tok::TSub
         // Tok::TMul, Tok::TDiv, Tok::TRem
         for (const auto &rhs : terms) {
@@ -740,15 +757,6 @@ namespace ast {
               break;
             case Tok::TAnd1:
               opc = llvm::Instruction::And;
-              break;
-            case Tok::TShLeft:
-              opc = llvm::Instruction::Shl;
-              break;
-            case Tok::TShRight2:
-              opc = llvm::Instruction::AShr;
-              break;
-            case Tok::TShRight3:
-              opc = llvm::Instruction::LShr;
               break;
             case Tok::TAdd:
               opc = isInt ? llvm::Instruction::Add : llvm::Instruction::FAdd;
@@ -819,14 +827,21 @@ namespace ast {
   }
 
   TPtr FnExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments.bindings, typeHint, name ? &*name : nullptr, &recurVar, closed, body);
+    return inferFuncType(ctx,
+                         arguments.typeArguments,
+                         arguments.bindings,
+                         typeHint,
+                         name ? &*name : nullptr,
+                         &recurVar,
+                         closed,
+                         body);
   }
   llvm::Value *FnExpr::compileExpr(CompileContext &ctx, Position pos) {
     return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "", closed, *body);
   }
 
   TPtr LambdaExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments, std::nullopt, nullptr, nullptr, closed, body);
+    return inferFuncType(ctx, std::nullopt, arguments, std::nullopt, nullptr, nullptr, closed, body);
   }
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
     return compileFunc(ctx, type, arguments, nullptr, "", closed, *body);
@@ -837,19 +852,21 @@ namespace ast {
     if (value) {
       if (arguments) {
         inferred = inferFuncType(ctx,
+                                 arguments->typeArguments,
                                  arguments->bindings,
                                  typeHint,
                                  &name,
                                  &arguments->recurVar,
                                  arguments->closed,
                                  value);
+        var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
       } else {
         inferred = value->inferExpr(ctx, Position::Expr);
         if (typeHint) {
           CType::getAndUnify(ctx.tc, inferred, typeHint->type->get(ctx));
         }
+        var = ctx.introduce(name.ident.value, inferred);
       }
-      var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
     } else {
       if (arguments) {
         std::vector<TPtr> params(arguments->bindings.size() + 1);
@@ -862,7 +879,7 @@ namespace ast {
       } else {
         inferred = maybeHinted(ctx, typeHint);
       }
-      // don't generalise FFI types
+      // don't generalise FFI functions
       var = ctx.introduce(name.ident.value, inferred);
     }
     return var->type;
@@ -917,6 +934,14 @@ namespace ast {
       };
       return;
     }
+    
+    if (var->type->bound.empty()) {
+      llvm::Value *varValue = compileExpr(ctx, var->type->type);
+      var->emit = [varValue](ast::CompileContext &, ast::TPtr) {
+        return varValue;
+      };
+      return;
+    }
 
     llvm::Function *function = ctx.builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *instsBlock = llvm::BasicBlock::Create(ctx.ctx, "insts");
@@ -967,8 +992,13 @@ namespace ast {
   }
   llvm::Value *Binding::compileExpr(CompileContext &ctx, TPtr instType) {
     if (arguments) {
-      return compileFunc(ctx, instType, arguments->bindings, arguments->recurVar.get(), name.ident.value,
-                         arguments->closed, *value);
+      return compileFunc(ctx, 
+                         instType, 
+                         arguments->bindings, 
+                         arguments->recurVar.get(),
+                         name.ident.value,
+                         arguments->closed,
+                         *value);
     } else {
       return value->compileExpr(ctx, Position::Expr);
     }

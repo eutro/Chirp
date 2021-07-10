@@ -197,6 +197,13 @@ namespace ast {
     return os;
   }
 
+  std::ostream &operator<<(std::ostream &os, const Binding::TypeArguments &arguments) {
+    os << "(TypeArguments " << arguments.openToken << " ";
+    printMulti(os, arguments.idents, arguments.commas);
+    os << " " << arguments.closeToken << ")";
+    return os;
+  }
+
   std::ostream &operator<<(std::ostream &os, const TypeHint &hint) {
     os << "(TypeHint " << hint.colon << " " << hint.type << ")";
     return os;

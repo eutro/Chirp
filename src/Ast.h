@@ -37,7 +37,7 @@ namespace ast {
 
   class TypeScope {
   public:
-    std::map<std::string, std::shared_ptr<type::BaseType>> bindings;
+    std::map<std::string, std::variant<std::shared_ptr<type::BaseType>, TPtr>> bindings;
   };
 
   class ParseContext {
@@ -65,7 +65,7 @@ namespace ast {
     std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);
     std::shared_ptr<Var> &lookup(const std::string &name);
 
-    std::shared_ptr<type::BaseType> &lookupType(const std::string &name);
+    std::variant<std::shared_ptr<type::BaseType>, TPtr> &lookupType(const std::string &name);
 
     ParseContext(type::TypeContext &tc);
   };
@@ -206,10 +206,20 @@ namespace ast {
     std::map<TPtr, llvm::Value *, type::CompareType> insts;
     Identifier name;
 
+    struct TypeArguments {
+      Token openToken;
+      std::vector<Identifier> idents;
+      std::vector<Token> commas;
+      Token closeToken;
+
+      friend std::ostream &operator<<(std::ostream &os, const TypeArguments &arguments);
+    };
+
     struct Arguments {
       std::shared_ptr<Var> recurVar;
       std::set<std::shared_ptr<Var>> closed;
 
+      std::optional<TypeArguments> typeArguments;
       Token openToken;
       std::vector<RawBinding> bindings;
       std::vector<Token> commas;

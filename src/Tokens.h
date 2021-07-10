@@ -38,9 +38,6 @@ namespace ast {
     TOr2,
     TAnd1,
     TAnd2,
-    TShLeft,
-    TShRight2,
-    TShRight3,
     TAdd,
     TSub,
     TMul,
@@ -87,9 +84,6 @@ namespace ast {
   {ast::Tok::TOr2, "\\|\\|"},\
   {ast::Tok::TAnd1, "&"},\
   {ast::Tok::TAnd2, "&&"},\
-  {ast::Tok::TShLeft, "<<"},\
-  {ast::Tok::TShRight2, ">>"},\
-  {ast::Tok::TShRight3, ">>>"},\
   {ast::Tok::TAdd, "\\+"},\
   {ast::Tok::TSub, "-"},\
   {ast::Tok::TMul, "\\*"},\

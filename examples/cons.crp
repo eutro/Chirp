@@ -1,5 +1,5 @@
-defn cons(x, y) = // this is a comment
-  fn(f) = f(x, y)
+defn cons<A, B, C>(x: A, y: B) = // this is a comment
+  fn(f: fn<A, B, C>): C = f(x, y)
 
 defn car(pair) = pair(\x,y.x)
 

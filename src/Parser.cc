@@ -246,6 +246,26 @@ namespace parser {
 
   Binding::Arguments parseArgs(Token &&openToken, ParserStream &stream) {
     Binding::Arguments args;
+    if (openToken.type == Tok::TLt) {
+      Binding::TypeArguments typeArgs;
+      typeArgs.openToken = std::move(openToken);
+      while (true) {
+        auto closeToken = stream.optional(Tok::TGt);
+        if (closeToken) {
+          typeArgs.closeToken = std::move(*closeToken);
+          break;
+        }
+        typeArgs.idents.push_back(parseIdent(stream));
+        auto comma = stream.optional(Tok::TComma);
+        if (!comma) {
+          typeArgs.closeToken = stream.require(Tok::TGt, "> or , expected");
+          break;
+        }
+        typeArgs.commas.push_back(std::move(*comma));
+      }
+      args.typeArguments = std::move(typeArgs);
+      openToken = stream.require(Tok::TParOpen, "( expected");
+    }
     args.openToken = std::move(openToken);
     while (true) {
       auto closeToken = stream.optional(Tok::TParClose);
@@ -268,7 +288,7 @@ namespace parser {
     Binding binding;
     binding.name = parseIdent(stream);
     binding.span.lo = binding.name.ident.loc;
-    auto openToken = stream.optional(Tok::TParOpen);
+    auto openToken = stream.optional({Tok::TParOpen, Tok::TLt});
     if (openToken) {
       binding.arguments = parseArgs(std::move(*openToken), stream);
     }
@@ -432,7 +452,7 @@ namespace parser {
         expr.fnToken = std::move(*token);
         expr.span.lo = expr.fnToken.loc;
         expr.name = maybeParseIdent(stream);
-        expr.arguments = parseArgs(stream.require(Tok::TParOpen, "( expected"), stream);
+        expr.arguments = parseArgs(stream.require({Tok::TParOpen, Tok::TLt}, "( or < expected"), stream);
         expr.typeHint = parseTypeHint(stream);
         expr.eqToken = stream.require(Tok::TEq, "= expected");
         expr.body = parseExpr(stream);
@@ -565,7 +585,6 @@ namespace parser {
       {Tok::TNe,     Tok::TEq,       Tok::TEq2},
       {Tok::TLt,     Tok::TLe,       Tok::TGt, Tok::TGe},
       {Tok::TOr1,    Tok::TAnd1},
-      {Tok::TShLeft, Tok::TShRight2, Tok::TShRight3},
       {Tok::TAdd,    Tok::TSub},
       {Tok::TMul,    Tok::TDiv,      Tok::TRem}
   };

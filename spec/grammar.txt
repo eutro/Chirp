@@ -6,7 +6,9 @@ Defn ::= 'defn' Binding
 
 Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
 
-Arguments ::= ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
+Arguments ::= TypeArguments? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
+
+TypeArguments ::= '<' Identifier ( ',' Identifier )* ','> '>'
 
 RawBinding ::= Identifier TypeHint?
 

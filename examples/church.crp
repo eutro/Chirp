@@ -1,17 +1,32 @@
-defn zero(f) = fn(x) = x
+defn zero<T>(f: fn<T, T>): fn<T, T> = fn(x) = x
 
-defn one(f) = fn(x) = f(x)
+defn one<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(x)
 
-defn two(f) = fn(x) = f(f(x))
+defn two<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(x))
 
-defn three(f) = fn(x) = f(f(f(x)))
+defn three<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(f(x)))
 
-defn add(a, b) = \f.\x.a(f)(b(f)(x))
+defn add<T>(a: fn<fn<T, T>, fn<T, T>>,
+            b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
+  = \f.\x.a(f)(b(f)(x))
 
-defn mul(a, b) = \f.\x.a(b(f))(x)
+defn mul<T>(a: fn<fn<T, T>, fn<T, T>>,
+            b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
+  = \f.\x.a(b(f))(x)
 
-defn pow(a, b) = \f.\x.a(b)(f)(x)
+defn pow<T>(a: fn<fn<T, T>, fn<T, T>>,
+            b: fn<fn<fn<T, T>, fn<T, T>>,
+                  fn<fn<T, T>, fn<T, T>>>): fn<fn<T, T>, fn<T, T>>
+  = b(a)
+
+defn four<T>(f: fn<T, T>): fn<T, T> = pow(two, two)(f)
+
+defn five<T>(f: fn<T, T>): fn<T, T> = add(two, three)(f)
+
+defn six<T>(f: fn<T, T>): fn<T, T> = mul(two, three)(f)
+
+defn seven<T>(f: fn<T, T>): fn<T, T> = add(three, four)(f)
 
 defn church2int(n) = n(\x.x + 1)(0)
 
-church2int(mul(two, pow(three, three)))
+church2int(mul(two, pow(three, two)))

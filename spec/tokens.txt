@@ -41,10 +41,6 @@ TOr2 ::= '||'
 TAnd1 ::= '&'
 TAnd2 ::= '&&'
 
-TShLeft ::= '<<'
-TShRight2 ::= '>>'
-TShRight3 ::= '>>>'
-
 TAdd ::= '+'
 TSub ::= '-'
 TMul ::= '*'
