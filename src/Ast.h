@@ -35,10 +35,14 @@ namespace ast {
     std::set<std::shared_ptr<Var>> referenced;
   };
 
+  class TypeScope {
+  public:
+    std::map<std::string, std::shared_ptr<type::BaseType>> bindings;
+  };
+
   class ParseContext {
   public:
     type::TypeContext &tc;
-    err::ErrorContext ec;
 
     std::shared_ptr<type::BaseType> funcType;
     std::shared_ptr<type::BaseType> unitType;
@@ -56,9 +60,12 @@ namespace ast {
     std::shared_ptr<type::Trait> cmpTrait;
 
     std::deque<Scope> scopes;
+    std::deque<TypeScope> typeScopes;
 
     std::shared_ptr<Var> &introduce(const std::string &name, PType &&type);
     std::shared_ptr<Var> &lookup(const std::string &name);
+
+    std::shared_ptr<type::BaseType> &lookupType(const std::string &name);
 
     ParseContext(type::TypeContext &tc);
   };
@@ -120,6 +127,8 @@ namespace ast {
 
     virtual ~Type() = default;
 
+    virtual TPtr get(ParseContext &ctx) const = 0;
+
     virtual void print(std::ostream &os) const = 0;
     friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Type> &statement);
   };
@@ -128,6 +137,7 @@ namespace ast {
   public:
     Token placeholder;
 
+    TPtr get(ParseContext &ctx) const override;
     void print(std::ostream &os) const override;
   };
 
@@ -146,6 +156,7 @@ namespace ast {
 
     std::optional<TypeParameters> parameters;
 
+    TPtr get(ParseContext &ctx) const override;
     void print(std::ostream &os) const override;
   };
 
@@ -303,6 +314,7 @@ namespace ast {
     Token fnToken;
     std::optional<Identifier> name;
     Binding::Arguments arguments;
+    std::optional<TypeHint> typeHint;
     Token eqToken;
 
     std::unique_ptr<Expr> body;

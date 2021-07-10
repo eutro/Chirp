@@ -53,7 +53,7 @@ namespace ast {
 
 #define TOKEN_PATTERNS {\
   {ast::Tok::TWhitespace, "[ \\t\\v\\f\\r]+"},\
-  {ast::Tok::TBlockComment, "/\\*.*\\*/"},\
+  {ast::Tok::TBlockComment, "/\\*([^*]|\\*[^/])*\\*/"},\
   {ast::Tok::TLineComment, "//[^\\n]*"},\
   {ast::Tok::TLinebreak, "[ \\t\\v\\f\\r]*\\n"},\
   {ast::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},\

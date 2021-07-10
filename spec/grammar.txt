@@ -50,7 +50,7 @@ LiteralExpr ::= TStr | TInt | TFloat | TTrue | TFalse
 
 DelimitedExpr ::= BlockExpr | BracketExpr
 
-BlockExpr ::= '{' ( Statement (','|'\n') )* Expr '}'
+BlockExpr ::= '{' ( ( Statement (','|'\n') )* Expr )? '}'
 
 BracketExpr ::= '(' Expr ')'
 

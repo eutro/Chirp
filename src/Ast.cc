@@ -88,6 +88,24 @@ namespace ast {
     ctx.builder.CreateRet(llvm::ConstantInt::get(ctx.ctx, llvm::APInt(32, 0, true)));
   }
 
+  TPtr PlaceholderType::get(ParseContext &ctx) const {
+    return ctx.tc.fresh();
+  }
+
+  TPtr NamedType::get(ParseContext &ctx) const {
+    std::shared_ptr<type::BaseType> &base = ctx.lookupType(raw.ident.value);
+    if (parameters) {
+      std::vector<TPtr> typeParams(parameters->types.size());
+      size_t i = 0;
+      for (const auto &param : parameters->types) {
+        typeParams[i++] = param->get(ctx);
+      }
+      return ctx.tc.push(CType::aggregate(base, std::move(typeParams)));
+    } else {
+      return ctx.tc.push(CType::aggregate(base, {}));
+    }
+  }
+
   class BinaryTrait : public type::TraitImpl {
   public:
     using Fn = std::function<llvm::Value *(CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs)>;
@@ -116,6 +134,16 @@ namespace ast {
 
       cmpTrait(std::make_shared<type::Trait>("Cmp")) {
     scopes.emplace_back();
+    typeScopes.emplace_back();
+    {
+      auto &builtinTypes = typeScopes.back().bindings;
+      builtinTypes["fn"] = funcType;
+      builtinTypes["unit"] = unitType;
+      builtinTypes["int"] = intType;
+      builtinTypes["float"] = floatType;
+      builtinTypes["bool"] = boolType;
+      builtinTypes["string"] = stringType;
+    }
 
     intType->impls[addTrait] = std::make_unique<BinaryTrait>
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateAdd(lhs, rhs); });
@@ -155,6 +183,16 @@ namespace ast {
       }
     }
     throw std::runtime_error("Undefined");
+  }
+
+  std::shared_ptr<type::BaseType> &ParseContext::lookupType(const std::string &name) {
+    for (auto it = typeScopes.rbegin(); it != typeScopes.rend(); ++it) {
+      auto found = it->bindings.find(name);
+      if (found != it->bindings.end()) {
+        return found->second;
+      }
+    }
+    throw std::runtime_error("Undefined type");
   }
 
   CompileContext::CompileContext(llvm::LLVMContext &ctx,
@@ -278,8 +316,13 @@ namespace ast {
                                          llvm::PointerType::getUnqual(type));
   }
 
+  TPtr maybeHinted(ParseContext &ctx, const std::optional<TypeHint> &hint) {
+    return hint ? hint->type->get(ctx) : ctx.tc.fresh();
+  }
+
   TPtr inferFuncType(ParseContext &ctx,
                      std::vector<RawBinding> &bindings,
+                     const std::optional<TypeHint> &returnHint,
                      Identifier *name,
                      std::shared_ptr<Var> *recurVar,
                      std::set<std::shared_ptr<Var>> &closed,
@@ -290,10 +333,10 @@ namespace ast {
     std::vector<TPtr> params(bindings.size() + 1, nullptr);
     size_t i = 0;
     for (auto &rb : bindings) {
-      rb.var = ctx.introduce(rb.name.ident.value, params[i++] = ctx.tc.fresh());
+      rb.var = ctx.introduce(rb.name.ident.value, params[i++] = maybeHinted(ctx, rb.typeHint));
       ctx.tc.bound.push_back(rb.var->type);
     }
-    TPtr retType = params[i] = ctx.tc.fresh();
+    TPtr retType = params[i] = maybeHinted(ctx, returnHint);
     inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
     if (name) {
       *recurVar = ctx.introduce(name->ident.value, inferred);
@@ -503,21 +546,29 @@ namespace ast {
   }
 
   TPtr BlockExpr::inferType(ParseContext &ctx, Position pos) {
-    size_t oldSize = ctx.tc.bound.size();
-    ctx.scopes.emplace_back();
-    for (auto &stmt : statements) {
-      stmt.statement->inferStatement(ctx);
+    if (value) {
+      size_t oldSize = ctx.tc.bound.size();
+      ctx.scopes.emplace_back();
+      for (auto &stmt : statements) {
+        stmt.statement->inferStatement(ctx);
+      }
+      TPtr type = value->inferExpr(ctx, pos);
+      ctx.scopes.pop_back();
+      ctx.tc.bound.resize(oldSize);
+      return type;
+    } else {
+      return ctx.tc.push(CType::aggregate(ctx.unitType, {}));
     }
-    TPtr type = value->inferExpr(ctx, pos);
-    ctx.scopes.pop_back();
-    ctx.tc.bound.resize(oldSize);
-    return type;
   }
   llvm::Value *BlockExpr::compileExpr(CompileContext &ctx, Position pos) {
-    for (const auto &stmt : statements) {
-      stmt.statement->compileStatement(ctx);
+    if (value) {
+      for (const auto &stmt : statements) {
+        stmt.statement->compileStatement(ctx);
+      }
+      return value->compileExpr(ctx, pos);
+    } else {
+      return ctx.unitValue;
     }
-    return value->compileExpr(ctx, pos);
   }
 
   TPtr BracketExpr::inferType(ParseContext &ctx, Position pos) {
@@ -759,22 +810,23 @@ namespace ast {
   }
 
   TPtr HintedExpr::inferType(ParseContext &ctx, Position pos) {
-    // TODO type hints
-    return expr->inferExpr(ctx, pos);
+    TPtr inferred = expr->inferExpr(ctx, pos);
+    CType::getAndUnify(ctx.tc, inferred, hint.type->get(ctx));
+    return inferred;
   }
   llvm::Value *HintedExpr::compileExpr(CompileContext &ctx, Position pos) {
     return expr->compileExpr(ctx, pos);
   }
 
   TPtr FnExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments.bindings, name ? &*name : nullptr, &recurVar, closed, body);
+    return inferFuncType(ctx, arguments.bindings, typeHint, name ? &*name : nullptr, &recurVar, closed, body);
   }
   llvm::Value *FnExpr::compileExpr(CompileContext &ctx, Position pos) {
     return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "", closed, *body);
   }
 
   TPtr LambdaExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, arguments, nullptr, nullptr, closed, body);
+    return inferFuncType(ctx, arguments, std::nullopt, nullptr, nullptr, closed, body);
   }
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
     return compileFunc(ctx, type, arguments, nullptr, "", closed, *body);
@@ -784,20 +836,31 @@ namespace ast {
     TPtr inferred;
     if (value) {
       if (arguments) {
-        inferred = inferFuncType(ctx, arguments->bindings, &name, &arguments->recurVar, arguments->closed, value);
+        inferred = inferFuncType(ctx,
+                                 arguments->bindings,
+                                 typeHint,
+                                 &name,
+                                 &arguments->recurVar,
+                                 arguments->closed,
+                                 value);
       } else {
         inferred = value->inferExpr(ctx, Position::Expr);
+        if (typeHint) {
+          CType::getAndUnify(ctx.tc, inferred, typeHint->type->get(ctx));
+        }
       }
       var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
     } else {
       if (arguments) {
         std::vector<TPtr> params(arguments->bindings.size() + 1);
-        for (auto &param : params) {
-          param = ctx.tc.fresh();
+        size_t i = 0;
+        for (auto &binding : arguments->bindings) {
+          params[i++] = maybeHinted(ctx, binding.typeHint);
         }
+        params[i] = maybeHinted(ctx, typeHint);
         inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
       } else {
-        inferred = ctx.tc.fresh();
+        inferred = maybeHinted(ctx, typeHint);
       }
       // don't generalise FFI types
       var = ctx.introduce(name.ident.value, inferred);

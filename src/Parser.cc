@@ -64,24 +64,32 @@ namespace parser {
     }
 
     template <class Pred>
-    std::optional<Token> optional(const Pred &pred) {
+    std::optional<Token> optional(const Pred &pred, bool consume) {
       for (auto it = lookahead.begin(); it != lookahead.end(); ++it) {
         if (pred(it->type)) {
           lookahead.erase(lookahead.begin(), it);
-          Token tok = std::move(lookahead.front());
-          lookahead.pop_front();
-          lastLoc = tokEnd(tok);
-          return tok;
+          if (consume) {
+            Token tok = std::move(lookahead.front());
+            lookahead.pop_front();
+            lastLoc = tokEnd(tok);
+            return tok;
+          } else {
+            return lookahead.front();
+          }
         }
       }
       while (true) {
         if (iter == end) return std::nullopt;
         if (pred(iter->type)) {
-          Token tok = std::move(*iter);
-          ++iter;
-          lastLoc = tokEnd(tok);
-          lookahead.clear();
-          return tok;
+          if (consume) {
+            Token tok = std::move(*iter);
+            ++iter;
+            lastLoc = tokEnd(tok);
+            lookahead.clear();
+            return tok;
+          } else {
+            return *iter;
+          }
         }
         if (!canSkip(iter->type)) {
           break;
@@ -102,7 +110,7 @@ namespace parser {
 
     std::optional<Token> optional(const std::set<Tok> &types) {
       SetPred pred(types);
-      return optional(pred);
+      return optional(pred, true);
     }
 
     struct SinglePred {
@@ -113,9 +121,14 @@ namespace parser {
       }
     };
 
+    std::optional<Token> peekFor(Tok type) {
+      SinglePred pred(type);
+      return optional(pred, false);
+    }
+
     std::optional<Token> optional(Tok type) {
       SinglePred pred(type);
-      return optional(pred);
+      return optional(pred, true);
     }
     
     struct AlwaysPred {
@@ -126,7 +139,7 @@ namespace parser {
 
     std::optional<Token> skipUntil(const std::set<Tok> types) {
       while (true) {
-        std::optional<Token> tok = optional(AlwaysPred());
+        std::optional<Token> tok = optional(AlwaysPred(), true);
         if (tok) {
           if (types.count(tok->type)) {
             return tok;
@@ -180,7 +193,7 @@ namespace parser {
       return std::make_unique<PlaceholderType>(std::move(type));
     } else {
       NamedType type;
-      type.raw = parseIdent(stream);
+      type.raw = parseIdent(stream.require({Tok::TFn, Tok::TIdent}, "Type name expected"));
       type.span.lo = type.raw.ident.loc;
       auto ltToken = stream.optional(Tok::TLt);
       if (ltToken) {
@@ -295,6 +308,13 @@ namespace parser {
     BlockExpr expr;
     expr.openToken = openToken;
     expr.span.lo = expr.openToken.loc;
+    auto close = stream.optional(Tok::TBrClose);
+    if (close) {
+      expr.value = nullptr;
+      expr.closeToken = std::move(*close);
+      expr.span.hi = tokEnd(expr.closeToken);
+      return std::make_unique<BlockExpr>(std::move(expr));
+    }
 
     do {
       BlockExpr::Stmt stmt;
@@ -413,6 +433,7 @@ namespace parser {
         expr.span.lo = expr.fnToken.loc;
         expr.name = maybeParseIdent(stream);
         expr.arguments = parseArgs(stream.require(Tok::TParOpen, "( expected"), stream);
+        expr.typeHint = parseTypeHint(stream);
         expr.eqToken = stream.require(Tok::TEq, "= expected");
         expr.body = parseExpr(stream);
         expr.span.hi = expr.body->span.hi;
@@ -473,6 +494,9 @@ namespace parser {
 
   std::unique_ptr<Expr> parsePostfixExpr(ParserStream &stream) {
     std::unique_ptr<Expr> expr = parsePrimaryExpr(stream);
+    if (stream.peekFor(Tok::TLinebreak)) {
+      return std::move(expr);
+    }
     auto openToken = stream.optional(Tok::TParOpen);
     while (openToken) {
       FunCallExpr callExpr;
@@ -495,6 +519,9 @@ namespace parser {
       }
       callExpr.span.hi = tokEnd(callExpr.closeToken);
       expr = std::make_unique<FunCallExpr>(std::move(callExpr));
+      if (stream.peekFor(Tok::TLinebreak)) {
+        return std::move(expr);
+      }
       openToken = stream.optional(Tok::TParOpen);
     }
     return expr;

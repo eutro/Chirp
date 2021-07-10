@@ -92,7 +92,8 @@ namespace ast {
     if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << openToken;
     printMulti(os, statements);
-    os << " " << value << " " << closeToken << ")";
+    if (value) os << " " << value;
+    os << " " << closeToken << ")";
   }
 
   void BracketExpr::print(std::ostream &os) const {
@@ -147,7 +148,9 @@ namespace ast {
     if (type) os << "#\"" << *CType::get(type) << "\" ";
     os << fnToken << " ";
     if (name) os << *name << " ";
-    os << arguments << " " << eqToken << " " << body << ")";
+    os << arguments << " ";
+    if (typeHint) os << *typeHint << " ";
+    os << eqToken << " " << body << ")";
   }
 
   void LambdaExpr::print(std::ostream &os) const {

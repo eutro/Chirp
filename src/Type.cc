@@ -14,7 +14,7 @@ namespace type {
        << " because " << error.reason;
     if (error.rootA != error.leafA ||
         error.rootB != error.leafB) {
-      os << " while unifying\n    "
+      os << "\n while unifying\n    "
          << *error.rootA
          << "\n and\n    "
          << *error.rootB;

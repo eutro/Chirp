@@ -1,5 +1,5 @@
 TWhitespace ::= /[ \t\v\f\r]+/
-TBlockComment ::= //\*.*\*//
+TBlockComment ::= //\*([^*]|\*[^/])*\*//
 TLineComment ::= ///[^\n]*/
 TLinebreak ::= /[ \t\v\f\r]*\n/
 

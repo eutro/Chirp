@@ -6,3 +6,9 @@
 
 // ints can't be called
 1(100)
+
+((\x.x): fn<_, int>)(1.0)
+
+defn id(x: int): float = x
+
+defn foo(): int = {}
