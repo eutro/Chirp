@@ -1,2 +1,0 @@
-// Floats can't be bit shifted
-1.0 << 2.0

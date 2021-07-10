@@ -1,0 +1,8 @@
+// Can't add two functions, they don't implement Add
+\x.x + \y.y
+
+// Floats can't be bit shifted
+1.0 << 2.0
+
+// ints can't be called
+1(100)

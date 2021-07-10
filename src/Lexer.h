@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Loc.h"
 #include "NFA.h"
 #include "DFA.h"
 #include "RegEx.h"
@@ -11,25 +12,7 @@
 #include <optional>
 
 namespace lexer {
-  /**
-   * Represents a location in a file or string.
-   */
-  class SrcLoc {
-  public:
-    /**
-     * The line number. Starts at 1.
-     */
-    size_t line;
-    /**
-     * The column number. Starts at 0.
-     */
-    size_t col;
-
-    SrcLoc();
-    SrcLoc(size_t line, size_t col);
-    friend std::ostream &operator<<(std::ostream &os, const SrcLoc &loc);
-    void add(const std::string &s);
-  };
+  using namespace loc;
 
   /**
    * A token lexed from a stream.

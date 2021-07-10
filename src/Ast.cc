@@ -196,19 +196,19 @@ namespace ast {
     bool isStatement = pos == Position::Statement || !elseClause;
 
     TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-    CType::getAndUnify(boolType, predExpr->inferExpr(ctx, Position::Expr));
+    CType::getAndUnify(ctx.tc, boolType, predExpr->inferExpr(ctx, Position::Expr));
     TPtr thenType = thenExpr->inferExpr(ctx, pos);
     TPtr type = isStatement ? ctx.tc.push(CType::aggregate(ctx.unitType, {})) : thenType;
     for (auto &clause : elseIfClauses) {
-      CType::getAndUnify(boolType, clause.predExpr->inferExpr(ctx, Position::Expr));
+      CType::getAndUnify(ctx.tc, boolType, clause.predExpr->inferExpr(ctx, Position::Expr));
       TPtr elseIfType = clause.thenExpr->inferExpr(ctx, pos);
       if (!isStatement) {
-        CType::getAndUnify(type, elseIfType);
+        CType::getAndUnify(ctx.tc, type, elseIfType);
       }
     }
     TPtr elseType = elseClause->thenExpr->inferExpr(ctx, pos);
     if (!isStatement) {
-      CType::getAndUnify(type, elseType);
+      CType::getAndUnify(ctx.tc, type, elseType);
     }
     return type;
   }
@@ -298,7 +298,7 @@ namespace ast {
     if (name) {
       *recurVar = ctx.introduce(name->ident.value, inferred);
     }
-    CType::getAndUnify(value->inferExpr(ctx, Position::Expr), retType);
+    CType::getAndUnify(ctx.tc, value->inferExpr(ctx, Position::Expr), retType);
     ctx.tc.bound.resize(oldSize);
     closed = std::move(ctx.scopes.back().referenced);
     ctx.scopes.pop_back();
@@ -463,7 +463,7 @@ namespace ast {
       TPtr funcType = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(args)));
       ctx.scopes.emplace_back();
       nameVar = ctx.introduce(name->ident.value, funcType);
-      CType::getAndUnify(body->inferExpr(ctx, pos), type);
+      CType::getAndUnify(ctx.tc, body->inferExpr(ctx, pos), type);
       closed = std::move(ctx.scopes.back().referenced);
       for (const auto &b : bindings) {
         closed.erase(b.var);
@@ -568,7 +568,7 @@ namespace ast {
   TPtr BinaryExpr::inferType(ParseContext &ctx, Position pos) {
     TPtr argType = lhs->inferExpr(ctx, Position::Expr);
     for (auto &rhs : terms) {
-      CType::getAndUnify(argType, rhs.expr->inferExpr(ctx, Position::Expr));
+      CType::getAndUnify(ctx.tc, argType, rhs.expr->inferExpr(ctx, Position::Expr));
     }
     switch (terms[0].operatorToken.type) {
       case Tok::TOr1:
@@ -577,13 +577,13 @@ namespace ast {
       case Tok::TShRight2:
       case Tok::TShRight3: {
         TPtr intType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
-        CType::getAndUnify(argType, intType);
+        CType::getAndUnify(ctx.tc, argType, intType);
         return intType;
       }
       case Tok::TOr2:
       case Tok::TAnd2: {
         TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-        CType::getAndUnify(argType, boolType);
+        CType::getAndUnify(ctx.tc, argType, boolType);
         return boolType;
       }
       case Tok::TNe:
@@ -595,7 +595,7 @@ namespace ast {
       case Tok::TGe: {
         TPtr cmp = ctx.tc.fresh();
         std::get<0>(cmp->value).traits.insert(ctx.cmpTrait);
-        CType::getAndUnify(argType, cmp);
+        CType::getAndUnify(ctx.tc, argType, cmp);
         return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
       }
       default: {
@@ -620,7 +620,7 @@ namespace ast {
               break;
           }
         }
-        CType::getAndUnify(argType, trait);
+        CType::getAndUnify(ctx.tc, argType, trait);
         return argType;
       }
     }
@@ -746,7 +746,7 @@ namespace ast {
     }
     TPtr type = ctx.tc.fresh();
     argTypes[i] = type;
-    CType::getAndUnify(funcType, ctx.tc.push(CType::aggregate(ctx.funcType, std::move(argTypes))));
+    CType::getAndUnify(ctx.tc, funcType, ctx.tc.push(CType::aggregate(ctx.funcType, std::move(argTypes))));
     return type;
   }
   llvm::Value *FunCallExpr::compileExpr(CompileContext &ctx, Position pos) {
@@ -870,13 +870,13 @@ namespace ast {
       TPtr thisType = CType::get(this->var->type->type);
       CType::getFree(thisType, [&subs, &ctx](const TPtr &t) { subs[t] = ctx.pc.tc.fresh(); });
       TPtr instType = CType::replace(thisType, ctx.pc.tc, subs);
-      CType::getAndUnify(type, instType);
+      CType::getAndUnify(ctx.pc.tc, type, instType);
       TPtr unitType = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
       for (const auto &sub : subs) {
         TPtr target = CType::get(sub.second);
         if (target->value.index() == 0) {
           // unbounded type
-          CType::unify(target, unitType);
+          CType::unify(ctx.pc.tc, target, unitType);
         }
         std::get<0>(sub.first->value).weakParent = target;
       }

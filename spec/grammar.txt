@@ -1,4 +1,4 @@
-Program ::= Statement*
+Program ::= ( Statement ( (','|'\n') Statement )* )?
 
 Statement ::= Defn | Expr
 

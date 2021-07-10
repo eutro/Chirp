@@ -3,6 +3,7 @@
 #include "Lexer.h"
 #include "Type.h"
 #include "Tokens.h"
+#include "Err.h"
 
 #include <functional>
 #include <llvm/IR/IRBuilder.h>
@@ -37,6 +38,7 @@ namespace ast {
   class ParseContext {
   public:
     type::TypeContext &tc;
+    err::ErrorContext ec;
 
     std::shared_ptr<type::BaseType> funcType;
     std::shared_ptr<type::BaseType> unitType;
@@ -95,6 +97,8 @@ namespace ast {
 
   class Statement {
   public:
+    loc::Span span;
+
     virtual ~Statement() = default;
 
     virtual void inferStatement(ParseContext &ctx) = 0;
@@ -112,6 +116,8 @@ namespace ast {
 
   class Type {
   public:
+    loc::Span span;
+
     virtual ~Type() = default;
 
     virtual void print(std::ostream &os) const = 0;
@@ -183,6 +189,8 @@ namespace ast {
 
   class Binding {
   public:
+    loc::Span span;
+
     std::shared_ptr<Var> var;
     std::map<TPtr, llvm::Value *, type::CompareType> insts;
     Identifier name;
@@ -226,6 +234,7 @@ namespace ast {
   class Program {
   public:
     std::vector<std::unique_ptr<Statement>> statements;
+    std::vector<Token> delimiters;
 
     friend std::ostream &operator<<(std::ostream &os, const Program &program);
     void inferTypes(ParseContext &ctx);

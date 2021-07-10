@@ -2,6 +2,26 @@
 #include <sstream>
 
 namespace type {
+  TypeError::TypeError(const TPtr &leafA, const TPtr &leafB,
+                       const std::string &reason,
+                       const TPtr &rootA, const TPtr &rootB)
+      : leafA(leafA), leafB(leafB), reason(reason), rootA(rootA), rootB(rootB) {}
+  std::ostream &operator<<(std::ostream &os, const TypeError &error) {
+    os << "Could not unify\n  "
+       << *error.leafA
+       << "\n and\n  "
+       << *error.leafB << "\n"
+       << " because " << error.reason;
+    if (error.rootA != error.leafA ||
+        error.rootB != error.leafB) {
+      os << " while unifying\n    "
+         << *error.rootA
+         << "\n and\n    "
+         << *error.rootB;
+    }
+    return os;
+  }
+
   Name::Name(size_t index) : index(index) {}
   bool Name::operator<(const Name &o) const { return index < o.index; }
   bool Name::operator==(const Name &o) const { return index == o.index; }
@@ -31,6 +51,7 @@ namespace type {
       .name = name,
       .size = 1,
       .parent = nullptr,
+      .weakParent = nullptr,
   }) {}
 
   Type Type::named(Name &&name) {
@@ -128,28 +149,15 @@ namespace type {
     }
   }
 
-  TypeError::TypeError(const std::string &message) :
-      runtime_error(message) {}
-
-  TypeError typeError(Type &base, Type &other,
-                      const std::string &reason) {
-    std::stringstream buf;
-    buf << "Could not unify\n    "
-        << base
-        << "\n   and\n    "
-        << other << "\n"
-        << "   because " << reason;
-    return TypeError(buf.str());
-  }
-
-  void Type::unify(TPtr t, TPtr o) {
+  void unify(TypeContext &ctx, TPtr t, TPtr o,
+             TPtr &rootA, TPtr &rootB) {
     if (t == o) {
       return;
     }
     if (t->value.index() == 0) {
-      Named &tn = std::get<0>(t->value);
+      Type::Named &tn = std::get<0>(t->value);
       if (o->value.index() == 0) {
-        Named &on = std::get<0>(o->value);
+        Type::Named &on = std::get<0>(o->value);
         TPtr *min, *max;
         if (tn.size < on.size) {
           min = &t;
@@ -158,8 +166,8 @@ namespace type {
           max = &t;
           min = &o;
         }
-        Named &mxv = std::get<0>((*max)->value);
-        Named &mnv = std::get<0>((*min)->value);
+        Type::Named &mxv = std::get<0>((*max)->value);
+        Type::Named &mnv = std::get<0>((*min)->value);
         mxv.size += mnv.size;
         mnv.parent = *max;
         mxv.traits.insert(mnv.traits.begin(), mnv.traits.end());
@@ -167,34 +175,46 @@ namespace type {
         std::set<TPtr> free;
         Type::getFree(o, [&free](TPtr v) { free.insert(v); });
         if (free.count(t)) {
-          throw typeError(*o, *t, "it would create a recursive type");
+          ctx.errors.emplace_back(t, o, "it would create a recursive type", rootA, rootB);
+          return;
         }
-        Aggregate aggr = std::get<1>(o->value);
+        Type::Aggregate aggr = std::get<1>(o->value);
         for (const auto &trait : tn.traits) {
           if (!aggr.base->impls.count(trait)) {
-            throw typeError(*o, *t, "trait '" + trait->name + "' is not implemented");
+            ctx.errors.emplace_back(t, o, "trait '" + trait->name + "' is not implemented", rootA, rootB);
+            return;
           }
         }
         tn.parent = o;
       }
     } else if (o->value.index() == 0) {
-      Type::unify(o, t);
+      unify(ctx, o, t, o, t);
     } else {
-      Aggregate &ta = std::get<1>(t->value);
-      Aggregate &oa = std::get<1>(o->value);
+      Type::Aggregate &ta = std::get<1>(t->value);
+      Type::Aggregate &oa = std::get<1>(o->value);
       if (ta.base != oa.base) {
-        throw typeError(*o, *t, "the base types are different");
+        ctx.errors.emplace_back(t, o, "the base types are different", rootA, rootB);
+        return;
       } else {
         if (ta.values.size() != oa.values.size()) {
-          throw typeError(*o, *t, "the number of parameters is different");
+          ctx.errors.emplace_back(t, o, "the number of parameters is different", rootA, rootB);
+          return;
         }
         auto ti = ta.values.begin();
         auto oi = oa.values.begin();
         for (; ti != ta.values.end(); ++ti, ++oi) {
-          getAndUnify(*ti, *oi);
+          unify(ctx, Type::get(*ti), Type::get(*oi), rootA, rootB);
         }
       }
     }
+  }
+
+  void Type::unify(TypeContext &ctx, TPtr t, TPtr o) {
+    ::type::unify(ctx, t, o, t, o);
+  }
+
+  void Type::getAndUnify(TypeContext &ctx, TPtr t, TPtr o) {
+    unify(ctx, get(t), get(o));
   }
 
   PolyType::PolyType(TPtr type) : type(type) {}
@@ -273,10 +293,6 @@ namespace type {
 
   bool Type::operator<(const Type &rhs) const {
     return value < rhs.value;
-  }
-
-  void Type::getAndUnify(TPtr t, TPtr o) {
-    unify(get(t), get(o));
   }
 
   bool Type::Aggregate::operator<(const Type::Aggregate &rhs) const {

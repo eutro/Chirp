@@ -4,6 +4,7 @@
 #include <string>
 
 #include "Ast.h"
+#include "Err.h"
 
 template<>
 struct fsm::Finished<ast::Tok> {
@@ -14,15 +15,5 @@ struct fsm::Finished<ast::Tok> {
 namespace parser {
   using namespace ast;
 
-  class ParserStream;
-
-  class ParseError : public std::runtime_error {
-  public:
-    std::string message;
-    lexer::SrcLoc loc;
-
-    ParseError(const std::string &message, const lexer::SrcLoc &loc);
-  };
-
-  Program parseProgram(lexer::TokenIter<Tok> &&tokens);
+  Program parseProgram(err::ErrorContext &ctx, lexer::TokenIter<Tok> &tokens);
 }

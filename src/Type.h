@@ -11,9 +11,19 @@
 #include <functional>
 
 namespace type {
-  class TypeError : public std::runtime_error {
+  class Type;
+  using TPtr = std::shared_ptr<Type>;
+
+  class TypeError {
   public:
-    TypeError(const std::string &message);
+    TPtr leafA, leafB;
+    std::string reason;
+
+    TPtr rootA, rootB;
+
+    TypeError(const TPtr &leafA, const TPtr &leafB, const std::string &reason, const TPtr &rootA, const TPtr &rootB);
+
+    friend std::ostream &operator<<(std::ostream &os, const TypeError &error);
   };
 
   class Name {
@@ -49,10 +59,6 @@ namespace type {
   };
 
   class TypeContext;
-
-  class Type;
-
-  using TPtr = std::shared_ptr<Type>;
 
   class Type {
   public:
@@ -96,8 +102,8 @@ namespace type {
     static TPtr weakGet(TPtr self);
     static TPtr get(TPtr self);
     static TPtr replace(TPtr self, TypeContext &ctx, std::map<TPtr, TPtr> &subs);
-    static void unify(TPtr t, TPtr o);
-    static void getAndUnify(TPtr t, TPtr o);
+    static void unify(TypeContext &ctx, TPtr t, TPtr o);
+    static void getAndUnify(TypeContext &ctx, TPtr t, TPtr o);
 
     bool operator<(const Type &rhs) const;
   };
@@ -119,6 +125,7 @@ namespace type {
   public:
     std::vector<std::shared_ptr<PolyType>> bound;
     size_t counter = 0;
+    std::vector<TypeError> errors;
 
     TPtr push(Type &&type);
     TPtr fresh();
