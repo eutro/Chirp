@@ -21,7 +21,9 @@ namespace type {
 
     TPtr rootA, rootB;
 
-    TypeError(const TPtr &leafA, const TPtr &leafB, const std::string &reason, const TPtr &rootA, const TPtr &rootB);
+    TypeError(const TPtr &leafA, const TPtr &leafB,
+              const std::string &reason,
+              const TPtr &rootA, const TPtr &rootB);
 
     friend std::ostream &operator<<(std::ostream &os, const TypeError &error);
   };
