@@ -13,6 +13,9 @@ namespace ast {
   llvm::Type *toLLVM(CompileContext &ctx, TPtr type) {
     CType &t = *CType::get(type);
     if (t.value.index() == 0) {
+      if (!std::get<0>(t.value).traits.empty()) {
+        throw std::runtime_error("Non-reified type with trait bounds");
+      }
       // Unbounded type
       // This may suggest an infinite loop:
       // e.g. `let in endless { endless() }`
@@ -40,14 +43,15 @@ namespace ast {
    */
   std::pair<llvm::PointerType *, llvm::FunctionType *>
   getFuncType(CompileContext &ctx, TPtr instType) {
-    auto found = ctx.fTypeCache.find(instType);
+    const TPtr &gotten = type::Type::get(instType);
+    auto found = ctx.fTypeCache.find(gotten);
     if (found != ctx.fTypeCache.end()) {
       return {found->second,
-              static_cast<llvm::FunctionType *>(found
-                  ->second
-                  ->getPointerElementType()
-                  ->getStructElementType(0)
-                  ->getPointerElementType())};
+              llvm::cast<llvm::FunctionType>(found
+                                                 ->second
+                                                 ->getPointerElementType()
+                                                 ->getStructElementType(1)
+                                                 ->getPointerElementType())};
     }
     CType::Aggregate &aggr = std::get<CType::Aggregate>(CType::get(instType)->value);
     llvm::Type *retType;
@@ -55,7 +59,7 @@ namespace ast {
     ss << *CType::get(instType);
     llvm::StructType *structType = llvm::StructType::create(ctx.ctx, ss.str());
     llvm::PointerType *pointerType = llvm::PointerType::getUnqual(structType);
-    std::vector<llvm::Type *> argTypes(aggr.values.size());
+    llvm::SmallVector<llvm::Type *, 8> argTypes(aggr.values.size());
     argTypes[0] = pointerType;
     for (size_t i = 0; i < aggr.values.size(); ++i) {
       if (i == aggr.values.size() - 1) {
@@ -65,22 +69,37 @@ namespace ast {
       }
     }
     llvm::FunctionType *funcType = llvm::FunctionType::get(retType, argTypes, false);
-    structType->setBody(llvm::PointerType::getUnqual(funcType));
-    ctx.fTypeCache[instType] = pointerType;
+    structType->setBody(llvm::PointerType::getUnqual(ctx.metaFnType),
+                        llvm::PointerType::getUnqual(funcType));
+    ctx.fTypeCache[type::Type::copy(gotten)] = pointerType;
     return {pointerType, funcType};
   }
 
   void Program::compile(CompileContext &ctx) {
-    auto mainType =
-        llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx.ctx), {}, false);
-    auto main =
-        llvm::Function::Create(mainType, llvm::Function::ExternalLinkage, "main", &ctx.module);
-    auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", main);
-    ctx.builder.SetInsertPoint(block);
-    for (auto &stmt : statements) {
-      stmt->compileStatement(ctx);
+    llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+    
+    auto voidThunkTy = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx.ctx), {}, false);
+    auto crpMain = llvm::Function::Create(voidThunkTy, llvm::Function::ExternalLinkage, "crpMain", &ctx.module);
+    crpMain->setGC("shadow-stack");
+    {
+      auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", crpMain);
+      ctx.builder.SetInsertPoint(block);
+      for (auto &stmt : statements) {
+        stmt->compileStatement(ctx);
+      }
+      ctx.builder.CreateRetVoid();
     }
-    ctx.builder.CreateRet(llvm::ConstantInt::get(ctx.ctx, llvm::APInt(32, 0, true)));
+
+    auto mainType = llvm::FunctionType::get(i32Ty, {}, false);
+    auto main = llvm::Function::Create(mainType, llvm::Function::ExternalLinkage, "main", &ctx.module);
+    {
+      auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", main);
+      ctx.builder.SetInsertPoint(block);
+      ctx.builder.CreateCall(voidThunkTy, crpMain);
+      auto collectGarbage = ctx.module.getOrInsertFunction("gcShutdown", voidThunkTy);
+      ctx.builder.CreateCall(collectGarbage);
+      ctx.builder.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
+    }
   }
 
   CompileContext::CompileContext(llvm::LLVMContext &ctx,
@@ -99,6 +118,51 @@ namespace ast {
     auto boolType = llvm::Type::getInt1Ty(ctx);
     transformers[pc.boolType] = [boolType](auto _c, auto _t) { return boolType; };
     // TODO transformers[pc.stringType] = [](auto _c, auto _t) {};
+
+    gcMetaType = llvm::StructType::create(ctx, "GCMeta");
+    visitFnType = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx),
+                                          {
+                                              llvm::Type::getInt8PtrTy(ctx)->getPointerTo(),
+                                              llvm::PointerType::getUnqual(gcMetaType),
+                                          },
+                                          false);
+    metaFnType = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(ctx),
+        {
+            llvm::Type::getInt8PtrTy(ctx),
+            llvm::PointerType::getUnqual(visitFnType),
+        },
+        false
+    );
+    llvm::PointerType *gcMetaFnPtr = llvm::PointerType::getUnqual(metaFnType);
+    gcMetaType->setBody(gcMetaFnPtr);
+
+    {
+      llvm::Function *gcFnMetaFn = llvm::Function::Create(metaFnType, llvm::GlobalValue::ExternalLinkage,
+                                                          "taggedMetaFn", module);
+      llvm::BasicBlock *entry = llvm::BasicBlock::Create(ctx, "entry", gcFnMetaFn);
+      llvm::BasicBlock *thenBlock = llvm::BasicBlock::Create(ctx, "if.then", gcFnMetaFn);
+      llvm::BasicBlock *contBlock = llvm::BasicBlock::Create(ctx, "cont", gcFnMetaFn);
+      builder.SetInsertPoint(entry);
+      llvm::LoadInst *metaFn = builder.CreateLoad(
+          builder.CreatePointerCast(gcFnMetaFn->getArg(0),
+                                    llvm::PointerType::getUnqual(gcMetaFnPtr)));
+      builder.CreateCondBr(builder.CreateIsNotNull(metaFn), thenBlock, contBlock);
+      builder.SetInsertPoint(thenBlock);
+      builder.CreateCall(metaFnType, metaFn, {gcFnMetaFn->getArg(0), gcFnMetaFn->getArg(1)});
+      builder.CreateBr(contBlock);
+      builder.SetInsertPoint(contBlock);
+      builder.CreateRetVoid();
+
+      fnMeta = new llvm::GlobalVariable(
+          module,
+          gcMetaType,
+          true,
+          llvm::GlobalValue::ExternalLinkage,
+          llvm::ConstantStruct::get(gcMetaType, {gcFnMetaFn}),
+          "__gc_fn_meta");
+    }
+    pc.funcType->impls[pc.collectibleTrait] = std::make_unique<CollectibleTrait>(fnMeta);
   }
 
   void Defn::compileStatement(CompileContext &ctx) {
@@ -114,15 +178,15 @@ namespace ast {
     if (pos != Position::Statement && elseClause) {
       phi = llvm::PHINode::Create(toLLVM(ctx, type),
                                   2 + elseIfClauses.size(),
-                                  "iftmp");
+                                  "if.tmp");
     } else {
       phi = nullptr;
     }
 
     auto *function = ctx.builder.GetInsertBlock()->getParent();
-    llvm::BasicBlock *thenBlock = llvm::BasicBlock::Create(ctx.ctx, "ifthen");
-    llvm::BasicBlock *elseBlock = llvm::BasicBlock::Create(ctx.ctx, "ifelse");
-    llvm::BasicBlock *mergeBlock = llvm::BasicBlock::Create(ctx.ctx, "ifcont");
+    llvm::BasicBlock *thenBlock = llvm::BasicBlock::Create(ctx.ctx, "if.then");
+    llvm::BasicBlock *elseBlock = llvm::BasicBlock::Create(ctx.ctx, "if.else");
+    llvm::BasicBlock *mergeBlock = llvm::BasicBlock::Create(ctx.ctx, "if.cont");
 
     auto pred = predExpr->compileExpr(ctx, Position::Expr);
     ctx.builder.CreateCondBr(pred, thenBlock, elseBlock);
@@ -134,8 +198,8 @@ namespace ast {
     if (phi) phi->addIncoming(thenValue, ctx.builder.GetInsertBlock());
 
     for (auto &clause : elseIfClauses) {
-      auto elseIfThenBlock = llvm::BasicBlock::Create(ctx.ctx, "ifthen");
-      auto elseIfElseBlock = llvm::BasicBlock::Create(ctx.ctx, "ifelse");
+      auto elseIfThenBlock = llvm::BasicBlock::Create(ctx.ctx, "if.then");
+      auto elseIfElseBlock = llvm::BasicBlock::Create(ctx.ctx, "if.else");
 
       function->getBasicBlockList().push_back(elseBlock);
       ctx.builder.SetInsertPoint(elseBlock);
@@ -164,15 +228,26 @@ namespace ast {
     return ctx.unitValue;
   }
 
+  void gcRoot(CompileContext &ctx, llvm::Value *value, llvm::Value *meta = nullptr) {
+    llvm::Function *gcRoot = llvm::Intrinsic::getDeclaration(&ctx.module, llvm::Intrinsic::gcroot);
+    llvm::PointerType *i8PtrTy = llvm::Type::getInt8PtrTy(ctx.ctx);
+
+    llvm::AllocaInst *local = ctx.builder.CreateAlloca(i8PtrTy);
+    ctx.builder.CreateStore(ctx.builder.CreatePointerCast(value, i8PtrTy), local);
+    ctx.builder.CreateCall(gcRoot, {local, meta ? ctx.builder.CreatePointerCast(meta, i8PtrTy)
+                                                : llvm::ConstantPointerNull::get(i8PtrTy)});
+  }
+
   llvm::Value *heapAlloc(CompileContext &ctx, llvm::Type *type) {
     llvm::Type *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
-    llvm::Constant *size = llvm::ConstantExpr::getSizeOf(type);
-    size = llvm::ConstantExpr::getTruncOrBitCast(size, i32Ty);
-    llvm::FunctionCallee malloc = ctx.module
-        .getOrInsertFunction("malloc", llvm::Type::getInt8PtrTy(ctx.ctx), i32Ty);
-    // TODO garbage collector :)
-    return ctx.builder.CreatePointerCast(ctx.builder.CreateCall(malloc, {size}),
-                                         llvm::PointerType::getUnqual(type));
+    llvm::PointerType *pointerType = llvm::PointerType::getUnqual(type);
+    llvm::PointerType *i8PtrTy = llvm::Type::getInt8PtrTy(ctx.ctx);
+    llvm::FunctionCallee malloc = ctx.module.getOrInsertFunction("gcAlloc", i8PtrTy, i32Ty);
+
+    llvm::Constant *size = llvm::ConstantExpr::getTruncOrBitCast(llvm::ConstantExpr::getSizeOf(type), i32Ty);
+
+    llvm::CallInst *allocated = ctx.builder.CreateCall(malloc, {size});
+    return ctx.builder.CreatePointerCast(allocated, pointerType);
   }
 
   llvm::Value *compileFunc(CompileContext &ctx,
@@ -185,10 +260,12 @@ namespace ast {
     llvm::FunctionType *funcType;
     llvm::PointerType *refType;
     std::tie(refType, funcType) = getFuncType(ctx, type);
+    llvm::StructType *structType = llvm::cast<llvm::StructType>(refType->getPointerElementType());
     auto func = llvm::Function::Create(funcType,
                                        llvm::Function::ExternalLinkage,
                                        name,
                                        &ctx.module);
+    func->setGC("shadow-stack");
     llvm::Argument *thisArg = func->getArg(0);
     thisArg->setName(name);
     if (recurVar) {
@@ -216,9 +293,13 @@ namespace ast {
     llvm::StructType *closureStructType;
     llvm::PointerType *closurePointerType;
     std::vector<llvm::Type *> closureTypes;
+    llvm::Function *metaFn = nullptr;
+    llvm::Value *metaClosurePtr = nullptr;
 
     if (!closedVars.empty()) {
-      closureTypes = {llvm::PointerType::getUnqual(funcType)};
+      for (int i = 0; i < structType->getStructNumElements(); ++i) {
+        closureTypes.push_back(structType->getStructElementType(i));
+      }
       closureStructType = llvm::StructType::create(ctx.ctx, name + ".clo");
       closureStructType->setBody(closureTypes);
       closurePointerType = llvm::PointerType::getUnqual(closureStructType);
@@ -228,8 +309,12 @@ namespace ast {
       size_t i = 0;
       for (auto &cv : closedVars) {
         auto &oldEmit = oldEmissions[i++] = std::move(cv->emit);
-        cv->emit = [closurePtr, closureStructType, &closureTypes, oldEmit, &closureEmitted, &cache, emitBlock, emitPoint]
-            (CompileContext &ctx, TPtr type) -> llvm::Value * {
+        cv->emit = [
+            closurePtr, closurePointerType, closureStructType, &closureTypes,
+            &closureEmitted, oldEmit, &cache,
+            &name, &metaFn, &metaClosurePtr,
+            emitBlock, emitPoint
+        ](CompileContext &ctx, TPtr type) -> llvm::Value * {
           llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
           llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
           ctx.builder.SetInsertPoint(emitBlock, emitPoint);
@@ -248,6 +333,29 @@ namespace ast {
           closureStructType->setBody(closureTypes);
           unsigned int idx = closureTypes.size() - 1;
           llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
+
+          CollectibleTrait *collectible = type::TypedTrait<CollectibleTrait>::lookup(ctx.pc.collectibleTrait, type);
+          if (collectible) {
+            if (!metaFn) {
+              metaFn = llvm::Function::Create(ctx.metaFnType,
+                                              llvm::GlobalValue::PrivateLinkage,
+                                              name + ".meta",
+                                              ctx.module);
+              llvm::BasicBlock::Create(ctx.ctx, "entry", metaFn);
+            }
+            ctx.builder.SetInsertPoint(&metaFn->getBasicBlockList().back());
+            if (!metaClosurePtr) {
+              metaClosurePtr = ctx.builder.CreatePointerCast(metaFn->getArg(0), closurePointerType);
+            }
+            llvm::Value *gep = ctx.builder.CreateGEP(metaClosurePtr,
+                                                     {llvm::ConstantInt::get(i32Ty, 0),
+                                                      llvm::ConstantInt::get(i32Ty, idx)});
+            llvm::PointerType *i8PtrPtrTy = llvm::Type::getInt8PtrTy(ctx.ctx)->getPointerTo();
+            llvm::Value *cast = ctx.builder.CreatePointerCast(gep, i8PtrPtrTy);
+            ctx.builder.CreateCall(ctx.visitFnType, metaFn->getArg(1), {cast, collectible->meta});
+            ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+          }
+
           llvm::Value *varRef =
               ctx.builder.CreateGEP(closurePtr,
                                     {llvm::ConstantInt::get(i32Ty, 0),
@@ -269,9 +377,11 @@ namespace ast {
       }
     }
 
-    llvm::StructType *structType = static_cast<llvm::StructType *>(refType->getPointerElementType());
     if (closureEmitted.empty()) {
-      llvm::Constant *constant = llvm::ConstantStruct::get(structType, {func});
+      llvm::Constant *constant = llvm::ConstantStruct::get(structType,
+                                                           {llvm::ConstantPointerNull::get(
+                                                               ctx.metaFnType->getPointerTo()),
+                                                            func});
       llvm::GlobalVariable *global = new llvm::GlobalVariable(ctx.module,
                                                               structType,
                                                               true,
@@ -281,24 +391,44 @@ namespace ast {
       return global;
     } else {
       llvm::Value *allocated = heapAlloc(ctx, closureStructType);
+      gcRoot(ctx, allocated, ctx.fnMeta);
       llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
-      llvm::Value *thisGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
-                                                           {llvm::ConstantInt::get(i32Ty, 0),
-                                                            llvm::ConstantInt::get(i32Ty, 0)});
-      ctx.builder.CreateStore(func, thisGep);
+      {
+        llvm::Value *metaFnGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
+                                                               {llvm::ConstantInt::get(i32Ty, 0),
+                                                                llvm::ConstantInt::get(i32Ty, 0)});
+        if (metaFn) {
+          auto insertBlock = ctx.builder.GetInsertBlock();
+          auto insertPoint = ctx.builder.GetInsertPoint();
+          ctx.builder.SetInsertPoint(&metaFn->getBasicBlockList().back());
+          ctx.builder.CreateRetVoid();
+          ctx.builder.SetInsertPoint(insertBlock, insertPoint);
+          ctx.builder.CreateStore(metaFn, metaFnGep);
+        } else {
+          ctx.builder.CreateStore(llvm::ConstantPointerNull::get(ctx.metaFnType->getPointerTo()), metaFnGep);
+        }
+      }
+      {
+        llvm::Value *thisGep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
+                                                             {llvm::ConstantInt::get(i32Ty, 0),
+                                                              llvm::ConstantInt::get(i32Ty, 1)});
+        ctx.builder.CreateStore(func, thisGep);
+      }
       for (unsigned int i = 0; i < closureEmitted.size(); ++i) {
         llvm::Value *gep = ctx.builder.CreateInBoundsGEP(closureStructType, allocated,
                                                          {llvm::ConstantInt::get(i32Ty, 0),
-                                                          llvm::ConstantInt::get(i32Ty, i + 1)});
+                                                          llvm::ConstantInt::get(i32Ty,
+                                                                                 i + structType->getNumElements())});
         ctx.builder.CreateStore(closureEmitted[i], gep);
       }
       return ctx.builder.CreatePointerCast(allocated, llvm::PointerType::getUnqual(structType));
     }
   }
   llvm::Value *compileCall(CompileContext &ctx,
-                           TPtr functionType,
+                           const TPtr &functionType,
                            llvm::Value *function,
-                           const std::vector<llvm::Value *> &callArgs) {
+                           const std::vector<llvm::Value *> &callArgs,
+                           const TPtr &retType) {
     llvm::FunctionType *funcType;
     llvm::PointerType *refType;
     std::tie(refType, funcType) = getFuncType(ctx, functionType);
@@ -308,9 +438,15 @@ namespace ast {
     llvm::Value *funcPtr
         = ctx.builder.CreateInBoundsGEP(function,
                                         {llvm::ConstantInt::get(i32Ty, 0),
-                                         llvm::ConstantInt::get(i32Ty, 0)});
+                                         llvm::ConstantInt::get(i32Ty, 1)});
     llvm::Value *funcValuePtr = ctx.builder.CreateLoad(funcPtr, "f");
-    return ctx.builder.CreateCall(funcType, funcValuePtr, trueArgs);
+
+    llvm::CallInst *returned = ctx.builder.CreateCall(funcType, funcValuePtr, trueArgs);
+    CollectibleTrait *collectible = type::TypedTrait<CollectibleTrait>::lookup(ctx.pc.collectibleTrait, retType);
+    if (collectible) {
+      gcRoot(ctx, returned, collectible->meta);
+    }
+    return returned;
   }
 
   llvm::Value *LetExpr::compileExpr(CompileContext &ctx, Position pos) {
@@ -327,7 +463,7 @@ namespace ast {
         bindings[i].compile(ctx);
         args[i] = var->emit(ctx, var->type->type);
       }
-      return compileCall(ctx, nameVar->type->type, func, args);
+      return compileCall(ctx, nameVar->type->type, func, args, type);
     } else {
       for (auto &b : bindings) {
         b.compile(ctx);
@@ -373,7 +509,6 @@ namespace ast {
 
   llvm::Value *BinaryExpr::compileExpr(CompileContext &ctx, Position pos) {
     llvm::Value *lhsV = lhs->compileExpr(ctx, Position::Expr);
-    bool isInt = lhsV->getType()->isIntegerTy();
     switch (precedence) {
       case 0: {
         // Tok::TAnd2, Tok::TOr2
@@ -391,35 +526,34 @@ namespace ast {
       case 2: {
         // Tok::TNe, Tok::TEq, Tok::TEq2
         // Tok::TLt, Tok::TLe, Tok::TGt, Tok::TGe
+        CmpTrait *cmpTrait = type::TypedTrait<CmpTrait>::lookup(ctx.pc.cmpTrait, type);
+        std::vector<llvm::Value *> comparisons;
         for (const auto &rhs : terms) {
           llvm::Value *rhsV = rhs.expr->compileExpr(ctx, Position::Expr);
-          llvm::CmpInst::Predicate pred;
           switch (rhs.operatorToken.type) {
             case Tok::TNe:
-              pred = isInt ? llvm::CmpInst::ICMP_NE : llvm::CmpInst::FCMP_ONE;
+              comparisons.push_back(cmpTrait->ne(ctx, lhsV, rhsV));
               break;
             case Tok::TEq:
             case Tok::TEq2:
-              pred = isInt ? llvm::CmpInst::ICMP_EQ : llvm::CmpInst::FCMP_OEQ;
+              comparisons.push_back(cmpTrait->eq(ctx, lhsV, rhsV));
               break;
             case Tok::TLt:
-              pred = isInt ? llvm::CmpInst::ICMP_SLT : llvm::CmpInst::FCMP_OLT;
+              comparisons.push_back(cmpTrait->lt(ctx, lhsV, rhsV));
               break;
             case Tok::TLe:
-              pred = isInt ? llvm::CmpInst::ICMP_SLE : llvm::CmpInst::FCMP_OLE;
+              comparisons.push_back(cmpTrait->le(ctx, lhsV, rhsV));
               break;
             case Tok::TGt:
-              pred = isInt ? llvm::CmpInst::ICMP_SGT : llvm::CmpInst::FCMP_OGT;
+              comparisons.push_back(cmpTrait->gt(ctx, lhsV, rhsV));
               break;
             default /*Tok::TGe*/:
-              pred = isInt ? llvm::CmpInst::ICMP_SGE : llvm::CmpInst::FCMP_OGE;
+              comparisons.push_back(cmpTrait->ge(ctx, lhsV, rhsV));
               break;
           }
-          lhsV = isInt ?
-                 ctx.builder.CreateICmp(pred, lhsV, rhsV) :
-                 ctx.builder.CreateFCmp(pred, lhsV, rhsV);
+          lhsV = rhsV;
         }
-        break;
+        return ctx.builder.CreateAnd(comparisons);
       }
       default: {
         // Tok::TOr1, Tok::TAnd1
@@ -427,31 +561,29 @@ namespace ast {
         // Tok::TMul, Tok::TDiv, Tok::TRem
         for (const auto &rhs : terms) {
           llvm::Value *rhsV = rhs.expr->compileExpr(ctx, Position::Expr);
-          llvm::Instruction::BinaryOps opc;
           switch (rhs.operatorToken.type) {
             case Tok::TOr1:
-              opc = llvm::Instruction::Or;
+              lhsV = ctx.builder.CreateBinOp(llvm::Instruction::Or, lhsV, rhsV);
               break;
             case Tok::TAnd1:
-              opc = llvm::Instruction::And;
+              lhsV = ctx.builder.CreateBinOp(llvm::Instruction::And, lhsV, rhsV);
               break;
             case Tok::TAdd:
-              opc = isInt ? llvm::Instruction::Add : llvm::Instruction::FAdd;
+              lhsV = type::TypedTrait<BinaryTrait>::lookup(ctx.pc.addTrait, type)->app(ctx, lhsV, rhsV);
               break;
             case Tok::TSub:
-              opc = isInt ? llvm::Instruction::Sub : llvm::Instruction::FSub;
+              lhsV = type::TypedTrait<BinaryTrait>::lookup(ctx.pc.subTrait, type)->app(ctx, lhsV, rhsV);
               break;
             case Tok::TMul:
-              opc = isInt ? llvm::Instruction::Mul : llvm::Instruction::FMul;
+              lhsV = type::TypedTrait<BinaryTrait>::lookup(ctx.pc.mulTrait, type)->app(ctx, lhsV, rhsV);
               break;
             case Tok::TDiv:
-              opc = isInt ? llvm::Instruction::SDiv : llvm::Instruction::FDiv;
+              lhsV = type::TypedTrait<BinaryTrait>::lookup(ctx.pc.divTrait, type)->app(ctx, lhsV, rhsV);
               break;
             default: // Tok::TRem
-              opc = isInt ? llvm::Instruction::SRem : llvm::Instruction::FRem;
+              lhsV = type::TypedTrait<BinaryTrait>::lookup(ctx.pc.remTrait, type)->app(ctx, lhsV, rhsV);
               break;
           }
-          lhsV = ctx.builder.CreateBinOp(opc, lhsV, rhsV);
         }
         break;
       }
@@ -476,7 +608,7 @@ namespace ast {
     for (int i = 0; i < arguments.size(); ++i) {
       args[i] = arguments[i]->compileExpr(ctx, Position::Expr);
     }
-    return compileCall(ctx, function->type, func, args);
+    return compileCall(ctx, function->type, func, args, type);
   }
 
   llvm::Value *HintedExpr::compileExpr(CompileContext &ctx, Position pos) {
@@ -484,11 +616,11 @@ namespace ast {
   }
 
   llvm::Value *FnExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "", closed, *body);
+    return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "anon", closed, *body);
   }
 
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments, nullptr, "", closed, *body);
+    return compileFunc(ctx, type, arguments, nullptr, "lambda", closed, *body);
   }
 
   void Binding::compile(CompileContext &ctx) {
@@ -506,7 +638,7 @@ namespace ast {
         llvm::FunctionType *funcType = llvm::FunctionType::get(invokerFuncType->getReturnType(), types, false);
         auto func = ctx.module.getOrInsertFunction(name.ident.value, funcType);
 
-        llvm::StructType *structType = static_cast<llvm::StructType *>(refType->getPointerElementType());
+        llvm::StructType *structType = llvm::cast<llvm::StructType>(refType->getPointerElementType());
 
         auto invoker = llvm::Function::Create(invokerFuncType,
                                               llvm::Function::ExternalLinkage,
@@ -525,7 +657,9 @@ namespace ast {
         ctx.builder.CreateRet(ctx.builder.CreateCall(func, args));
         ctx.builder.SetInsertPoint(oldBlock, oldPoint);
 
-        llvm::Constant *constant = llvm::ConstantStruct::get(structType, {invoker});
+        llvm::Constant *constant = llvm::ConstantStruct::get(
+            structType,
+            {llvm::ConstantPointerNull::get(ctx.metaFnType->getPointerTo()), invoker});
 
         global = new llvm::GlobalVariable(ctx.module,
                                           structType,
@@ -540,7 +674,7 @@ namespace ast {
       };
       return;
     }
-    
+
     if (var->type->bound.empty()) {
       llvm::Value *varValue = compileExpr(ctx, var->type->type);
       var->emit = [varValue](ast::CompileContext &, ast::TPtr) {
@@ -561,17 +695,13 @@ namespace ast {
     var->emit = [this, jump](CompileContext &ctx, TPtr type) -> llvm::Value * {
 
       std::map<TPtr, TPtr> subs;
-      TPtr thisType = CType::get(this->var->type->type);
+      TPtr thisType = CType::get(var->type->type);
       CType::getFree(thisType, [&subs, &ctx](const TPtr &t) { subs[t] = ctx.pc.tc.fresh(); });
       TPtr instType = CType::replace(thisType, ctx.pc.tc, subs);
       CType::getAndUnify(ctx.pc.tc, type, instType);
       TPtr unitType = ctx.pc.tc.push(CType::aggregate(ctx.pc.unitType, {}));
       for (const auto &sub : subs) {
         TPtr target = CType::get(sub.second);
-        if (target->value.index() == 0) {
-          // unbounded type
-          CType::unify(ctx.pc.tc, target, unitType);
-        }
         std::get<0>(sub.first->value).weakParent = target;
       }
 
@@ -598,9 +728,9 @@ namespace ast {
   }
   llvm::Value *Binding::compileExpr(CompileContext &ctx, TPtr instType) {
     if (arguments) {
-      return compileFunc(ctx, 
-                         instType, 
-                         arguments->bindings, 
+      return compileFunc(ctx,
+                         instType,
+                         arguments->bindings,
                          arguments->recurVar.get(),
                          name.ident.value,
                          arguments->closed,

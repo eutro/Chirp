@@ -40,6 +40,30 @@ namespace ast {
     std::map<std::string, std::variant<std::shared_ptr<type::BaseType>, TPtr>> bindings;
   };
 
+  class CompileContext;
+
+  class BinaryTrait : public type::TraitImpl {
+  public:
+    using Fn = std::function<llvm::Value *(CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs)>;
+
+    Fn app;
+    BinaryTrait(Fn &&app);
+  };
+
+  class CmpTrait : public type::TraitImpl {
+  public:
+    using Fn = std::function<llvm::Value *(CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs)>;
+
+    Fn ne, eq, lt, gt, le, ge;
+    CmpTrait(Fn &&ne, Fn &&eq, Fn &&lt, Fn &&gt, Fn &&le, Fn &&ge);
+  };
+
+  class CollectibleTrait : public type::TraitImpl {
+  public:
+    llvm::Value *meta;
+    CollectibleTrait(llvm::Value *meta);
+  };
+
   class ParseContext {
   public:
     type::TypeContext &tc;
@@ -51,13 +75,15 @@ namespace ast {
     std::shared_ptr<type::BaseType> boolType;
     std::shared_ptr<type::BaseType> stringType;
 
-    std::shared_ptr<type::Trait> addTrait;
-    std::shared_ptr<type::Trait> mulTrait;
-    std::shared_ptr<type::Trait> subTrait;
-    std::shared_ptr<type::Trait> divTrait;
-    std::shared_ptr<type::Trait> remTrait;
+    std::shared_ptr<type::TypedTrait<BinaryTrait>> addTrait;
+    std::shared_ptr<type::TypedTrait<BinaryTrait>> mulTrait;
+    std::shared_ptr<type::TypedTrait<BinaryTrait>> subTrait;
+    std::shared_ptr<type::TypedTrait<BinaryTrait>> divTrait;
+    std::shared_ptr<type::TypedTrait<BinaryTrait>> remTrait;
 
-    std::shared_ptr<type::Trait> cmpTrait;
+    std::shared_ptr<type::TypedTrait<CmpTrait>> cmpTrait;
+
+    std::shared_ptr<type::TypedTrait<CollectibleTrait>> collectibleTrait;
 
     std::deque<Scope> scopes;
     std::deque<TypeScope> typeScopes;
@@ -85,6 +111,11 @@ namespace ast {
 
     std::map<std::shared_ptr<type::BaseType>,
         std::function<llvm::Type *(CompileContext &, TPtr)>> transformers;
+
+    llvm::StructType *gcMetaType;
+    llvm::FunctionType *visitFnType;
+    llvm::FunctionType *metaFnType;
+    llvm::Constant *fnMeta;
 
     CompileContext(llvm::LLVMContext &ctx,
                    llvm::IRBuilder<> &builder,

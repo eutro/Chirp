@@ -26,17 +26,6 @@ namespace ast {
     }
   }
 
-  class BinaryTrait : public type::TraitImpl {
-  public:
-    using Fn = std::function<llvm::Value *(CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs)>;
-
-    Fn app;
-    BinaryTrait(Fn &&app) : app(app) {}
-  };
-
-  class CmpTrait : public type::TraitImpl {
-  };
-
   ParseContext::ParseContext(type::TypeContext &tc) :
       tc(tc),
       funcType(std::make_shared<type::BaseType>("fn")),
@@ -46,13 +35,15 @@ namespace ast {
       boolType(std::make_shared<type::BaseType>("bool")),
       stringType(std::make_shared<type::BaseType>("string")),
 
-      addTrait(std::make_shared<type::Trait>("Add")),
-      mulTrait(std::make_shared<type::Trait>("Mul")),
-      subTrait(std::make_shared<type::Trait>("Sub")),
-      divTrait(std::make_shared<type::Trait>("Div")),
-      remTrait(std::make_shared<type::Trait>("Rem")),
+      addTrait(std::make_shared<type::TypedTrait<BinaryTrait>>("Add")),
+      mulTrait(std::make_shared<type::TypedTrait<BinaryTrait>>("Mul")),
+      subTrait(std::make_shared<type::TypedTrait<BinaryTrait>>("Sub")),
+      divTrait(std::make_shared<type::TypedTrait<BinaryTrait>>("Div")),
+      remTrait(std::make_shared<type::TypedTrait<BinaryTrait>>("Rem")),
 
-      cmpTrait(std::make_shared<type::Trait>("Cmp")) {
+      cmpTrait(std::make_shared<type::TypedTrait<CmpTrait>>("Cmp")),
+
+      collectibleTrait(std::make_shared<type::TypedTrait<CollectibleTrait>>("Collectible")) {
     scopes.emplace_back();
     typeScopes.emplace_back();
     {
@@ -75,6 +66,14 @@ namespace ast {
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateSDiv(lhs, rhs); });
     intType->impls[remTrait] = std::make_unique<BinaryTrait>
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateSRem(lhs, rhs); });
+    intType->impls[cmpTrait] = std::make_unique<CmpTrait>(
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpNE(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpEQ(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpSLT(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpSGT(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpSLE(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateICmpSGE(lhs, rhs); })
+    );
 
     floatType->impls[addTrait] = std::make_unique<BinaryTrait>
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFAdd(lhs, rhs); });
@@ -86,6 +85,14 @@ namespace ast {
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFDiv(lhs, rhs); });
     floatType->impls[remTrait] = std::make_unique<BinaryTrait>
         ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFRem(lhs, rhs); });
+    floatType->impls[cmpTrait] = std::make_unique<CmpTrait>(
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpONE(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpOEQ(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpOLT(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpOGT(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpOLE(lhs, rhs); }),
+        ([](CompileContext &ctx, llvm::Value *lhs, llvm::Value *rhs) { return ctx.builder.CreateFCmpOGE(lhs, rhs); })
+    );
   }
 
   std::shared_ptr<Var> &ParseContext::introduce(const std::string &name, PType &&type) {

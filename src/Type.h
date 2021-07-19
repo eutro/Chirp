@@ -38,18 +38,30 @@ namespace type {
     friend std::ostream &operator<<(std::ostream &os, const Name &n);
   };
 
+  class TraitImpl {
+  public:
+    virtual ~TraitImpl() = default;
+  };
+
   class Trait {
   public:
     std::string name;
     Trait(const std::string &name);
     virtual ~Trait() = default;
 
+    static TraitImpl *lookup(const std::shared_ptr<Trait> &trait, const TPtr &type);
+
     friend std::ostream &operator<<(std::ostream &os, const Trait &t);
   };
 
-  class TraitImpl {
+  template <typename T>
+  class TypedTrait : public Trait {
   public:
-    virtual ~TraitImpl() = default;
+    TypedTrait(const std::string &name) : Trait(name) {}
+
+    static T *lookup(const std::shared_ptr<TypedTrait> &trait, const TPtr &type) {
+      return dynamic_cast<T *>(Trait::lookup(trait, type));
+    }
   };
 
   class BaseType {
@@ -92,10 +104,8 @@ namespace type {
     };
 
     std::variant<Named, Aggregate> value;
-  private:
     Type(std::variant<Named, Aggregate> &&value);
     Type(Name &&name);
-  public:
     static Type named(Name &&name);
     static Type aggregate(std::shared_ptr<BaseType> &base, std::vector<TPtr> &&params);
     friend std::ostream &operator<<(std::ostream &os, const Type &t);
@@ -104,6 +114,7 @@ namespace type {
     static TPtr weakGet(TPtr self);
     static TPtr get(TPtr self);
     static TPtr replace(TPtr self, TypeContext &ctx, std::map<TPtr, TPtr> &subs);
+    static TPtr copy(const TPtr &self);
     static void unify(TypeContext &ctx, TPtr t, TPtr o);
     static void getAndUnify(TypeContext &ctx, TPtr t, TPtr o);
 

@@ -1,0 +1,5 @@
+defn f(x) = \k.x
+
+defn bleh() = f(f)(100)(f(1))(2)
+
+bleh()

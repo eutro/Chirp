@@ -287,6 +287,23 @@ namespace type {
     }
   }
 
+  TPtr Type::copy(const TPtr &self) {
+    switch (self->value.index()) {
+      case 0: {
+        return std::make_shared<Type>(Type::Named(std::get<0>(self->value)));
+      }
+      default: {
+        Type::Aggregate &aggr = std::get<Type::Aggregate>(self->value);
+        std::vector<TPtr> newValues(aggr.values.size());
+        size_t i = 0;
+        for (TPtr v : aggr.values) {
+          newValues[i++] = copy(Type::get(v));
+        }
+        return std::make_shared<Type>(Type::aggregate(aggr.base, std::move(newValues)));
+      }
+    }
+  }
+
   bool CompareType::operator()(TPtr a, TPtr b) const {
     return *Type::get(a) < *Type::get(b);
   }
@@ -306,7 +323,8 @@ namespace type {
   }
 
   bool Type::Named::operator<(const Type::Named &rhs) const {
-    return name < rhs.name;
+    return std::lexicographical_compare(traits.begin(), traits.end(),
+                                        rhs.traits.begin(), rhs.traits.end());
   }
 
   Trait::Trait(const std::string &name) : name(name) {
@@ -315,5 +333,20 @@ namespace type {
   std::ostream &operator<<(std::ostream &os, const Trait &t) {
     os << t.name;
     return os;
+  }
+
+  TraitImpl *Trait::lookup(const std::shared_ptr<Trait> &trait, const TPtr &type) {
+    auto &value = Type::get(type)->value;
+    if (value.index() != 1) {
+      return nullptr;
+    }
+    std::map<std::shared_ptr<Trait>, std::unique_ptr<TraitImpl>> &impls =
+        std::get<1>(value).base->impls;
+    auto found = impls.find(trait);
+    if (found != impls.end()) {
+      return found->second.get();
+    } else {
+      return nullptr;
+    }
   }
 }

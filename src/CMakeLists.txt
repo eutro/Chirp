@@ -28,7 +28,7 @@ target_link_libraries(ast ${llvm_libs})
 add_library(parser Parser.cc)
 target_link_libraries(parser ast)
 
-add_library(crp Runtime.c)
+add_library(crp Runtime.c Collector.c)
 
 add_subdirectory(bin)
 

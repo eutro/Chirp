@@ -1,0 +1,7 @@
+#!/bin/bash
+
+name=$(basename "$1" .crp)
+
+./bin/in2llvm < "$1" > "$name.ll"
+llc "$name.ll" --filetype=obj
+gcc --static "$name.o" -L. -lcrp -o "$name"
