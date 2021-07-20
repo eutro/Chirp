@@ -48,7 +48,7 @@ namespace ast {
       return found->second(ctx, type);
     }
   }
-  
+
   llvm::DISubroutineType *toDISRType(CompileContext &ctx, TPtr type) {
     CType::Aggregate &aggr = std::get<1>(CType::get(type)->value);
     std::vector<llvm::Metadata *> argTypes(aggr.values.size());
@@ -517,14 +517,20 @@ namespace ast {
   }
 
   llvm::Value *LetExpr::compileExpr(CompileContext &ctx, Position pos) {
-    emitLoc(ctx, span.lo);
+    emitLoc(ctx, name ? name->ident.loc : inToken.loc);
     if (name) {
       std::vector<RawBinding> rbs(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {
         rbs[i].var = bindings[i].var;
         rbs[i].name = bindings[i].name;
       }
-      llvm::Value *func = compileFunc(ctx, span.lo, nameVar->type->type, rbs, nameVar.get(), name->ident.value, closed,
+      llvm::Value *func = compileFunc(ctx,
+                                      name->ident.loc,
+                                      nameVar->type->type,
+                                      rbs,
+                                      nameVar.get(),
+                                      name->ident.value,
+                                      closed,
                                       *body);
       std::vector<llvm::Value *> args(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {

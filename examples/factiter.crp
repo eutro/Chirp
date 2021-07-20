@@ -1,12 +1,8 @@
 defn factorial(x) =
   let fact = x // base
       i = x - 1 // counter
-    in loop {
-      if i <= 1 {
-        fact
-      } else {
-        loop(fact * i, i - 1)
-      }
-    }
+    in loop:
+      if i <= 1 { fact }
+      else { loop(fact * i, i - 1) }
 
 factorial(5)
