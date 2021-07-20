@@ -102,6 +102,12 @@ namespace ast {
     os << openToken << " " << value << " " << closeToken << ")";
   }
 
+  void ColonExpr::print(std::ostream &os) const {
+    os << "(ColonExpr ";
+    if (type) os << "#\"" << *CType::get(type) << "\" ";
+    os << colonToken << " " << value << " " << ")";
+  }
+
   void LiteralExpr::print(std::ostream &os) const {
     os << "(LiteralExpr ";
     if (type) os << "#\"" << *CType::get(type) << "\" ";

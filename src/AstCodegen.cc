@@ -33,6 +33,32 @@ namespace ast {
     }
   }
 
+  llvm::DIType *toDiType(CompileContext &ctx, TPtr type) {
+    CType &t = *CType::get(type);
+    if (t.value.index() == 0) {
+      return ctx.diBuilder.createUnspecifiedType("unit");
+    } else {
+      auto &aggr = std::get<1>(t.value);
+      auto found = ctx.diTransformers.find(aggr.base);
+      if (found == ctx.diTransformers.end()) {
+        std::stringstream ss;
+        ss << t;
+        return ctx.diBuilder.createUnspecifiedType(ss.str());
+      }
+      return found->second(ctx, type);
+    }
+  }
+  
+  llvm::DISubroutineType *toDISRType(CompileContext &ctx, TPtr type) {
+    CType::Aggregate &aggr = std::get<1>(CType::get(type)->value);
+    std::vector<llvm::Metadata *> argTypes(aggr.values.size());
+    for (size_t i = 0; i < aggr.values.size() - 1; ++i) {
+      argTypes[i + 1] = toDiType(ctx, aggr.values[i]);
+    }
+    argTypes.front() = toDiType(ctx, aggr.values.back());
+    return ctx.diBuilder.createSubroutineType(ctx.diBuilder.getOrCreateTypeArray(argTypes));
+  }
+
   /**
    * Get the type of a function.
    *
@@ -77,13 +103,23 @@ namespace ast {
 
   void Program::compile(CompileContext &ctx) {
     llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(ctx.ctx);
-    
+
     auto voidThunkTy = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx.ctx), {}, false);
     auto crpMain = llvm::Function::Create(voidThunkTy, llvm::Function::ExternalLinkage, "crpMain", &ctx.module);
+    llvm::DISubprogram *sp = ctx.diBuilder.createFunction(
+        ctx.diCU->getFile(), "crpMain", "crpMain", ctx.diCU->getFile(),
+        1, ctx.diBuilder.createSubroutineType(ctx.diBuilder.getOrCreateTypeArray(
+            {ctx.diBuilder.createUnspecifiedType("unit")})),
+        1,
+        llvm::DINode::FlagPublic,
+        llvm::DISubprogram::SPFlagDefinition
+    );
+    crpMain->setSubprogram(sp);
     crpMain->setGC("shadow-stack");
     {
       auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", crpMain);
       ctx.builder.SetInsertPoint(block);
+      ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
       for (auto &stmt : statements) {
         stmt->compileStatement(ctx);
       }
@@ -95,6 +131,7 @@ namespace ast {
     {
       auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", main);
       ctx.builder.SetInsertPoint(block);
+      ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
       ctx.builder.CreateCall(voidThunkTy, crpMain);
       auto collectGarbage = ctx.module.getOrInsertFunction("gcShutdown", voidThunkTy);
       ctx.builder.CreateCall(collectGarbage);
@@ -104,9 +141,10 @@ namespace ast {
 
   CompileContext::CompileContext(llvm::LLVMContext &ctx,
                                  llvm::IRBuilder<> &builder,
+                                 llvm::DIBuilder &diBuilder,
                                  llvm::Module &module,
                                  ParseContext &pc) :
-      pc(pc), ctx(ctx), builder(builder), module(module) {
+      pc(pc), ctx(ctx), builder(builder), diBuilder(diBuilder), module(module) {
     transformers[pc.funcType] = [](CompileContext &ctx, auto type) { return getFuncType(ctx, type).first; };
     unitType = llvm::StructType::get(ctx, {});
     transformers[pc.unitType] = [](CompileContext &ctx, auto _t) { return ctx.unitType; };
@@ -173,7 +211,14 @@ namespace ast {
     compileExpr(ctx, Position::Statement);
   }
 
+  void emitLoc(CompileContext &ctx, loc::SrcLoc &loc) {
+    ctx.builder.SetCurrentDebugLocation(
+        llvm::DILocation::get(ctx.ctx, loc.line, loc.col,
+                              ctx.builder.GetInsertBlock()->getParent()->getSubprogram()));
+  }
+
   llvm::Value *IfExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     llvm::PHINode *phi;
     if (pos != Position::Statement && elseClause) {
       phi = llvm::PHINode::Create(toLLVM(ctx, type),
@@ -185,8 +230,8 @@ namespace ast {
 
     auto *function = ctx.builder.GetInsertBlock()->getParent();
     llvm::BasicBlock *thenBlock = llvm::BasicBlock::Create(ctx.ctx, "if.then");
-    llvm::BasicBlock *elseBlock = llvm::BasicBlock::Create(ctx.ctx, "if.else");
     llvm::BasicBlock *mergeBlock = llvm::BasicBlock::Create(ctx.ctx, "if.cont");
+    llvm::BasicBlock *elseBlock = elseClause ? llvm::BasicBlock::Create(ctx.ctx, "if.else") : mergeBlock;
 
     auto pred = predExpr->compileExpr(ctx, Position::Expr);
     ctx.builder.CreateCondBr(pred, thenBlock, elseBlock);
@@ -216,11 +261,13 @@ namespace ast {
       elseBlock = elseIfElseBlock;
     }
 
-    function->getBasicBlockList().push_back(elseBlock);
-    ctx.builder.SetInsertPoint(elseBlock);
-    auto elseValue = elseClause->thenExpr->compileExpr(ctx, pos);
-    ctx.builder.CreateBr(mergeBlock);
-    if (phi) phi->addIncoming(elseValue, ctx.builder.GetInsertBlock());
+    if (elseClause) {
+      function->getBasicBlockList().push_back(elseBlock);
+      ctx.builder.SetInsertPoint(elseBlock);
+      auto elseValue = elseClause->thenExpr->compileExpr(ctx, pos);
+      ctx.builder.CreateBr(mergeBlock);
+      if (phi) phi->addIncoming(elseValue, ctx.builder.GetInsertBlock());
+    }
 
     function->getBasicBlockList().push_back(mergeBlock);
     ctx.builder.SetInsertPoint(mergeBlock);
@@ -251,6 +298,7 @@ namespace ast {
   }
 
   llvm::Value *compileFunc(CompileContext &ctx,
+                           loc::SrcLoc &pos,
                            TPtr type,
                            std::vector<RawBinding> &bindings,
                            Var *recurVar,
@@ -261,11 +309,25 @@ namespace ast {
     llvm::PointerType *refType;
     std::tie(refType, funcType) = getFuncType(ctx, type);
     llvm::StructType *structType = llvm::cast<llvm::StructType>(refType->getPointerElementType());
+
     auto func = llvm::Function::Create(funcType,
-                                       llvm::Function::ExternalLinkage,
+                                       llvm::Function::PrivateLinkage,
                                        name,
                                        &ctx.module);
+    llvm::DISubprogram *sp = ctx.diBuilder.createFunction(
+        ctx.diCU->getFile(), name, func->getName(), ctx.diCU->getFile(),
+        pos.line, toDISRType(ctx, type),
+        pos.line, llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
+    );
+    func->setSubprogram(sp);
     func->setGC("shadow-stack");
+
+    llvm::BasicBlock *emitBlock = ctx.builder.GetInsertBlock();
+    llvm::BasicBlock::iterator emitPoint = ctx.builder.GetInsertPoint();
+
+    auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", func);
+    ctx.builder.SetInsertPoint(block);
+    emitLoc(ctx, pos);
     llvm::Argument *thisArg = func->getArg(0);
     thisArg->setName(name);
     if (recurVar) {
@@ -281,12 +343,6 @@ namespace ast {
       };
     }
 
-    llvm::BasicBlock *emitBlock = ctx.builder.GetInsertBlock();
-    llvm::BasicBlock::iterator emitPoint = ctx.builder.GetInsertPoint();
-
-    auto block = llvm::BasicBlock::Create(ctx.ctx, "entry", func);
-    ctx.builder.SetInsertPoint(block);
-
     std::vector<llvm::Value *> closureEmitted;
     std::vector<std::function<llvm::Value *(CompileContext &, TPtr)>>
         oldEmissions(closedVars.size(), [](auto, auto) { return nullptr; });
@@ -300,7 +356,7 @@ namespace ast {
       for (int i = 0; i < structType->getStructNumElements(); ++i) {
         closureTypes.push_back(structType->getStructElementType(i));
       }
-      closureStructType = llvm::StructType::create(ctx.ctx, name + ".clo");
+      closureStructType = llvm::StructType::create(ctx.ctx, name + ".closure");
       closureStructType->setBody(closureTypes);
       closurePointerType = llvm::PointerType::getUnqual(closureStructType);
       llvm::Value *closurePtr = ctx.builder.CreatePointerCast(thisArg, closurePointerType);
@@ -317,9 +373,12 @@ namespace ast {
         ](CompileContext &ctx, TPtr type) -> llvm::Value * {
           llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
           llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+          llvm::DebugLoc oldDebug = ctx.builder.getCurrentDebugLocation();
           ctx.builder.SetInsertPoint(emitBlock, emitPoint);
+          ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
           llvm::Value *emitted = oldEmit(ctx, type);
           ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+          ctx.builder.SetCurrentDebugLocation(oldDebug);
           if (llvm::isa<llvm::Constant>(emitted)) {
             return emitted;
           }
@@ -344,6 +403,7 @@ namespace ast {
               llvm::BasicBlock::Create(ctx.ctx, "entry", metaFn);
             }
             ctx.builder.SetInsertPoint(&metaFn->getBasicBlockList().back());
+            ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
             if (!metaClosurePtr) {
               metaClosurePtr = ctx.builder.CreatePointerCast(metaFn->getArg(0), closurePointerType);
             }
@@ -354,6 +414,7 @@ namespace ast {
             llvm::Value *cast = ctx.builder.CreatePointerCast(gep, i8PtrPtrTy);
             ctx.builder.CreateCall(ctx.visitFnType, metaFn->getArg(1), {cast, collectible->meta});
             ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+            ctx.builder.SetCurrentDebugLocation(oldDebug);
           }
 
           llvm::Value *varRef =
@@ -369,6 +430,7 @@ namespace ast {
     ctx.builder.CreateRet(value.compileExpr(ctx, Position::Tail));
 
     ctx.builder.SetInsertPoint(emitBlock, emitPoint);
+    emitLoc(ctx, pos);
 
     {
       size_t i = 0;
@@ -377,6 +439,7 @@ namespace ast {
       }
     }
 
+    llvm::Value *retV;
     if (closureEmitted.empty()) {
       llvm::Constant *constant = llvm::ConstantStruct::get(structType,
                                                            {llvm::ConstantPointerNull::get(
@@ -388,7 +451,7 @@ namespace ast {
                                                               llvm::GlobalValue::ExternalLinkage,
                                                               constant,
                                                               name);
-      return global;
+      retV = global;
     } else {
       llvm::Value *allocated = heapAlloc(ctx, closureStructType);
       gcRoot(ctx, allocated, ctx.fnMeta);
@@ -400,9 +463,12 @@ namespace ast {
         if (metaFn) {
           auto insertBlock = ctx.builder.GetInsertBlock();
           auto insertPoint = ctx.builder.GetInsertPoint();
+          auto insertDebug = ctx.builder.getCurrentDebugLocation();
           ctx.builder.SetInsertPoint(&metaFn->getBasicBlockList().back());
+          ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
           ctx.builder.CreateRetVoid();
           ctx.builder.SetInsertPoint(insertBlock, insertPoint);
+          ctx.builder.SetCurrentDebugLocation(insertDebug);
           ctx.builder.CreateStore(metaFn, metaFnGep);
         } else {
           ctx.builder.CreateStore(llvm::ConstantPointerNull::get(ctx.metaFnType->getPointerTo()), metaFnGep);
@@ -421,14 +487,15 @@ namespace ast {
                                                                                  i + structType->getNumElements())});
         ctx.builder.CreateStore(closureEmitted[i], gep);
       }
-      return ctx.builder.CreatePointerCast(allocated, llvm::PointerType::getUnqual(structType));
+      retV = ctx.builder.CreatePointerCast(allocated, llvm::PointerType::getUnqual(structType));
     }
+    return retV;
   }
-  llvm::Value *compileCall(CompileContext &ctx,
-                           const TPtr &functionType,
-                           llvm::Value *function,
-                           const std::vector<llvm::Value *> &callArgs,
-                           const TPtr &retType) {
+  llvm::Instruction *compileCall(CompileContext &ctx,
+                                 const TPtr &functionType,
+                                 llvm::Value *function,
+                                 const std::vector<llvm::Value *> &callArgs,
+                                 const TPtr &retType) {
     llvm::FunctionType *funcType;
     llvm::PointerType *refType;
     std::tie(refType, funcType) = getFuncType(ctx, functionType);
@@ -450,13 +517,15 @@ namespace ast {
   }
 
   llvm::Value *LetExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     if (name) {
       std::vector<RawBinding> rbs(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {
         rbs[i].var = bindings[i].var;
         rbs[i].name = bindings[i].name;
       }
-      llvm::Value *func = compileFunc(ctx, nameVar->type->type, rbs, nameVar.get(), name->ident.value, closed, *body);
+      llvm::Value *func = compileFunc(ctx, span.lo, nameVar->type->type, rbs, nameVar.get(), name->ident.value, closed,
+                                      *body);
       std::vector<llvm::Value *> args(bindings.size());
       for (int i = 0; i < bindings.size(); ++i) {
         std::shared_ptr<Var> &var = bindings[i].var;
@@ -473,6 +542,7 @@ namespace ast {
   }
 
   llvm::Value *BlockExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     if (value) {
       for (const auto &stmt : statements) {
         stmt.statement->compileStatement(ctx);
@@ -484,10 +554,17 @@ namespace ast {
   }
 
   llvm::Value *BracketExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
+    return value->compileExpr(ctx, pos);
+  }
+
+  llvm::Value *ColonExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     return value->compileExpr(ctx, pos);
   }
 
   llvm::Value *LiteralExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     switch (value.type) {
       case Tok::TStr:
         // TODO
@@ -504,10 +581,12 @@ namespace ast {
   }
 
   llvm::Value *VarExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     return var->emit(ctx, type);
   }
 
   llvm::Value *BinaryExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     llvm::Value *lhsV = lhs->compileExpr(ctx, Position::Expr);
     switch (precedence) {
       case 0: {
@@ -526,7 +605,7 @@ namespace ast {
       case 2: {
         // Tok::TNe, Tok::TEq, Tok::TEq2
         // Tok::TLt, Tok::TLe, Tok::TGt, Tok::TGe
-        CmpTrait *cmpTrait = type::TypedTrait<CmpTrait>::lookup(ctx.pc.cmpTrait, type);
+        CmpTrait *cmpTrait = type::TypedTrait<CmpTrait>::lookup(ctx.pc.cmpTrait, lhs->type);
         std::vector<llvm::Value *> comparisons;
         for (const auto &rhs : terms) {
           llvm::Value *rhsV = rhs.expr->compileExpr(ctx, Position::Expr);
@@ -592,6 +671,7 @@ namespace ast {
   }
 
   llvm::Value *PrefixExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     llvm::Value *value = expr->compileExpr(ctx, Position::Expr);
     bool isInt = value->getType()->isIntegerTy();
     for (const auto &prefix : prefixes) {
@@ -603,6 +683,7 @@ namespace ast {
   }
 
   llvm::Value *FunCallExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     llvm::Value *func = function->compileExpr(ctx, Position::Expr);
     std::vector<llvm::Value *> args(arguments.size());
     for (int i = 0; i < arguments.size(); ++i) {
@@ -612,18 +693,23 @@ namespace ast {
   }
 
   llvm::Value *HintedExpr::compileExpr(CompileContext &ctx, Position pos) {
+    emitLoc(ctx, span.lo);
     return expr->compileExpr(ctx, pos);
   }
 
   llvm::Value *FnExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "anon", closed, *body);
+    emitLoc(ctx, span.lo);
+    return compileFunc(ctx, span.lo, type, arguments.bindings, recurVar.get(), name ? name->ident.value : "anon",
+                       closed, *body);
   }
 
   llvm::Value *LambdaExpr::compileExpr(CompileContext &ctx, Position pos) {
-    return compileFunc(ctx, type, arguments, nullptr, "lambda", closed, *body);
+    emitLoc(ctx, span.lo);
+    return compileFunc(ctx, span.lo, type, arguments, nullptr, "lambda", closed, *body);
   }
 
   void Binding::compile(CompileContext &ctx) {
+    emitLoc(ctx, span.lo);
     if (foreignToken) {
       llvm::Constant *global;
       if (arguments) {
@@ -641,21 +727,29 @@ namespace ast {
         llvm::StructType *structType = llvm::cast<llvm::StructType>(refType->getPointerElementType());
 
         auto invoker = llvm::Function::Create(invokerFuncType,
-                                              llvm::Function::ExternalLinkage,
+                                              llvm::Function::PrivateLinkage,
                                               name.ident.value + ".invoker",
                                               &ctx.module);
+        invoker->setSubprogram(ctx.diBuilder.createFunction(
+            ctx.diCU->getFile(), invoker->getName(), invoker->getName(), ctx.diCU->getFile(),
+            foreignToken->loc.line, llvm::cast<llvm::DISubroutineType>(toDiType(ctx, var->type->type)),
+            foreignToken->loc.line, llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
+        ));
 
         llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
         llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+        llvm::DebugLoc oldDebug = ctx.builder.getCurrentDebugLocation();
 
         llvm::BasicBlock *entry = llvm::BasicBlock::Create(ctx.ctx, "entry", invoker);
         ctx.builder.SetInsertPoint(entry);
+        ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
         std::vector<llvm::Value *> args(invoker->arg_size() - 1);
         for (int i = 1; i < invoker->arg_size(); ++i) {
           args[i - 1] = invoker->getArg(i);
         }
         ctx.builder.CreateRet(ctx.builder.CreateCall(func, args));
         ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+        ctx.builder.SetCurrentDebugLocation(oldDebug);
 
         llvm::Constant *constant = llvm::ConstantStruct::get(
             structType,
@@ -712,10 +806,13 @@ namespace ast {
 
       llvm::BasicBlock *oldBlock = ctx.builder.GetInsertBlock();
       llvm::BasicBlock::iterator oldPoint = ctx.builder.GetInsertPoint();
+      llvm::DebugLoc oldDebug = ctx.builder.getCurrentDebugLocation();
 
       ctx.builder.SetInsertPoint(jump);
+      ctx.builder.SetCurrentDebugLocation(llvm::DebugLoc());
       llvm::Value *ret = compileExpr(ctx, instType);
       ctx.builder.SetInsertPoint(oldBlock, oldPoint);
+      ctx.builder.SetCurrentDebugLocation(oldDebug);
 
       ret->setName(name.ident.value);
 
@@ -729,6 +826,7 @@ namespace ast {
   llvm::Value *Binding::compileExpr(CompileContext &ctx, TPtr instType) {
     if (arguments) {
       return compileFunc(ctx,
+                         span.lo,
                          instType,
                          arguments->bindings,
                          arguments->recurVar.get(),

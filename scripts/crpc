@@ -1,7 +1,15 @@
 #!/bin/bash
 
-name=$(basename "$1" .crp)
+FULL=$(basename "$1")
+BASE=$(basename "$1" .crp)
 
-./bin/in2llvm < "$1" > "$name.ll"
-llc "$name.ll" --filetype=obj
-gcc --static "$name.o" -L. -lcrp -o "$name"
+export CRP_FILENAME
+CRP_FILENAME=$FULL
+export CRP_FILEDIR
+CRP_FILEDIR=$(readlink -f "$(dirname "$1")")
+
+./bin/in2llvm < "$1" > "$BASE.ll"
+
+llc "$BASE.ll"
+as -ad "$BASE.s" -o "$BASE.o"
+gcc --static "$BASE.o" -L. -lcrp -o "$BASE"

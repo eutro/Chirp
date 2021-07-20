@@ -315,6 +315,15 @@ namespace parser {
     return std::make_unique<BracketExpr>(std::move(expr));
   }
 
+  std::unique_ptr<DelimitedExpr> parseColonExpr(ParserStream &stream, Token &&colonToken) {
+    ColonExpr expr;
+    expr.colonToken = std::move(colonToken);
+    expr.span.lo = expr.colonToken.loc;
+    expr.value = parseExpr(stream);
+    expr.span.hi = expr.value->span.hi;
+    return std::make_unique<ColonExpr>(std::move(expr));
+  }
+
   std::unique_ptr<Statement> parseDefn(ParserStream &stream, const std::optional<Token> &defnToken) {
     Defn defn;
     defn.defnToken = std::move(*defnToken);
@@ -370,11 +379,15 @@ namespace parser {
   }
 
   std::unique_ptr<DelimitedExpr> parseDelimitedExpr(ParserStream &stream) {
-    auto token = stream.optional(Tok::TParOpen);
-    if (token) {
-      return parseBracketExpr(stream, std::move(*token));
+    auto openToken = stream.optional(Tok::TParOpen);
+    if (openToken) {
+      return parseBracketExpr(stream, std::move(*openToken));
     }
-    return parseBlockExpr(stream, stream.require(Tok::TBrOpen, "( or { expected"));
+    auto colonToken = stream.optional(Tok::TColon);
+    if (colonToken) {
+      return parseColonExpr(stream, std::move(*colonToken));
+    }
+    return parseBlockExpr(stream, stream.require(Tok::TBrOpen, ": or ( or { expected"));
   }
 
   std::unique_ptr<Expr> parsePrimaryExpr(ParserStream &stream) {
@@ -392,6 +405,7 @@ namespace parser {
             Tok::TFalse,
             Tok::TBrOpen,
             Tok::TParOpen,
+            Tok::TColon,
         });
     if (!token) {
       throw parseError("Expression expected", stream);
@@ -506,6 +520,9 @@ namespace parser {
         return parseBlockExpr(stream, std::move(*token));
       case Tok::TParOpen: {
         return parseBracketExpr(stream, std::move(*token));
+      }
+      case Tok::TColon: {
+        return parseColonExpr(stream, std::move(*token));
       }
       default:
         throw parseError("Unexpected token", stream);

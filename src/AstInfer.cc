@@ -265,6 +265,10 @@ namespace ast {
     return value->inferExpr(ctx, pos);
   }
 
+  TPtr ColonExpr::inferType(ParseContext &ctx, Position pos) {
+    return value->inferExpr(ctx, pos);
+  }
+
   TPtr LiteralExpr::inferType(ParseContext &ctx, Position pos) {
     switch (value.type) {
       case Tok::TStr:

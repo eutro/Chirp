@@ -5,13 +5,13 @@
 #include "Tokens.h"
 #include "Err.h"
 
-#include <functional>
 #include <llvm/IR/IRBuilder.h>
-
-#include <deque>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/Type.h>
+#include <functional>
+#include <deque>
 #include <vector>
 #include <optional>
 #include <memory>
@@ -112,13 +112,20 @@ namespace ast {
     std::map<std::shared_ptr<type::BaseType>,
         std::function<llvm::Type *(CompileContext &, TPtr)>> transformers;
 
+    std::map<std::shared_ptr<type::BaseType>,
+        std::function<llvm::DIType *(CompileContext &, TPtr)>> diTransformers;
+
     llvm::StructType *gcMetaType;
     llvm::FunctionType *visitFnType;
     llvm::FunctionType *metaFnType;
     llvm::Constant *fnMeta;
 
+    llvm::DIBuilder &diBuilder;
+    llvm::DICompileUnit *diCU;
+
     CompileContext(llvm::LLVMContext &ctx,
                    llvm::IRBuilder<> &builder,
+                   llvm::DIBuilder &diBuilder,
                    llvm::Module &module,
                    ParseContext &pc);
   };
@@ -340,7 +347,7 @@ namespace ast {
     std::vector<Token> commas;
     Token inToken;
     std::optional<Identifier> name;
-    std::unique_ptr<DelimitedExpr> body;
+    std::unique_ptr<Expr> body;
 
     void print(std::ostream &os) const override;
     TPtr inferType(ParseContext &ctx, Position pos) override;
@@ -404,6 +411,16 @@ namespace ast {
     Token openToken;
     std::unique_ptr<Expr> value;
     Token closeToken;
+
+    void print(std::ostream &os) const override;
+    TPtr inferType(ParseContext &ctx, Position pos) override;
+    llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
+  };
+
+  class ColonExpr : public DelimitedExpr {
+  public:
+    Token colonToken;
+    std::unique_ptr<Expr> value;
 
     void print(std::ostream &os) const override;
     TPtr inferType(ParseContext &ctx, Position pos) override;

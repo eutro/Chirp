@@ -30,9 +30,20 @@ int main() {
   }
 
   llvm::LLVMContext lc;
+  char *fileName = std::getenv("CRP_FILENAME");
+  char *fileDir = std::getenv("CRP_FILEDIR");
+  llvm::Module module(fileName ? fileName : "module", lc);
+  module.addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
   llvm::IRBuilder builder(lc);
-  llvm::Module module("module", lc);
-  ast::CompileContext cc(lc, builder, module, pc);
+  llvm::DIBuilder diBuilder(module);
+  ast::CompileContext cc(lc, builder, diBuilder, module, pc);
+  cc.diCU = diBuilder.createCompileUnit(
+      llvm::dwarf::DW_LANG_C,
+      diBuilder.createFile(fileName ? fileName : "module.crp", fileDir ? fileDir : "."),
+      "Chirp Compiler",
+      false, "", 0
+  );
   program.compile(cc);
+  diBuilder.finalize();
   module.print(llvm::outs(), nullptr);
 }

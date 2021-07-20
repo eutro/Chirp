@@ -50,11 +50,13 @@ VarExpr ::= Identifier
 
 LiteralExpr ::= TStr | TInt | TFloat | TTrue | TFalse
 
-DelimitedExpr ::= BlockExpr | BracketExpr
+DelimitedExpr ::= BlockExpr | BracketExpr | ColonExpr
 
 BlockExpr ::= '{' ( ( Statement (','|'\n') )* Expr )? '}'
 
 BracketExpr ::= '(' Expr ')'
+
+ColonExpr ::= ':' Expr
 
 IfExpr ::= 'if' Expr BlockExpr
            ( 'else' 'if' Expr BlockExpr )*
