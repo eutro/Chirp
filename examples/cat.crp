@@ -1,0 +1,9 @@
+defn getC(): int = foreign
+defn putC(c: int): unit = foreign
+
+let in loop:
+  let c = getC() in:
+    if c != -1 {
+      putC(c)
+      loop()
+    }

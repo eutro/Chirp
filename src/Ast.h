@@ -69,6 +69,7 @@ namespace ast {
     type::TypeContext &tc;
 
     std::shared_ptr<type::BaseType> funcType;
+    std::shared_ptr<type::BaseType> ptrType;
     std::shared_ptr<type::BaseType> unitType;
     std::shared_ptr<type::BaseType> intType;
     std::shared_ptr<type::BaseType> floatType;

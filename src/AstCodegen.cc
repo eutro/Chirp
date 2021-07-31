@@ -146,6 +146,12 @@ namespace ast {
                                  ParseContext &pc) :
       pc(pc), ctx(ctx), builder(builder), diBuilder(diBuilder), module(module) {
     transformers[pc.funcType] = [](CompileContext &ctx, auto type) { return getFuncType(ctx, type).first; };
+    transformers[pc.ptrType] = [](CompileContext &ctx, TPtr type) {
+      auto &aggr = std::get<1>(CType::get(type)->value);
+      return aggr.values.empty() ?
+        llvm::Type::getInt8PtrTy(ctx.ctx) :
+        llvm::PointerType::getUnqual(toLLVM(ctx, aggr.values[0]));
+    };
     unitType = llvm::StructType::get(ctx, {});
     transformers[pc.unitType] = [](CompileContext &ctx, auto _t) { return ctx.unitType; };
     unitValue = llvm::ConstantStruct::get(unitType, {});
@@ -738,7 +744,7 @@ namespace ast {
                                               &ctx.module);
         invoker->setSubprogram(ctx.diBuilder.createFunction(
             ctx.diCU->getFile(), invoker->getName(), invoker->getName(), ctx.diCU->getFile(),
-            foreignToken->loc.line, llvm::cast<llvm::DISubroutineType>(toDiType(ctx, var->type->type)),
+            foreignToken->loc.line, toDISRType(ctx, var->type->type),
             foreignToken->loc.line, llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
         ));
 

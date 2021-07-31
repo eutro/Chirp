@@ -1,17 +1,21 @@
-#include "Runtime.h"
 #include <stdio.h>
 
-Unit putf(double d) {
+void putf(double d) {
   printf("%f", d);
-  return (Unit) {};
 }
 
-Unit puti(long long i) {
+void puti(long long i) {
   printf("%lld", i);
-  return (Unit) {};
 }
 
-Unit println() {
+void println() {
   puts("");
-  return (Unit) {};
+}
+
+long long getC() {
+  return getchar();
+}
+
+void putC(long long c) {
+  putchar((int) c);
 }

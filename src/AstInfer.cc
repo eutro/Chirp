@@ -29,6 +29,7 @@ namespace ast {
   ParseContext::ParseContext(type::TypeContext &tc) :
       tc(tc),
       funcType(std::make_shared<type::BaseType>("fn")),
+      ptrType(std::make_shared<type::BaseType>("ptr")),
       unitType(std::make_shared<type::BaseType>("unit")),
       intType(std::make_shared<type::BaseType>("int")),
       floatType(std::make_shared<type::BaseType>("float")),
@@ -49,6 +50,7 @@ namespace ast {
     {
       auto &builtinTypes = typeScopes.back().bindings;
       builtinTypes["fn"] = funcType;
+      builtinTypes["ptr"] = ptrType;
       builtinTypes["unit"] = unitType;
       builtinTypes["int"] = intType;
       builtinTypes["float"] = floatType;
@@ -200,9 +202,11 @@ namespace ast {
         CType::getAndUnify(ctx.tc, type, elseIfType);
       }
     }
-    TPtr elseType = elseClause->thenExpr->inferExpr(ctx, pos);
-    if (!isStatement) {
-      CType::getAndUnify(ctx.tc, type, elseType);
+    if (elseClause) {
+      TPtr elseType = elseClause->thenExpr->inferExpr(ctx, pos);
+      if (!isStatement) {
+        CType::getAndUnify(ctx.tc, type, elseType);
+      }
     }
     return type;
   }
