@@ -18,7 +18,7 @@
 
 (defconst chirp-mode-syntax-table
   (let ((table (make-syntax-table)))
-        ;; Symbol syntax, any ASCII character
+    ;; Symbol syntax, any ASCII character
     (modify-syntax-entry '(0 . 127) "_" table)
 
     ;; Word syntax
