@@ -228,7 +228,7 @@ namespace parser {
       TypeHint hint;
       hint.colon = std::move(*colon);
       hint.type = parseType(stream);
-      return hint;
+      return std::move(hint);
     }
     return std::nullopt;
   }
