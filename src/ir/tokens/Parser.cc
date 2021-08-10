@@ -1,6 +1,7 @@
-#include <sstream>
-#include "Lexer.h"
 #include "Parser.h"
+#include "../../fsm/Lexer.h"
+
+#include <sstream>
 
 ast::Tok fsm::Finished<ast::Tok>::rejecting() {
   return ast::Tok::TInvalid;

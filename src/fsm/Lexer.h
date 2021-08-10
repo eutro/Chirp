@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Loc.h"
+#include "../common/Loc.h"
 #include "NFA.h"
 #include "DFA.h"
 #include "RegEx.h"

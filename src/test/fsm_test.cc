@@ -1,5 +1,5 @@
-#include "../NFA.h"
-#include "../RegEx.h"
+#include "../fsm/NFA.h"
+#include "../fsm/RegEx.h"
 
 #include <cstdlib>
 #include <iostream>

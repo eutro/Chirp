@@ -1,4 +1,4 @@
-#include "../Parser.h"
+#include "../ir/tokens/Parser.h"
 
 int main() {
   lexer::Lexer<ast::Tok> lexer(TOKEN_PATTERNS);

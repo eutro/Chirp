@@ -1,10 +1,7 @@
 #pragma once
 
-#include <stdexcept>
-#include <string>
-
-#include "Ast.h"
-#include "Err.h"
+#include "../ast/Ast.h"
+#include "../../common/Err.h"
 
 template<>
 struct fsm::Finished<ast::Tok> {
