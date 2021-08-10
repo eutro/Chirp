@@ -1,29 +1,360 @@
+#include "AstInfer.h"
 #include "Ast.h"
 
 namespace ast {
-  TPtr PlaceholderType::get(ParseContext &ctx) const {
-    return ctx.tc.fresh();
-  }
+  class InferVisitor : public Visitor {
+  private:
+    TPtr lastType;
 
-  TPtr NamedType::get(ParseContext &ctx) const {
-    auto &found = ctx.lookupType(raw.ident.value);
-    if (parameters) {
-      std::vector<TPtr> typeParams(parameters->types.size());
+    TPtr getType(Type &it) {
+      visitType(it);
+      return lastType;
+    }
+
+    TPtr maybeHinted(const std::optional<TypeHint> &hint) {
+      return hint ? getType(*hint->type) : ctx.tc.fresh();
+    }
+
+    TPtr inferExpr(Expr &it, Position pos) {
+      visitExpr(it, pos);
+      return it.type;
+    }
+
+    TPtr inferFuncType(const std::optional<Binding::TypeArguments> &typeArguments,
+                       std::vector<RawBinding> &bindings,
+                       const std::optional<TypeHint> &returnHint,
+                       Identifier *name,
+                       std::shared_ptr<Var> *recurVar,
+                       std::set<std::shared_ptr<Var>> &closed,
+                       std::unique_ptr<Expr> &value) {
+      TPtr inferred;
+      if (typeArguments) {
+        ctx.typeScopes.emplace_back();
+        auto &typeBindings = ctx.typeScopes.back().bindings;
+        for (const auto &ident : typeArguments->idents) {
+          if (typeBindings.count(ident.ident.value)) {
+            throw std::runtime_error("Name already bound");
+          }
+          typeBindings[ident.ident.value] = ctx.tc.fresh();
+        }
+      }
+      ctx.scopes.emplace_back();
+      size_t oldSize = ctx.tc.bound.size();
+      std::vector<TPtr> params(bindings.size() + 1, nullptr);
       size_t i = 0;
-      for (const auto &param : parameters->types) {
-        typeParams[i++] = param->get(ctx);
+      for (auto &rb : bindings) {
+        rb.var = ctx.introduce(rb.name.ident.value, params[i++] = maybeHinted(rb.typeHint));
+        ctx.tc.bound.push_back(rb.var->type);
       }
-      if (found.index() != 0) {
-        throw std::runtime_error("Names a non-generic type");
+      TPtr retType = params[i] = maybeHinted(returnHint);
+      inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+      if (name) {
+        *recurVar = ctx.introduce(name->ident.value, inferred);
       }
-      return ctx.tc.push(CType::aggregate(std::get<0>(found), std::move(typeParams)));
-    } else {
-      if (found.index() == 0) {
-        return ctx.tc.push(CType::aggregate(std::get<0>(found), {}));
+      CType::getAndUnify(ctx.tc, inferExpr(*value, Position::Expr), retType);
+      ctx.tc.bound.resize(oldSize);
+      closed = std::move(ctx.scopes.back().referenced);
+      ctx.scopes.pop_back();
+      if (typeArguments) {
+        ctx.typeScopes.pop_back();
+      }
+      return inferred;
+    }
+
+    std::shared_ptr<PType> &inferBindingType(Binding &it) {
+      TPtr inferred;
+      if (it.value) {
+        if (it.arguments) {
+          inferred = inferFuncType(it.arguments->typeArguments,
+                                   it.arguments->bindings,
+                                   it.typeHint,
+                                   &it.name,
+                                   &it.arguments->recurVar,
+                                   it.arguments->closed,
+                                   it.value);
+          it.var = ctx.introduce(it.name.ident.value, ctx.tc.gen(inferred));
+        } else {
+          inferred = inferExpr(*it.value, Position::Expr);
+          if (it.typeHint) {
+            CType::getAndUnify(ctx.tc, inferred, maybeHinted(it.typeHint));
+          }
+          it.var = ctx.introduce(it.name.ident.value, inferred);
+        }
       } else {
-        return std::get<1>(found);
+        if (it.arguments) {
+          std::vector<TPtr> params(it.arguments->bindings.size() + 1);
+          size_t i = 0;
+          for (auto &binding : it.arguments->bindings) {
+            params[i++] = maybeHinted(binding.typeHint);
+          }
+          params[i] = maybeHinted(it.typeHint);
+          inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
+        } else {
+          inferred = maybeHinted(it.typeHint);
+        }
+        // don't generalise FFI functions
+        it.var = ctx.introduce(it.name.ident.value, inferred);
+      }
+      return it.var->type;
+    }
+
+  public:
+    ParseContext &ctx;
+    InferVisitor(ParseContext &ctx): ctx(ctx) {}
+
+    void visitPlaceholderType(PlaceholderType &it) override {
+      lastType = ctx.tc.fresh();
+    }
+
+    void visitNamedType(NamedType &it) override {
+      auto &found = ctx.lookupType(it.raw.ident.value);
+      if (it.parameters) {
+        std::vector<TPtr> typeParams(it.parameters->types.size());
+        size_t i = 0;
+        for (const auto &param : it.parameters->types) {
+          typeParams[i++] = getType(*param);
+        }
+        if (found.index() != 0) {
+          throw std::runtime_error("Names a non-generic type");
+        }
+        lastType = ctx.tc.push(CType::aggregate(std::get<0>(found), std::move(typeParams)));
+      } else {
+        if (found.index() == 0) {
+          lastType = ctx.tc.push(CType::aggregate(std::get<0>(found), {}));
+        } else {
+          lastType = std::get<1>(found);
+        }
       }
     }
+
+    void visitDefn(Defn &it) override {
+      ctx.tc.bound.push_back(inferBindingType(it.binding));
+    }
+
+    void visitExpr(Expr &it, Position pos) override {
+      Visitor::visitExpr(it, pos);
+      it.type = lastType;
+    }
+
+    void visitIfExpr(IfExpr &it, Position pos) override {
+      bool isStatement = pos == Position::Statement || !it.elseClause;
+
+      TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+      CType::getAndUnify(ctx.tc, boolType, inferExpr(*it.predExpr, Position::Expr));
+      TPtr thenType = inferExpr(*it.thenExpr, pos);
+      TPtr type = isStatement ? ctx.tc.push(CType::aggregate(ctx.unitType, {})) : thenType;
+      for (auto &clause : it.elseIfClauses) {
+        CType::getAndUnify(ctx.tc, boolType, inferExpr(*clause.predExpr, Position::Expr));
+        TPtr elseIfType = inferExpr(*clause.thenExpr, pos);
+        if (!isStatement) {
+          CType::getAndUnify(ctx.tc, type, elseIfType);
+        }
+      }
+      if (it.elseClause) {
+        TPtr elseType = inferExpr(*it.elseClause->thenExpr, pos);
+        if (!isStatement) {
+          CType::getAndUnify(ctx.tc, type, elseType);
+        }
+      }
+      lastType = type;
+    }
+
+    void visitLetExpr(LetExpr &it, Position pos) override {
+      size_t oldSize = ctx.tc.bound.size();
+      ctx.scopes.emplace_back();
+
+      TPtr type;
+      if (it.name) {
+        type = ctx.tc.fresh();
+        std::vector<TPtr> args(it.bindings.size() + 1, nullptr);
+        size_t i = 0;
+        for (auto &b : it.bindings) {
+          auto inferred = inferBindingType(b);
+          if (!inferred->bound.empty()) {
+            throw std::runtime_error("Named 'let' may not have polymorphic bindings");
+          }
+          args[i++] = inferred->type;
+          ctx.tc.bound.push_back(inferred);
+        }
+        args[i] = type;
+        TPtr funcType = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(args)));
+        ctx.scopes.emplace_back();
+        it.nameVar = ctx.introduce(it.name->ident.value, funcType);
+        CType::getAndUnify(ctx.tc, inferExpr(*it.body, pos), type);
+        it.closed = std::move(ctx.scopes.back().referenced);
+        for (const auto &b : it.bindings) {
+          it.closed.erase(b.var);
+        }
+        ctx.scopes.pop_back();
+      } else {
+        for (auto &b : it.bindings) {
+          ctx.tc.bound.push_back(inferBindingType(b));
+        }
+        type = inferExpr(*it.body, pos);
+      }
+      ctx.scopes.pop_back();
+      ctx.tc.bound.resize(oldSize);
+      lastType = type;
+    }
+
+    void visitBlockExpr(BlockExpr &it, Position pos) override {
+      if (it.value) {
+        size_t oldSize = ctx.tc.bound.size();
+        ctx.scopes.emplace_back();
+        for (auto &stmt : it.statements) {
+          visitStatement(*stmt.statement);
+        }
+        TPtr type = inferExpr(*it.value, pos);
+        ctx.scopes.pop_back();
+        ctx.tc.bound.resize(oldSize);
+        lastType = type;
+      } else {
+        lastType = ctx.tc.push(CType::aggregate(ctx.unitType, {}));
+      }
+    }
+
+    void visitBracketExpr(BracketExpr &it, Position pos) override {
+      lastType = inferExpr(*it.value, pos);
+    }
+
+    void visitColonExpr(ColonExpr &it, Position pos) override {
+      lastType = inferExpr(*it.value, pos);
+    }
+
+    void visitLiteralExpr(LiteralExpr &it, Position pos) override {
+      switch (it.value.type) {
+      case Tok::TStr:
+        lastType = ctx.tc.push(CType::aggregate(ctx.stringType, {}));
+        break;
+      case Tok::TInt:
+        lastType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
+        break;
+      case Tok::TFloat:
+        lastType = ctx.tc.push(CType::aggregate(ctx.floatType, {}));
+        break;
+      default:
+        lastType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+        break;
+      }
+    }
+
+    void visitVarExpr(VarExpr &it, Position pos) override {
+      it.var = ctx.lookup(it.name.ident.value);
+      lastType = ctx.tc.inst(*it.var->type);
+    }
+
+    void visitBinaryExpr(BinaryExpr &it, Position pos) override {
+      TPtr argType = inferExpr(*it.lhs, Position::Expr);
+      for (auto &rhs : it.terms) {
+        CType::getAndUnify(ctx.tc, argType, inferExpr(*rhs.expr, Position::Expr));
+      }
+      switch (it.terms[0].operatorToken.type) {
+      case Tok::TOr1:
+      case Tok::TAnd1: {
+        TPtr intType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
+        CType::getAndUnify(ctx.tc, argType, intType);
+        lastType = intType;
+        return;
+      }
+      case Tok::TOr2:
+      case Tok::TAnd2: {
+        TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+        CType::getAndUnify(ctx.tc, argType, boolType);
+        lastType = boolType;
+        return;
+      }
+      case Tok::TNe:
+      case Tok::TEq2:
+      case Tok::TEq:
+      case Tok::TLt:
+      case Tok::TGt:
+      case Tok::TLe:
+      case Tok::TGe: {
+        TPtr cmp = ctx.tc.fresh();
+        std::get<0>(cmp->value).traits.insert(ctx.cmpTrait);
+        CType::getAndUnify(ctx.tc, argType, cmp);
+        lastType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
+        return;
+      }
+      default: {
+        TPtr trait = ctx.tc.fresh();
+        auto &traits = std::get<0>(trait->value).traits;
+        for (auto &rhs : it.terms) {
+          switch (rhs.operatorToken.type) {
+          case Tok::TAdd:
+            traits.insert(ctx.addTrait);
+            break;
+          case Tok::TSub:
+            traits.insert(ctx.subTrait);
+            break;
+          case Tok::TMul:
+            traits.insert(ctx.mulTrait);
+            break;
+          case Tok::TDiv:
+            traits.insert(ctx.divTrait);
+            break;
+          default: // Tok::TRem
+            traits.insert(ctx.remTrait);
+            break;
+          }
+        }
+        CType::getAndUnify(ctx.tc, argType, trait);
+        lastType = argType;
+        return;
+      }
+      }
+    }
+
+    void visitPrefixExpr(PrefixExpr &it, Position pos) override {
+      lastType = inferExpr(*it.expr, Position::Expr);
+    }
+
+    void visitFunCallExpr(FunCallExpr &it, Position pos) override {
+      TPtr funcType = inferExpr(*it.function, Position::Expr);
+      std::vector<TPtr> argTypes(it.arguments.size() + 1, nullptr);
+      size_t i = 0;
+      for (auto &arg : it.arguments) {
+        argTypes[i++] = inferExpr(*arg, Position::Expr);
+      }
+      TPtr type = ctx.tc.fresh();
+      argTypes[i] = type;
+      CType::getAndUnify(ctx.tc,
+                         funcType,
+                         ctx.tc.push(CType::aggregate(ctx.funcType, std::move(argTypes))));
+      lastType = type;
+    }
+
+    void visitHintedExpr(HintedExpr &it, Position pos) override {
+      TPtr inferred = inferExpr(*it.expr, pos);
+      CType::getAndUnify(ctx.tc, inferred, getType(*it.hint.type));
+      lastType = inferred;
+    }
+
+    void visitFnExpr(FnExpr &it, Position pos) override {
+      lastType =
+        inferFuncType(it.arguments.typeArguments,
+                      it.arguments.bindings,
+                      it.typeHint,
+                      it.name ? &*it.name : nullptr,
+                      &it.recurVar,
+                      it.closed,
+                      it.body);
+    }
+
+    void visitLambdaExpr(LambdaExpr &it, Position pos) override {
+      lastType =
+        inferFuncType(std::nullopt,
+                      it.arguments,
+                      std::nullopt,
+                      nullptr,
+                      nullptr,
+                      it.closed,
+                      it.body);
+    }
+  };
+
+  std::unique_ptr<Visitor> inferenceVisitor(ParseContext &ctx) {
+    return std::make_unique<InferVisitor>(ctx);
   }
 
   ParseContext::ParseContext(type::TypeContext &tc) :
@@ -122,306 +453,5 @@ namespace ast {
       }
     }
     throw std::runtime_error("Undefined type");
-  }
-
-  TPtr maybeHinted(ParseContext &ctx, const std::optional<TypeHint> &hint) {
-    return hint ? hint->type->get(ctx) : ctx.tc.fresh();
-  }
-
-  TPtr inferFuncType(ParseContext &ctx,
-                     const std::optional<Binding::TypeArguments> &typeArguments,
-                     std::vector<RawBinding> &bindings,
-                     const std::optional<TypeHint> &returnHint,
-                     Identifier *name,
-                     std::shared_ptr<Var> *recurVar,
-                     std::set<std::shared_ptr<Var>> &closed,
-                     std::unique_ptr<Expr> &value) {
-    TPtr inferred;
-    if (typeArguments) {
-      ctx.typeScopes.emplace_back();
-      auto &typeBindings = ctx.typeScopes.back().bindings;
-      for (const auto &ident : typeArguments->idents) {
-        if (typeBindings.count(ident.ident.value)) {
-          throw std::runtime_error("Name already bound");
-        }
-        typeBindings[ident.ident.value] = ctx.tc.fresh();
-      }
-    }
-    ctx.scopes.emplace_back();
-    size_t oldSize = ctx.tc.bound.size();
-    std::vector<TPtr> params(bindings.size() + 1, nullptr);
-    size_t i = 0;
-    for (auto &rb : bindings) {
-      rb.var = ctx.introduce(rb.name.ident.value, params[i++] = maybeHinted(ctx, rb.typeHint));
-      ctx.tc.bound.push_back(rb.var->type);
-    }
-    TPtr retType = params[i] = maybeHinted(ctx, returnHint);
-    inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
-    if (name) {
-      *recurVar = ctx.introduce(name->ident.value, inferred);
-    }
-    CType::getAndUnify(ctx.tc, value->inferExpr(ctx, Position::Expr), retType);
-    ctx.tc.bound.resize(oldSize);
-    closed = std::move(ctx.scopes.back().referenced);
-    ctx.scopes.pop_back();
-    if (typeArguments) {
-      ctx.typeScopes.pop_back();
-    }
-    return inferred;
-  }
-
-  void Program::inferTypes(ParseContext &ctx) {
-    for (auto &stmt : statements) {
-      stmt->inferStatement(ctx);
-    }
-  }
-
-  void Defn::inferStatement(ParseContext &ctx) {
-    ctx.tc.bound.push_back(this->binding.inferType(ctx));
-  }
-
-  void Expr::inferStatement(ParseContext &ctx) {
-    inferExpr(ctx, Position::Statement);
-  }
-
-  TPtr Expr::inferExpr(ParseContext &ctx, Position pos) {
-    return type = inferType(ctx, pos);
-  }
-
-  TPtr IfExpr::inferType(ParseContext &ctx, Position pos) {
-    bool isStatement = pos == Position::Statement || !elseClause;
-
-    TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-    CType::getAndUnify(ctx.tc, boolType, predExpr->inferExpr(ctx, Position::Expr));
-    TPtr thenType = thenExpr->inferExpr(ctx, pos);
-    TPtr type = isStatement ? ctx.tc.push(CType::aggregate(ctx.unitType, {})) : thenType;
-    for (auto &clause : elseIfClauses) {
-      CType::getAndUnify(ctx.tc, boolType, clause.predExpr->inferExpr(ctx, Position::Expr));
-      TPtr elseIfType = clause.thenExpr->inferExpr(ctx, pos);
-      if (!isStatement) {
-        CType::getAndUnify(ctx.tc, type, elseIfType);
-      }
-    }
-    if (elseClause) {
-      TPtr elseType = elseClause->thenExpr->inferExpr(ctx, pos);
-      if (!isStatement) {
-        CType::getAndUnify(ctx.tc, type, elseType);
-      }
-    }
-    return type;
-  }
-
-  TPtr LetExpr::inferType(ParseContext &ctx, Position pos) {
-    size_t oldSize = ctx.tc.bound.size();
-    ctx.scopes.emplace_back();
-
-    TPtr type;
-    if (name) {
-      type = ctx.tc.fresh();
-      std::vector<TPtr> args(bindings.size() + 1, nullptr);
-      size_t i = 0;
-      for (auto &b : bindings) {
-        auto inferred = b.inferType(ctx);
-        if (!inferred->bound.empty()) {
-          throw std::runtime_error("Named 'let' may not have polymorphic bindings");
-        }
-        args[i++] = inferred->type;
-        ctx.tc.bound.push_back(inferred);
-      }
-      args[i] = type;
-      TPtr funcType = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(args)));
-      ctx.scopes.emplace_back();
-      nameVar = ctx.introduce(name->ident.value, funcType);
-      CType::getAndUnify(ctx.tc, body->inferExpr(ctx, pos), type);
-      closed = std::move(ctx.scopes.back().referenced);
-      for (const auto &b : bindings) {
-        closed.erase(b.var);
-      }
-      ctx.scopes.pop_back();
-    } else {
-      for (auto &b : bindings) {
-        ctx.tc.bound.push_back(b.inferType(ctx));
-      }
-      type = body->inferExpr(ctx, pos);
-    }
-    ctx.scopes.pop_back();
-    ctx.tc.bound.resize(oldSize);
-    return type;
-  }
-
-  TPtr BlockExpr::inferType(ParseContext &ctx, Position pos) {
-    if (value) {
-      size_t oldSize = ctx.tc.bound.size();
-      ctx.scopes.emplace_back();
-      for (auto &stmt : statements) {
-        stmt.statement->inferStatement(ctx);
-      }
-      TPtr type = value->inferExpr(ctx, pos);
-      ctx.scopes.pop_back();
-      ctx.tc.bound.resize(oldSize);
-      return type;
-    } else {
-      return ctx.tc.push(CType::aggregate(ctx.unitType, {}));
-    }
-  }
-
-  TPtr BracketExpr::inferType(ParseContext &ctx, Position pos) {
-    return value->inferExpr(ctx, pos);
-  }
-
-  TPtr ColonExpr::inferType(ParseContext &ctx, Position pos) {
-    return value->inferExpr(ctx, pos);
-  }
-
-  TPtr LiteralExpr::inferType(ParseContext &ctx, Position pos) {
-    switch (value.type) {
-      case Tok::TStr:
-        return ctx.tc.push(CType::aggregate(ctx.stringType, {}));
-      case Tok::TInt:
-        return ctx.tc.push(CType::aggregate(ctx.intType, {}));
-      case Tok::TFloat:
-        return ctx.tc.push(CType::aggregate(ctx.floatType, {}));
-      default:
-        return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-    }
-  }
-
-  TPtr VarExpr::inferType(ParseContext &ctx, Position pos) {
-    var = ctx.lookup(name.ident.value);
-    return ctx.tc.inst(*var->type);
-  }
-
-  TPtr BinaryExpr::inferType(ParseContext &ctx, Position pos) {
-    TPtr argType = lhs->inferExpr(ctx, Position::Expr);
-    for (auto &rhs : terms) {
-      CType::getAndUnify(ctx.tc, argType, rhs.expr->inferExpr(ctx, Position::Expr));
-    }
-    switch (terms[0].operatorToken.type) {
-      case Tok::TOr1:
-      case Tok::TAnd1: {
-        TPtr intType = ctx.tc.push(CType::aggregate(ctx.intType, {}));
-        CType::getAndUnify(ctx.tc, argType, intType);
-        return intType;
-      }
-      case Tok::TOr2:
-      case Tok::TAnd2: {
-        TPtr boolType = ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-        CType::getAndUnify(ctx.tc, argType, boolType);
-        return boolType;
-      }
-      case Tok::TNe:
-      case Tok::TEq2:
-      case Tok::TEq:
-      case Tok::TLt:
-      case Tok::TGt:
-      case Tok::TLe:
-      case Tok::TGe: {
-        TPtr cmp = ctx.tc.fresh();
-        std::get<0>(cmp->value).traits.insert(ctx.cmpTrait);
-        CType::getAndUnify(ctx.tc, argType, cmp);
-        return ctx.tc.push(CType::aggregate(ctx.boolType, {}));
-      }
-      default: {
-        TPtr trait = ctx.tc.fresh();
-        auto &traits = std::get<0>(trait->value).traits;
-        for (auto &rhs : terms) {
-          switch (rhs.operatorToken.type) {
-            case Tok::TAdd:
-              traits.insert(ctx.addTrait);
-              break;
-            case Tok::TSub:
-              traits.insert(ctx.subTrait);
-              break;
-            case Tok::TMul:
-              traits.insert(ctx.mulTrait);
-              break;
-            case Tok::TDiv:
-              traits.insert(ctx.divTrait);
-              break;
-            default: // Tok::TRem
-              traits.insert(ctx.remTrait);
-              break;
-          }
-        }
-        CType::getAndUnify(ctx.tc, argType, trait);
-        return argType;
-      }
-    }
-  }
-
-  TPtr PrefixExpr::inferType(ParseContext &ctx, Position pos) {
-    return expr->inferExpr(ctx, Position::Expr);
-  }
-
-  TPtr FunCallExpr::inferType(ParseContext &ctx, Position pos) {
-    TPtr funcType = function->inferExpr(ctx, Position::Expr);
-    std::vector<TPtr> argTypes(arguments.size() + 1, nullptr);
-    size_t i = 0;
-    for (auto &arg : arguments) {
-      argTypes[i++] = arg->inferExpr(ctx, Position::Expr);
-    }
-    TPtr type = ctx.tc.fresh();
-    argTypes[i] = type;
-    CType::getAndUnify(ctx.tc, funcType, ctx.tc.push(CType::aggregate(ctx.funcType, std::move(argTypes))));
-    return type;
-  }
-
-  TPtr HintedExpr::inferType(ParseContext &ctx, Position pos) {
-    TPtr inferred = expr->inferExpr(ctx, pos);
-    CType::getAndUnify(ctx.tc, inferred, hint.type->get(ctx));
-    return inferred;
-  }
-
-  TPtr FnExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx,
-                         arguments.typeArguments,
-                         arguments.bindings,
-                         typeHint,
-                         name ? &*name : nullptr,
-                         &recurVar,
-                         closed,
-                         body);
-  }
-
-  TPtr LambdaExpr::inferType(ParseContext &ctx, Position pos) {
-    return inferFuncType(ctx, std::nullopt, arguments, std::nullopt, nullptr, nullptr, closed, body);
-  }
-
-  std::shared_ptr<PType> &Binding::inferType(ParseContext &ctx) {
-    TPtr inferred;
-    if (value) {
-      if (arguments) {
-        inferred = inferFuncType(ctx,
-                                 arguments->typeArguments,
-                                 arguments->bindings,
-                                 typeHint,
-                                 &name,
-                                 &arguments->recurVar,
-                                 arguments->closed,
-                                 value);
-        var = ctx.introduce(name.ident.value, ctx.tc.gen(inferred));
-      } else {
-        inferred = value->inferExpr(ctx, Position::Expr);
-        if (typeHint) {
-          CType::getAndUnify(ctx.tc, inferred, typeHint->type->get(ctx));
-        }
-        var = ctx.introduce(name.ident.value, inferred);
-      }
-    } else {
-      if (arguments) {
-        std::vector<TPtr> params(arguments->bindings.size() + 1);
-        size_t i = 0;
-        for (auto &binding : arguments->bindings) {
-          params[i++] = maybeHinted(ctx, binding.typeHint);
-        }
-        params[i] = maybeHinted(ctx, typeHint);
-        inferred = ctx.tc.push(CType::aggregate(ctx.funcType, std::move(params)));
-      } else {
-        inferred = maybeHinted(ctx, typeHint);
-      }
-      // don't generalise FFI functions
-      var = ctx.introduce(name.ident.value, inferred);
-    }
-    return var->type;
   }
 }

@@ -1,5 +1,6 @@
 #include "../Parser.h"
 #include "../AstPrint.h"
+#include "../AstInfer.h"
 
 int main() {
   lexer::Lexer<ast::Tok> lexer(TOKEN_PATTERNS);
@@ -10,7 +11,7 @@ int main() {
 
   type::TypeContext tc;
   ast::ParseContext ctx(tc);
-  program.inferTypes(ctx);
+  ast::inferenceVisitor(ctx)->visitProgram(program);
 
   ast::print::operator<<(std::cout, program) << std::endl;
 }

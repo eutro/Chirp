@@ -21,10 +21,11 @@ target_link_libraries(lexer fsm)
 
 add_library(err Err.cc)
 
-add_library(ast Type.cc AstCodegen.cc AstInfer.cc Ast.cc Visitor.cc)
+add_library(ast Type.cc AstCodegen.cc Ast.cc Visitor.cc)
 target_link_libraries(ast lexer ${llvm_libs})
 
 add_library(astprint AstPrint.cc)
+add_library(astinfer AstInfer.cc)
 
 add_library(parser Parser.cc)
 target_link_libraries(parser ast err)

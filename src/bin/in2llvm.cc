@@ -1,4 +1,5 @@
 #include "../Parser.h"
+#include "../AstInfer.h"
 #include <llvm/Support/raw_ostream.h>
 
 int main() {
@@ -19,7 +20,7 @@ int main() {
 
   type::TypeContext tc;
   ast::ParseContext pc(tc);
-  program.inferTypes(pc);
+  ast::inferenceVisitor(pc)->visitProgram(program);
 
   if (!tc.errors.empty()) {
     std::cerr << "Aborting due to errors:\n";

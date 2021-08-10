@@ -1,0 +1,24 @@
+defn putC(c) = foreign
+defn println() = foreign
+defn puti(i) = foreign
+
+defn fizz() = { putC(70), putC(105), putC(122), putC(122) }
+defn buzz() = { putC(66), putC(117), putC(122), putC(122) }
+
+defn fizzBuzz(n) = {
+  if n % 15 == 0 {
+    fizz(), buzz()
+  } else if n % 3 == 0 {
+    fizz()
+  } else if n % 5 == 0 {
+    buzz()
+  } else {
+    puti(n)
+  }
+  println()
+  if n < 100 {
+    fizzBuzz(n + 1)
+  }
+}
+
+fizzBuzz(1)

@@ -148,7 +148,6 @@ namespace ast {
     virtual ~Statement() = default;
     virtual void acceptStatement(Visitor &v) = 0;
 
-    virtual void inferStatement(ParseContext &ctx) = 0;
     virtual void compileStatement(CompileContext &ctx) = 0;
   };
 
@@ -163,8 +162,6 @@ namespace ast {
 
     virtual ~Type() = default;
     virtual void acceptType(Visitor &v) = 0;
-
-    virtual TPtr get(ParseContext &ctx) const = 0;
   };
 
   class PlaceholderType : public Type {
@@ -172,8 +169,6 @@ namespace ast {
     Token placeholder;
 
     void acceptType(Visitor &v) override;
-
-    TPtr get(ParseContext &ctx) const override;
   };
 
   class NamedType : public Type {
@@ -190,8 +185,6 @@ namespace ast {
     std::optional<TypeParameters> parameters;
 
     void acceptType(Visitor &v) override;
-
-    TPtr get(ParseContext &ctx) const override;
   };
 
   class TypeHint {
@@ -215,17 +208,11 @@ namespace ast {
   };
 
   class Expr : public Statement {
-  protected:
-    virtual TPtr inferType(ParseContext &ctx, Position pos) = 0;
   public:
     TPtr type = nullptr;
 
     void acceptStatement(Visitor &v) override;
-
     virtual void acceptExpr(Visitor &v, Position pos) = 0;
-
-    void inferStatement(ParseContext &ctx) override;
-    TPtr inferExpr(ParseContext &ctx, Position pos);
 
     void compileStatement(CompileContext &ctx) override;
     virtual llvm::Value *compileExpr(CompileContext &ctx, Position pos) = 0;
@@ -264,7 +251,6 @@ namespace ast {
     std::unique_ptr<Expr> value;
     std::optional<Token> foreignToken;
 
-    std::shared_ptr<PType> &inferType(ParseContext &ctx);
     void compile(CompileContext &ctx);
     llvm::Value *compileExpr(CompileContext &ctx, TPtr instType);
   };
@@ -276,7 +262,6 @@ namespace ast {
 
     void acceptStatement(Visitor &v) override;
 
-    void inferStatement(ParseContext &ctx) override;
     void compileStatement(CompileContext &ctx) override;
   };
 
@@ -285,31 +270,24 @@ namespace ast {
     std::vector<std::unique_ptr<Statement>> statements;
     std::vector<Token> delimiters;
 
-    void inferTypes(ParseContext &ctx);
     void compile(CompileContext &ctx);
-  };
-
-  class PrimaryExpr : public Expr {
-  };
-
-  class DelimitedExpr : public PrimaryExpr {
   };
 
   class IfExpr : public Expr {
   public:
     Token ifToken;
     std::unique_ptr<Expr> predExpr;
-    std::unique_ptr<DelimitedExpr> thenExpr;
+    std::unique_ptr<Expr> thenExpr;
 
     struct ElseIf {
       Token elseToken, ifToken;
       std::unique_ptr<Expr> predExpr;
-      std::unique_ptr<DelimitedExpr> thenExpr;
+      std::unique_ptr<Expr> thenExpr;
     };
 
     struct Else {
       Token elseToken;
-      std::unique_ptr<DelimitedExpr> thenExpr;
+      std::unique_ptr<Expr> thenExpr;
     };
 
     std::vector<ElseIf> elseIfClauses;
@@ -317,7 +295,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -335,7 +312,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -354,7 +330,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -370,11 +345,10 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
-  class BlockExpr : public DelimitedExpr {
+  class BlockExpr : public Expr {
   public:
     Token openToken;
 
@@ -389,11 +363,10 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
-  class BracketExpr : public DelimitedExpr {
+  class BracketExpr : public Expr {
   public:
     Token openToken;
     std::unique_ptr<Expr> value;
@@ -401,39 +374,35 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
-  class ColonExpr : public DelimitedExpr {
+  class ColonExpr : public Expr {
   public:
     Token colonToken;
     std::unique_ptr<Expr> value;
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
-  class LiteralExpr : public PrimaryExpr {
+  class LiteralExpr : public Expr {
   public:
     Token value;
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
-  class VarExpr : public PrimaryExpr {
+  class VarExpr : public Expr {
   public:
     Identifier name;
     std::shared_ptr<Var> var;
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -451,7 +420,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -462,7 +430,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -476,7 +443,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 
@@ -487,7 +453,6 @@ namespace ast {
 
     void acceptExpr(Visitor &v, Position pos) override;
 
-    TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
 

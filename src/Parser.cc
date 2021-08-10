@@ -305,7 +305,7 @@ namespace parser {
     return binding;
   }
 
-  std::unique_ptr<DelimitedExpr> parseBracketExpr(ParserStream &stream, Token &&openToken) {
+  std::unique_ptr<Expr> parseBracketExpr(ParserStream &stream, Token &&openToken) {
     BracketExpr expr;
     expr.openToken = std::move(openToken);
     expr.span.lo = expr.openToken.loc;
@@ -315,7 +315,7 @@ namespace parser {
     return std::make_unique<BracketExpr>(std::move(expr));
   }
 
-  std::unique_ptr<DelimitedExpr> parseColonExpr(ParserStream &stream, Token &&colonToken) {
+  std::unique_ptr<Expr> parseColonExpr(ParserStream &stream, Token &&colonToken) {
     ColonExpr expr;
     expr.colonToken = std::move(colonToken);
     expr.span.lo = expr.colonToken.loc;
@@ -333,7 +333,7 @@ namespace parser {
     return std::make_unique<Defn>(std::move(defn));
   }
 
-  std::unique_ptr<DelimitedExpr> parseBlockExpr(ParserStream &stream, Token &&openToken) {
+  std::unique_ptr<Expr> parseBlockExpr(ParserStream &stream, Token &&openToken) {
     BlockExpr expr;
     expr.openToken = openToken;
     expr.span.lo = expr.openToken.loc;
@@ -374,11 +374,11 @@ namespace parser {
     } while (true);
   }
 
-  std::unique_ptr<DelimitedExpr> parseBlockExpr(ParserStream &stream) {
+  std::unique_ptr<Expr> parseBlockExpr(ParserStream &stream) {
     return parseBlockExpr(stream, stream.require(Tok::TBrOpen, "{ expected"));
   }
 
-  std::unique_ptr<DelimitedExpr> parseDelimitedExpr(ParserStream &stream) {
+  std::unique_ptr<Expr> parseDelimitedExpr(ParserStream &stream) {
     auto openToken = stream.optional(Tok::TParOpen);
     if (openToken) {
       return parseBracketExpr(stream, std::move(*openToken));
