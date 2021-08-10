@@ -21,12 +21,13 @@ target_link_libraries(lexer fsm)
 
 add_library(err Err.cc)
 
-add_library(ast Type.cc AstCodegen.cc AstPrint.cc AstInfer.cc Ast.cc)
-target_link_libraries(ast lexer err)
-target_link_libraries(ast ${llvm_libs})
+add_library(ast Type.cc AstCodegen.cc AstInfer.cc Ast.cc Visitor.cc)
+target_link_libraries(ast lexer ${llvm_libs})
+
+add_library(astprint AstPrint.cc)
 
 add_library(parser Parser.cc)
-target_link_libraries(parser ast)
+target_link_libraries(parser ast err)
 
 add_library(crp Runtime.c Collector.c)
 

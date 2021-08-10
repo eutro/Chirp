@@ -139,25 +139,22 @@ namespace ast {
     Var(PType &&type);
   };
 
-  std::ostream &operator<<(std::ostream &os, const Token &token);
+  class Visitor;
 
   class Statement {
   public:
     loc::Span span;
 
     virtual ~Statement() = default;
+    virtual void acceptStatement(Visitor &v) = 0;
 
     virtual void inferStatement(ParseContext &ctx) = 0;
     virtual void compileStatement(CompileContext &ctx) = 0;
-    virtual void print(std::ostream &os) const = 0;
-    friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Statement> &statement);
   };
 
   class Identifier {
   public:
     Token ident;
-
-    friend std::ostream &operator<<(std::ostream &os, const Identifier &identifier);
   };
 
   class Type {
@@ -165,19 +162,18 @@ namespace ast {
     loc::Span span;
 
     virtual ~Type() = default;
+    virtual void acceptType(Visitor &v) = 0;
 
     virtual TPtr get(ParseContext &ctx) const = 0;
-
-    virtual void print(std::ostream &os) const = 0;
-    friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Type> &statement);
   };
 
   class PlaceholderType : public Type {
   public:
     Token placeholder;
 
+    void acceptType(Visitor &v) override;
+
     TPtr get(ParseContext &ctx) const override;
-    void print(std::ostream &os) const override;
   };
 
   class NamedType : public Type {
@@ -189,22 +185,19 @@ namespace ast {
       std::vector<std::unique_ptr<Type>> types;
       std::vector<Token> commas;
       Token closeToken;
-
-      friend std::ostream &operator<<(std::ostream &os, const TypeParameters &parameters);
     };
 
     std::optional<TypeParameters> parameters;
 
+    void acceptType(Visitor &v) override;
+
     TPtr get(ParseContext &ctx) const override;
-    void print(std::ostream &os) const override;
   };
 
   class TypeHint {
   public:
     Token colon;
     std::unique_ptr<Type> type;
-
-    friend std::ostream &operator<<(std::ostream &os, const TypeHint &hint);
   };
 
   class RawBinding {
@@ -213,8 +206,6 @@ namespace ast {
 
     Identifier name;
     std::optional<TypeHint> typeHint;
-
-    friend std::ostream &operator<<(std::ostream &os, const RawBinding &binding);
   };
 
   enum class Position {
@@ -229,12 +220,15 @@ namespace ast {
   public:
     TPtr type = nullptr;
 
+    void acceptStatement(Visitor &v) override;
+
+    virtual void acceptExpr(Visitor &v, Position pos) = 0;
+
     void inferStatement(ParseContext &ctx) override;
     TPtr inferExpr(ParseContext &ctx, Position pos);
 
     void compileStatement(CompileContext &ctx) override;
     virtual llvm::Value *compileExpr(CompileContext &ctx, Position pos) = 0;
-    friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<Expr> &statement);
   };
 
   class Binding {
@@ -250,8 +244,6 @@ namespace ast {
       std::vector<Identifier> idents;
       std::vector<Token> commas;
       Token closeToken;
-
-      friend std::ostream &operator<<(std::ostream &os, const TypeArguments &arguments);
     };
 
     struct Arguments {
@@ -263,8 +255,6 @@ namespace ast {
       std::vector<RawBinding> bindings;
       std::vector<Token> commas;
       Token closeToken;
-
-      friend std::ostream &operator<<(std::ostream &os, const Arguments &arguments);
     };
 
     std::optional<Arguments> arguments;
@@ -273,8 +263,6 @@ namespace ast {
 
     std::unique_ptr<Expr> value;
     std::optional<Token> foreignToken;
-
-    friend std::ostream &operator<<(std::ostream &os, const Binding &binding);
 
     std::shared_ptr<PType> &inferType(ParseContext &ctx);
     void compile(CompileContext &ctx);
@@ -286,7 +274,8 @@ namespace ast {
     Token defnToken;
     Binding binding;
 
-    void print(std::ostream &os) const override;
+    void acceptStatement(Visitor &v) override;
+
     void inferStatement(ParseContext &ctx) override;
     void compileStatement(CompileContext &ctx) override;
   };
@@ -296,7 +285,6 @@ namespace ast {
     std::vector<std::unique_ptr<Statement>> statements;
     std::vector<Token> delimiters;
 
-    friend std::ostream &operator<<(std::ostream &os, const Program &program);
     void inferTypes(ParseContext &ctx);
     void compile(CompileContext &ctx);
   };
@@ -305,8 +293,6 @@ namespace ast {
   };
 
   class DelimitedExpr : public PrimaryExpr {
-  public:
-    friend std::ostream &operator<<(std::ostream &os, const std::unique_ptr<DelimitedExpr> &statement);
   };
 
   class IfExpr : public Expr {
@@ -319,21 +305,18 @@ namespace ast {
       Token elseToken, ifToken;
       std::unique_ptr<Expr> predExpr;
       std::unique_ptr<DelimitedExpr> thenExpr;
-
-      friend std::ostream &operator<<(std::ostream &os, const ElseIf &anIf);
     };
 
     struct Else {
       Token elseToken;
       std::unique_ptr<DelimitedExpr> thenExpr;
-
-      friend std::ostream &operator<<(std::ostream &os, const Else &anElse);
     };
 
     std::vector<ElseIf> elseIfClauses;
     std::optional<Else> elseClause;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -350,7 +333,8 @@ namespace ast {
     std::optional<Identifier> name;
     std::unique_ptr<Expr> body;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -367,7 +351,9 @@ namespace ast {
     Token eqToken;
 
     std::unique_ptr<Expr> body;
-    void print(std::ostream &os) const override;
+
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -382,7 +368,8 @@ namespace ast {
     Token dotToken;
     std::unique_ptr<Expr> body;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -394,15 +381,14 @@ namespace ast {
     struct Stmt {
       std::unique_ptr<Statement> statement;
       Token delimiter;
-
-      friend std::ostream &operator<<(std::ostream &os, const Stmt &stmt);
     };
 
     std::vector<Stmt> statements;
     std::unique_ptr<Expr> value;
     Token closeToken;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -413,7 +399,8 @@ namespace ast {
     std::unique_ptr<Expr> value;
     Token closeToken;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -423,7 +410,8 @@ namespace ast {
     Token colonToken;
     std::unique_ptr<Expr> value;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -432,7 +420,8 @@ namespace ast {
   public:
     Token value;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -442,7 +431,8 @@ namespace ast {
     Identifier name;
     std::shared_ptr<Var> var;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -455,13 +445,12 @@ namespace ast {
     struct Rhs {
       Token operatorToken;
       std::unique_ptr<Expr> expr;
-
-      friend std::ostream &operator<<(std::ostream &os, const Rhs &rhs);
     };
 
     std::vector<Rhs> terms;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -471,7 +460,8 @@ namespace ast {
     std::vector<Token> prefixes;
     std::unique_ptr<Expr> expr;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -484,7 +474,8 @@ namespace ast {
     std::vector<Token> commas;
     Token closeToken;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
   };
@@ -494,8 +485,38 @@ namespace ast {
     std::unique_ptr<Expr> expr;
     TypeHint hint;
 
-    void print(std::ostream &os) const override;
+    void acceptExpr(Visitor &v, Position pos) override;
+
     TPtr inferType(ParseContext &ctx, Position pos) override;
     llvm::Value *compileExpr(CompileContext &ctx, Position pos) override;
+  };
+
+  class Visitor {
+  public:
+    virtual void visitProgram(Program &it);
+
+    virtual void visitType(Type &it);
+    virtual void visitPlaceholderType(PlaceholderType &it);
+    virtual void visitNamedType(NamedType &it);
+
+    virtual void visitBinding(Binding &it);
+
+    virtual void visitStatement(Statement &it);
+    virtual void visitDefn(Defn &it);
+
+    virtual void visitExpr(Expr &it, Position pos);
+    virtual void visitIfExpr(IfExpr &it, Position pos);
+    virtual void visitLetExpr(LetExpr &it, Position pos);
+    virtual void visitFnExpr(FnExpr &it, Position pos);
+    virtual void visitLambdaExpr(LambdaExpr &it, Position pos);
+    virtual void visitBlockExpr(BlockExpr &it, Position pos);
+    virtual void visitBracketExpr(BracketExpr &it, Position pos);
+    virtual void visitColonExpr(ColonExpr &it, Position pos);
+    virtual void visitLiteralExpr(LiteralExpr &it, Position pos);
+    virtual void visitVarExpr(VarExpr &it, Position pos);
+    virtual void visitBinaryExpr(BinaryExpr &it, Position pos);
+    virtual void visitPrefixExpr(PrefixExpr &it, Position pos);
+    virtual void visitFunCallExpr(FunCallExpr &it, Position pos);
+    virtual void visitHintedExpr(HintedExpr &it, Position pos);
   };
 }
