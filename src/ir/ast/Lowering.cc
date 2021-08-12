@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 
 namespace ast::lower {
   class Bindings {
@@ -56,15 +57,10 @@ namespace ast::lower {
 
   typedef std::unique_ptr<hir::Expr> Eptr;
 
-  enum class StmtVisit {
-    Bindings,
-    Expr,
-  };
-
   class LoweringVisitor :
     public ProgramVisitor<LowerResult>,
     public ExprVisitor<Eptr, hir::Pos>,
-    public StatementVisitor<Eptr, StmtVisit> {
+    public StatementVisitor<Eptr, std::optional<hir::Idx>> {
   public:
     err::ErrorContext errs;
     hir::Program program;
@@ -77,46 +73,87 @@ namespace ast::lower {
       }
     }
 
-    void introduceBinding(Binding &it) {
-      bindings.introduce(it.name.ident.value);
+    hir::Idx introduceBinding(Binding &it) {
+      return bindings.introduce(it.name.ident.value);
     }
 
-    Eptr visitBindingExpr(Binding &it) {
+    class BindingVisitor :
+      public StatementVisitor<std::optional<hir::Idx>> {
+    private:
+      LoweringVisitor &lv;
+    public:
+      BindingVisitor(LoweringVisitor &lv): lv(lv) {}
+
+      std::optional<hir::Idx> visitDefn(Defn &it) override {
+        return lv.introduceBinding(it.binding);
+      }
+
+      std::optional<hir::Idx> visitExpr(Expr &it) override {
+        return std::nullopt;
+      }
+    };
+
+    template <typename Binding>
+    Eptr fnExpr(std::vector<Binding> &params, Expr &body) {
+      auto expr = std::make_unique<hir::FnExpr>();
+      bindings.push();
+      for (auto &b : params) {
+        bindings.introduce(b.name.ident.value);
+      }
+      addBindingsToBlock(expr->block);
+      expr->block.body.push_back(visitExpr(body, hir::Pos::Tail));
+      bindings.pop();
+      return expr;
+    }
+
+    template <typename Binding>
+    Eptr recFnExpr(Identifier &name, std::vector<Binding> &params, Expr &body) {
+      bindings.push();
+      auto expr = std::make_unique<hir::BlockExpr>();
+
+      auto idx = bindings.introduce(name.ident.value);
+      expr->block.bindings.emplace_back().name = name.ident.value;
+
+      auto defE = std::make_unique<hir::DefineExpr>();
+      defE->idx = idx;
+      defE->value = fnExpr(params, body);
+      expr->block.body.push_back(std::move(defE));
+
+      auto varE = std::make_unique<hir::VarExpr>();
+      varE->idx = idx;
+      expr->block.body.push_back(std::move(varE));
+
+      bindings.pop();
+      return expr;
+    }
+
+    Eptr visitBindingExpr(Binding &it, hir::Idx idx) {
+      auto retExpr = std::make_unique<hir::DefineExpr>();
+      retExpr->idx = idx;
       if (it.foreignToken) {
-        errs
-          .err()
-          .msg("FFI not implemented yet")
-          .pos(it.foreignToken->loc, "here");
-        return std::make_unique<hir::DummyExpr>(); // TODO ffi
-      }
-      std::unique_ptr<hir::DefineExpr> retExpr;
-      if (it.arguments) {
-        auto expr = std::make_unique<hir::DefunExpr>();
-        bindings.push();
-        for (auto &rb : it.arguments->bindings) {
-          bindings.introduce(rb.name.ident.value);
-        }
-        addBindingsToBlock(expr->block);
-        expr->block.body.push_back(visitExpr(*it.value, hir::Pos::Tail));
-        bindings.pop();
-        retExpr = std::move(expr);
+        auto fe = std::make_unique<hir::ForeignExpr>();
+        fe->name = it.name.ident.value;
+        retExpr->value = std::move(fe);
+      } else if (it.arguments) {
+        retExpr->value = recFnExpr(it.name, it.arguments->bindings, *it.value);
       } else {
-        auto expr = std::make_unique<hir::DefvalExpr>();
-        expr->value = visitExpr(*it.value, hir::Pos::Expr);
-        retExpr = std::move(expr);
+        retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
       }
-      retExpr->idx = bindings.lookup(it.name.ident.value)->idx;
       return retExpr;
     }
 
     LowerResult visitProgram(Program &it) override {
+      std::vector<std::optional<hir::Idx>> indeces;
+      indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
-        visitStatement(*stmt, StmtVisit::Bindings);
+        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt));
       }
 
       addBindingsToBlock(program.topLevel);
+      auto &body = program.topLevel.body;
+      auto iter = indeces.begin();
       for (auto &stmt : it.statements) {
-        program.topLevel.body.push_back(visitStatement(*stmt, StmtVisit::Expr));
+        body.push_back(visitStatement(*stmt, *iter++));
       }
       LowerResult res;
       res.program = std::move(program);
@@ -124,17 +161,11 @@ namespace ast::lower {
       return res;
     }
 
-    Eptr visitDefn(Defn &it, StmtVisit type) override {
-      if (type == StmtVisit::Bindings) {
-        introduceBinding(it.binding);
-        return nullptr;
-      } else {
-        return visitBindingExpr(it.binding);
-      }
+    Eptr visitDefn(Defn &it, std::optional<hir::Idx> idx) override {
+      return visitBindingExpr(it.binding, *idx);
     }
 
-    Eptr visitExpr(Expr &it, StmtVisit type) override {
-      if (type != StmtVisit::Expr) return nullptr;
+    Eptr visitExpr(Expr &it, std::optional<hir::Idx>) override {
       return ExprVisitor::visitExpr(it, hir::Pos::Stmt);
     }
 
@@ -168,30 +199,45 @@ namespace ast::lower {
 
     Eptr visitLetExpr(LetExpr &it, hir::Pos pos) override {
       bindings.push();
-
       for (auto &b : it.bindings) {
         introduceBinding(b);
       }
 
-      // TODO create a closure if it's named
+      auto blockE = std::make_unique<hir::BlockExpr>();
+      auto &block = blockE->block;
+      addBindingsToBlock(block);
 
-      auto expr = std::make_unique<hir::BlockExpr>();
-      addBindingsToBlock(expr->block);
+      hir::Idx idx = 0;
+      for (auto &b : it.bindings) {
+        block.body.push_back(visitBindingExpr(b, idx++));
+      }
 
-      expr->block.body.push_back(visitExpr(*it.body, pos));
-      bindings.pop();
-      return expr;
+      if (it.name) {
+        auto call = std::make_unique<hir::CallExpr>();
+        call->func = recFnExpr(*it.name, it.bindings, *it.body);
+        call->args.reserve(it.bindings.size());
+        idx = 0;
+        for (auto &b : it.bindings) {
+          auto var = std::make_unique<hir::VarExpr>();
+          var->block = 0;
+          var->idx = idx;
+          var->span = b.span;
+          call->args.push_back(std::move(var));
+        }
+      } else {
+        block.body.push_back(visitExpr(*it.body, pos));
+      }
+      return blockE;
     }
 
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
-      // TODO closures
-      errs.err().msg("unimplemented").span(it.span, "sorry :(");
-      return std::make_unique<hir::DummyExpr>();
+      return it.name ?
+        recFnExpr(*it.name, it.arguments.bindings, *it.body) :
+        fnExpr(it.arguments.bindings, *it.body);
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      errs.err().msg("unimplemented").span(it.span, "sorry :(");
-      return std::make_unique<hir::DummyExpr>();
+      return fnExpr(it.arguments, *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {
@@ -200,16 +246,20 @@ namespace ast::lower {
       }
 
       bindings.push();
+
+      std::vector<std::optional<hir::Idx>> indeces;
+      indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
-        visitStatement(*stmt.statement, StmtVisit::Bindings);
+        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt.statement));
       }
 
       auto expr = std::make_unique<hir::BlockExpr>();
       addBindingsToBlock(expr->block);
 
       auto &body = expr->block.body;
+      auto iter = indeces.begin();
       for (auto &stmt : it.statements) {
-        body.push_back(visitStatement(*stmt.statement, StmtVisit::Expr));
+        body.push_back(visitStatement(*stmt.statement, *iter++));
       }
       body.push_back(visitExpr(*it.value, pos));
       bindings.pop();
@@ -261,6 +311,47 @@ namespace ast::lower {
     }
 
     Eptr visitBinaryExpr(BinaryExpr &it, hir::Pos pos) override {
+      switch (it.terms.front().operatorToken.type) {
+      case Tok::TEq:
+      case Tok::TEq2:
+      case Tok::TNe:
+      case Tok::TGe:
+      case Tok::TLt:
+      case Tok::TLe:
+      case Tok::TGt: {
+        auto expr = std::make_unique<hir::CmpExpr>();
+        expr->exprs.push_back(visitExpr(*it.lhs, hir::Pos::Expr));
+        for (auto &term : it.terms) {
+          switch (term.operatorToken.type) {
+          case Tok::TEq:
+          case Tok::TEq2:
+            expr->ops.push_back(hir::CmpExpr::Op::Eq);
+            break;
+          case Tok::TNe:
+            expr->ops.push_back(hir::CmpExpr::Op::Ne);
+            break;
+          case Tok::TGe:
+            expr->ops.push_back(hir::CmpExpr::Op::Ge);
+            break;
+          case Tok::TLt:
+            expr->ops.push_back(hir::CmpExpr::Op::Lt);
+            break;
+          case Tok::TLe:
+            expr->ops.push_back(hir::CmpExpr::Op::Le);
+            break;
+          case Tok::TGt:
+            expr->ops.push_back(hir::CmpExpr::Op::Gt);
+            break;
+          default:
+            break; // unreachable
+          }
+          expr->exprs.push_back(visitExpr(*term.expr, hir::Pos::Expr));
+        }
+        return expr;
+      }
+      default:
+        break;
+      }
       // all our operators are left-associative
       std::unique_ptr<hir::Expr> retExpr = visitExpr(*it.lhs, hir::Pos::Expr);
       for (auto &term : it.terms) {
@@ -273,25 +364,6 @@ namespace ast::lower {
           break;
         case Tok::TOr2:
           binExpr->op = hir::BinExpr::Op::LogOr;
-          break;
-        case Tok::TNe:
-          binExpr->op = hir::BinExpr::Op::Ne;
-          break;
-        case Tok::TEq:
-        case Tok::TEq2:
-          binExpr->op = hir::BinExpr::Op::Eq;
-          break;
-        case Tok::TLt:
-          binExpr->op = hir::BinExpr::Op::Lt;
-          break;
-        case Tok::TLe:
-          binExpr->op = hir::BinExpr::Op::Le;
-          break;
-        case Tok::TGt:
-          binExpr->op = hir::BinExpr::Op::Gt;
-          break;
-        case Tok::TGe:
-          binExpr->op = hir::BinExpr::Op::Ge;
           break;
         case Tok::TOr1:
           binExpr->op = hir::BinExpr::Op::BitOr;
@@ -315,8 +387,7 @@ namespace ast::lower {
           binExpr->op = hir::BinExpr::Op::Rem;
           break;
         default:
-          // unreachable
-          break;
+          break; // unreachable
         }
         retExpr = std::move(binExpr);
       }
@@ -346,6 +417,7 @@ namespace ast::lower {
     }
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
+      // TODO type hints
       return visitExpr(*it.expr, pos);
     }
   };

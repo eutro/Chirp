@@ -9,9 +9,11 @@ namespace hir {
   _acceptImpl(Expr, VoidExpr);
   _acceptImpl(Expr, LiteralExpr);
   _acceptImpl(Expr, BinExpr);
+  _acceptImpl(Expr, CmpExpr);
   _acceptImpl(Expr, NegExpr);
   _acceptImpl(Expr, CallExpr);
-  _acceptImpl(Expr, DefunExpr);
-  _acceptImpl(Expr, DefvalExpr);
+  _acceptImpl(Expr, DefineExpr);
+  _acceptImpl(Expr, FnExpr);
+  _acceptImpl(Expr, ForeignExpr);
   _acceptImpl(Expr, DummyExpr);
 }

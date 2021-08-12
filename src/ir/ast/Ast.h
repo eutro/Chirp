@@ -4,6 +4,7 @@
 #include "../../fsm/Lexer.h"
 #include "../../common/Tokens.h"
 
+#include <variant>
 #include <memory>
 #include <tuple>
 
@@ -279,7 +280,7 @@ namespace ast {
     _EvisitVirtual(Type) _EvisitVirtual(NamedType) _EvisitVirtual(PlaceholderType)
   };
 
-  template <typename Ret=void, typename ...Arg>
+  template <typename Ret=std::monostate, typename ...Arg>
   class TypeVisitor : public ErasedTypeVisitor {
   public:
     _EvisitImpl(Type) _EvisitImpl(NamedType) _EvisitImpl(PlaceholderType)
@@ -298,7 +299,7 @@ namespace ast {
     _EvisitVirtual(FunCallExpr) _EvisitVirtual(HintedExpr)
   };
 
-  template <typename Ret=void, typename ...Arg>
+  template <typename Ret=std::monostate, typename ...Arg>
   class ExprVisitor : public ErasedExprVisitor {
   public:
     _EvisitImpl(Expr) _EvisitImpl(IfExpr) _EvisitImpl(LetExpr) _EvisitImpl(FnExpr)
@@ -329,7 +330,7 @@ namespace ast {
     _EvisitVirtual(Statement) _EvisitVirtual(Expr) _EvisitVirtual(Defn)
   };
 
-  template <typename Ret=void, typename ...Arg>
+  template <typename Ret=std::monostate, typename ...Arg>
   class StatementVisitor : public ErasedStatementVisitor {
   public:
     _EvisitImpl(Statement) _EvisitImpl(Expr) _EvisitImpl(Defn)
@@ -340,7 +341,7 @@ namespace ast {
     virtual _typedVisit(Defn) = 0;
   };
 
-  template <typename Ret=void, typename ...Arg>
+  template <typename Ret=std::monostate, typename ...Arg>
   class ProgramVisitor {
   public:
     virtual ~ProgramVisitor() = default;

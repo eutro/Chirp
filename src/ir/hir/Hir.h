@@ -3,6 +3,7 @@
 #include "../Visitor.h"
 #include "../../common/Loc.h"
 
+#include <variant>
 #include <cstdint>
 #include <vector>
 #include <memory>
@@ -103,15 +104,25 @@ namespace hir {
   public:
     enum Op {
       LogAnd, LogOr,
-      Ne, Eq,
-      Lt, Le, Gt, Ge,
       BitOr, BitAnd,
       Add, Sub,
       Mul, Div,
-      Rem
+      Rem,
     };
     Op op;
     std::unique_ptr<Expr> lhs, rhs;
+
+    _acceptDef(Expr) override;
+  };
+
+  class CmpExpr : public Expr {
+  public:
+    enum Op {
+      Ne, Eq,
+      Lt, Le, Gt, Ge,
+    };
+    std::vector<std::unique_ptr<Expr>> exprs;
+    std::vector<Op> ops;
 
     _acceptDef(Expr) override;
   };
@@ -134,18 +145,21 @@ namespace hir {
   class DefineExpr : public Expr {
   public:
     Idx idx;
-  };
-
-  class DefvalExpr : public DefineExpr {
-  public:
     std::unique_ptr<Expr> value;
 
     _acceptDef(Expr) override;
   };
 
-  class DefunExpr : public DefineExpr {
+  class FnExpr : public Expr {
   public:
     Block block;
+
+    _acceptDef(Expr) override;
+  };
+
+  class ForeignExpr : public Expr {
+  public:
+    std::string name;
 
     _acceptDef(Expr) override;
   };
@@ -157,19 +171,39 @@ namespace hir {
 
   class ErasedExprVisitor {
   public:
-    _EvisitVirtual(Expr) _EvisitVirtual(BlockExpr) _EvisitVirtual(VarExpr)
-    _EvisitVirtual(CondExpr) _EvisitVirtual(VoidExpr) _EvisitVirtual(LiteralExpr)
-    _EvisitVirtual(BinExpr) _EvisitVirtual(NegExpr) _EvisitVirtual(CallExpr)
-    _EvisitVirtual(DefunExpr) _EvisitVirtual(DefvalExpr) _EvisitVirtual(DummyExpr)
+    _EvisitVirtual(Expr)
+    _EvisitVirtual(BlockExpr)
+    _EvisitVirtual(VarExpr)
+    _EvisitVirtual(CondExpr)
+    _EvisitVirtual(VoidExpr)
+    _EvisitVirtual(LiteralExpr)
+    _EvisitVirtual(BinExpr)
+    _EvisitVirtual(CmpExpr)
+    _EvisitVirtual(NegExpr)
+    _EvisitVirtual(CallExpr)
+    _EvisitVirtual(DefineExpr)
+    _EvisitVirtual(FnExpr)
+    _EvisitVirtual(ForeignExpr)
+    _EvisitVirtual(DummyExpr)
   };
 
-  template <typename Ret=void, typename ...Arg>
+  template <typename Ret=std::monostate, typename ...Arg>
   class ExprVisitor : public ErasedExprVisitor {
   public:
-    _EvisitImpl(Expr) _EvisitImpl(BlockExpr) _EvisitImpl(VarExpr)
-    _EvisitImpl(CondExpr) _EvisitImpl(VoidExpr) _EvisitImpl(LiteralExpr)
-    _EvisitImpl(BinExpr) _EvisitImpl(NegExpr) _EvisitImpl(CallExpr)
-    _EvisitImpl(DefunExpr) _EvisitImpl(DefvalExpr) _EvisitImpl(DummyExpr)
+    _EvisitImpl(Expr)
+    _EvisitImpl(BlockExpr)
+    _EvisitImpl(VarExpr)
+    _EvisitImpl(CondExpr)
+    _EvisitImpl(VoidExpr)
+    _EvisitImpl(LiteralExpr)
+    _EvisitImpl(BinExpr)
+    _EvisitImpl(CmpExpr)
+    _EvisitImpl(NegExpr)
+    _EvisitImpl(CallExpr)
+    _EvisitImpl(DefineExpr)
+    _EvisitImpl(FnExpr)
+    _EvisitVirtual(ForeignExpr)
+    _EvisitImpl(DummyExpr)
 
     virtual ~ExprVisitor() = default;
     virtual _typedRoot(Expr);
@@ -179,10 +213,12 @@ namespace hir {
     virtual _typedVisit(VoidExpr) = 0;
     virtual _typedVisit(LiteralExpr) = 0;
     virtual _typedVisit(BinExpr) = 0;
+    virtual _typedVisit(CmpExpr) = 0;
     virtual _typedVisit(NegExpr) = 0;
     virtual _typedVisit(CallExpr) = 0;
-    virtual _typedVisit(DefunExpr) = 0;
-    virtual _typedVisit(DefvalExpr) = 0;
+    virtual _typedVisit(DefineExpr) = 0;
+    virtual _typedVisit(FnExpr) = 0;
+    virtual _typedVisit(ForeignExpr) = 0;
     virtual _typedVisit(DummyExpr) = 0;
   };
 }
