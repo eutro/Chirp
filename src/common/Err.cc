@@ -27,21 +27,48 @@ namespace err {
     }
   };
 
+  size_t getMargin(size_t line) {
+    return line < 100 ? 2 : std::ceil(std::log10(line));
+  }
+
+  void writeLine(ErrorPrintContext &ec, size_t margin, size_t line) {
+    ec.os << std::setfill(' ') << std::setw(margin) << line;
+    ec.os << ": ";
+    ec.os << ec.sourceLines[line - 1] << '\n';
+  }
+
+  void indentTo(ErrorPrintContext &ec, size_t margin, size_t col) {
+    std::string indent(margin + col + 2, ' ');
+    ec.os << indent;
+  }
+
   class SpanLine : public Line {
   private:
-    std::string line;
+    std::string msg;
     loc::Span span;
   public:
-    SpanLine(const loc::Span &span, const std::string &line): span(span), line(line) {}
+    SpanLine(const loc::Span &span, const std::string &msg): span(span), msg(msg) {}
 
     void output(ErrorPrintContext &ctx) const override {
-      size_t margin = span.hi.line < 100 ? 2 : std::ceil(std::log10(span.hi.line));
-      ctx.os << std::setfill(' ') << std::setw(margin) << span.lo.line;
-      ctx.os << ": ";
-      ctx.os << ctx.sourceLines[span.lo.line - 1] << '\n';
-      std::string indent(margin + span.lo.col + 2, ' ');
-      std::string marker(span.hi.col - span.lo.col, '~');
-      ctx.os << indent << marker << " " << line << "\n";
+      size_t margin = getMargin(span.hi.line);
+      writeLine(ctx, margin, span.lo.line);
+      indentTo(ctx, margin, span.lo.col);
+
+      size_t line = span.lo.line;
+      size_t col = span.lo.col;
+      while (line < span.hi.line) {
+        while (col++ < ctx.sourceLines[line - 1].size()) {
+          ctx.os << '~';
+        }
+        col = 0;
+        ctx.os << '\n';
+        writeLine(ctx, margin, ++line);
+        indentTo(ctx, margin, 0);
+      }
+      while (col++ < span.hi.col) {
+        ctx.os << '~';
+      }
+      ctx.os << ' ' << msg << '\n';
     }
   };
 
@@ -53,13 +80,10 @@ namespace err {
     PosLine(const loc::SrcLoc &loc, const std::string &line): loc(loc), line(line) {}
 
     void output(ErrorPrintContext &ctx) const override {
-      size_t margin = loc.line < 100 ? 2 : std::ceil(std::log10(loc.line));
-      ctx.os << std::setfill(' ') << std::setw(margin) << loc.line;
-      ctx.os << ": ";
-      ctx.os << ctx.sourceLines[loc.line - 1] << '\n';
-      std::string indent(margin + loc.col + 2, ' ');
-      ctx.os << std::move(indent)
-             << "^ " << line << "\n";
+      size_t margin = getMargin(loc.line);
+      writeLine(ctx, margin, loc.line);
+      indentTo(ctx, margin, loc.col);
+      ctx.os << "^ " << line << "\n";
     }
   };
 

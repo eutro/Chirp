@@ -185,12 +185,12 @@ namespace ast::lower {
 
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
       // TODO closures
-      errs.err().msg("unimplemented").pos(it.span.lo, "sorry :(");
+      errs.err().msg("unimplemented").span(it.span, "sorry :(");
       return std::make_unique<hir::DummyExpr>();
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      errs.err().msg("unimplemented").pos(it.span.lo, "sorry :(");
+      errs.err().msg("unimplemented").span(it.span, "sorry :(");
       return std::make_unique<hir::DummyExpr>();
     }
 
