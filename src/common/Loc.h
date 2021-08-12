@@ -12,14 +12,14 @@ namespace loc {
     /**
      * The line number. Starts at 1.
      */
-    size_t line;
+    std::uint32_t line;
     /**
      * The column number. Starts at 0.
      */
-    size_t col;
+    std::uint32_t col;
 
     SrcLoc();
-    SrcLoc(size_t line, size_t col);
+    SrcLoc(std::uint32_t line, std::uint32_t col);
     friend std::ostream &operator<<(std::ostream &os, const SrcLoc &loc);
     void add(const std::string &s);
 

@@ -8,4 +8,4 @@ code. As such, the original source code can be completely recovered in
 this form, which may be helpful for auto formatters and such.
 
 By the compiler, this form is immediately lowered to the
-[`hir`](../hir/) in a single pass.
+[`hir`](../hir/) without additional processing at this level.

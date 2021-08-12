@@ -1,17 +1,8 @@
 #include "Parser.h"
-#include "../../fsm/Lexer.h"
 
 #include <sstream>
 
-ast::Tok fsm::Finished<ast::Tok>::rejecting() {
-  return ast::Tok::TInvalid;
-}
-
-void fsm::Finished<ast::Tok>::merge(ast::Tok &lhs, ast::Tok rhs) {
-  lhs = std::max(lhs, rhs);
-}
-
-namespace parser {
+namespace tok::parser {
   loc::SrcLoc tokEnd(const Token &tok) {
     loc::SrcLoc loc = tok.loc;
     loc.add(tok.value);
@@ -36,8 +27,8 @@ namespace parser {
   class ParserStream {
   private:
     std::deque<Token> lookahead;
-    lexer::TokenIter<ast::Tok>::Iter iter;
-    lexer::TokenIter<ast::Tok>::Iter end;
+    lexer::TokenIter<tok::Tok>::Iter iter;
+    lexer::TokenIter<tok::Tok>::Iter end;
 
   public:
     /**
@@ -644,7 +635,8 @@ namespace parser {
     }
   }
 
-  Program parseProgram(err::ErrorContext &ctx, lexer::TokenIter<Tok> &tokens) {
+  ParseResult parseProgram(lexer::TokenIter<Tok> &tokens) {
+    ParseResult res;
     tokens.stream.setYieldLines();
     ParserStream stream = ParserStream(tokens);
     Program program;
@@ -656,7 +648,7 @@ namespace parser {
                                                       "line break or , or } expected"));
         }
       } catch (ParseError &err) {
-        ctx.err().pos(err.loc, err.message);
+        res.errors.err().pos(err.loc, err.message);
 
         if (!stream.isEmpty()) {
           std::optional<Token> delim = stream.skipUntil({Tok::TLinebreak, Tok::TComma});
@@ -668,6 +660,7 @@ namespace parser {
         }
       }
     }
-    return program;
+    res.program = std::move(program);
+    return res;
   }
 }

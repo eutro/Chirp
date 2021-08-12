@@ -1,6 +1,8 @@
+#include "Err.h"
+
+#include <cstdlib>
 #include <iomanip>
 #include <valarray>
-#include "Err.h"
 
 namespace err {
   ErrorPrintContext &operator<<(ErrorPrintContext &ctx, const CompileError &err) {
@@ -33,7 +35,13 @@ namespace err {
     SpanLine(const loc::Span &span, const std::string &line): span(span), line(line) {}
 
     void output(ErrorPrintContext &ctx) const override {
-      ctx.os << line << "\n";
+      size_t margin = span.hi.line < 100 ? 2 : std::ceil(std::log10(span.hi.line));
+      ctx.os << std::setfill(' ') << std::setw(margin) << span.lo.line;
+      ctx.os << ": ";
+      ctx.os << ctx.sourceLines[span.lo.line - 1] << '\n';
+      std::string indent(margin + span.lo.col + 2, ' ');
+      std::string marker(span.hi.col - span.lo.col, '~');
+      ctx.os << indent << marker << " " << line << "\n";
     }
   };
 
@@ -68,6 +76,17 @@ namespace err {
     return *this;
   }
 
-  ErrorPrintContext::ErrorPrintContext(std::vector<std::string> &&sourceLines, std::ostream &os) : sourceLines(
-      sourceLines), os(os) {}
+  ErrorPrintContext::ErrorPrintContext(const std::vector<std::string> &sourceLines,
+                                       std::ostream &os) :
+    sourceLines(sourceLines), os(os) {}
+
+  void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec) {
+    if (!ec.errors.empty()) {
+      epc.os << "Aborting due to errors:\n";
+      for (auto &err : ec.errors) {
+        epc << err;
+      }
+      std::exit(1);
+    }
+  }
 }

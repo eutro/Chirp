@@ -1,41 +1,37 @@
 #pragma once
 
+#include "../Visitor.h"
 #include "../../fsm/Lexer.h"
 #include "../../common/Tokens.h"
 
 #include <memory>
+#include <tuple>
 
 namespace ast {
+  using Tok = tok::Tok;
   using Token = lexer::Token<Tok>;
-
-  class Visitor;
-
-  class Statement {
-  public:
-    loc::Span span;
-
-    virtual ~Statement() = default;
-    virtual void acceptStatement(Visitor &v) = 0;
-  };
 
   class Identifier {
   public:
     Token ident;
   };
 
+  class ErasedTypeVisitor;
+
   class Type {
   public:
     loc::Span span;
 
-    virtual ~Type() = default;
-    virtual void acceptType(Visitor &v) = 0;
+    virtual ~Type();
+
+    virtual _acceptDef(Type) = 0;
   };
 
   class PlaceholderType : public Type {
   public:
     Token placeholder;
 
-    void acceptType(Visitor &v) override;
+    _acceptDef(Type) override;
   };
 
   class NamedType : public Type {
@@ -51,7 +47,7 @@ namespace ast {
 
     std::optional<TypeParameters> parameters;
 
-    void acceptType(Visitor &v) override;
+    _acceptDef(Type) override;
   };
 
   class TypeHint {
@@ -66,17 +62,7 @@ namespace ast {
     std::optional<TypeHint> typeHint;
   };
 
-  enum class Position {
-    Statement,
-    Expr,
-    Tail,
-  };
-
-  class Expr : public Statement {
-  public:
-    void acceptStatement(Visitor &v) override;
-    virtual void acceptExpr(Visitor &v, Position pos) = 0;
-  };
+  class Expr;
 
   class Binding {
   public:
@@ -107,12 +93,31 @@ namespace ast {
     std::optional<Token> foreignToken;
   };
 
+  class ErasedStatementVisitor;
+
+  class Statement {
+  public:
+    loc::Span span;
+
+    virtual ~Statement();
+
+    virtual _acceptDef(Statement) = 0;
+  };
+
   class Defn : public Statement {
   public:
     Token defnToken;
     Binding binding;
 
-    void acceptStatement(Visitor &v) override;
+    _acceptDef(Statement) override;
+  };
+
+  class ErasedExprVisitor;
+
+  class Expr : public Statement {
+  public:
+    _acceptDef(Statement) override;
+    virtual _acceptDef(Expr) = 0;
   };
 
   class Program {
@@ -141,7 +146,7 @@ namespace ast {
     std::vector<ElseIf> elseIfClauses;
     std::optional<Else> elseClause;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class LetExpr : public Expr {
@@ -153,7 +158,7 @@ namespace ast {
     std::optional<Identifier> name;
     std::unique_ptr<Expr> body;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class FnExpr : public Expr {
@@ -166,7 +171,7 @@ namespace ast {
 
     std::unique_ptr<Expr> body;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class LambdaExpr : public Expr {
@@ -177,7 +182,7 @@ namespace ast {
     Token dotToken;
     std::unique_ptr<Expr> body;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class BlockExpr : public Expr {
@@ -193,7 +198,7 @@ namespace ast {
     std::unique_ptr<Expr> value;
     Token closeToken;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class BracketExpr : public Expr {
@@ -202,7 +207,7 @@ namespace ast {
     std::unique_ptr<Expr> value;
     Token closeToken;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class ColonExpr : public Expr {
@@ -210,21 +215,21 @@ namespace ast {
     Token colonToken;
     std::unique_ptr<Expr> value;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class LiteralExpr : public Expr {
   public:
     Token value;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class VarExpr : public Expr {
   public:
     Identifier name;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class BinaryExpr : public Expr {
@@ -239,7 +244,7 @@ namespace ast {
 
     std::vector<Rhs> terms;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class PrefixExpr : public Expr {
@@ -247,7 +252,7 @@ namespace ast {
     std::vector<Token> prefixes;
     std::unique_ptr<Expr> expr;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class FunCallExpr : public Expr {
@@ -258,7 +263,7 @@ namespace ast {
     std::vector<Token> commas;
     Token closeToken;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
   class HintedExpr : public Expr {
@@ -266,35 +271,79 @@ namespace ast {
     std::unique_ptr<Expr> expr;
     TypeHint hint;
 
-    void acceptExpr(Visitor &v, Position pos) override;
+    _acceptDef(Expr) override;
   };
 
-  class Visitor {
+  class ErasedTypeVisitor {
   public:
-    virtual void visitProgram(Program &it);
+    _EvisitVirtual(Type) _EvisitVirtual(NamedType) _EvisitVirtual(PlaceholderType)
+  };
 
-    virtual void visitType(Type &it);
-    virtual void visitPlaceholderType(PlaceholderType &it);
-    virtual void visitNamedType(NamedType &it);
+  template <typename Ret=void, typename ...Arg>
+  class TypeVisitor : public ErasedTypeVisitor {
+  public:
+    _EvisitImpl(Type) _EvisitImpl(NamedType) _EvisitImpl(PlaceholderType)
 
-    virtual void visitBinding(Binding &it);
+    virtual _typedRoot(Type);
+    virtual _typedVisit(NamedType)  = 0;
+    virtual _typedVisit(PlaceholderType) = 0;
+  };
 
-    virtual void visitStatement(Statement &it);
-    virtual void visitDefn(Defn &it);
+  class ErasedExprVisitor {
+  public:
+    _EvisitVirtual(Expr) _EvisitVirtual(IfExpr) _EvisitVirtual(LetExpr)
+    _EvisitVirtual(FnExpr) _EvisitVirtual(LambdaExpr) _EvisitVirtual(BlockExpr)
+    _EvisitVirtual(BracketExpr) _EvisitVirtual(ColonExpr) _EvisitVirtual(LiteralExpr)
+    _EvisitVirtual(VarExpr) _EvisitVirtual(BinaryExpr) _EvisitVirtual(PrefixExpr)
+    _EvisitVirtual(FunCallExpr) _EvisitVirtual(HintedExpr)
+  };
 
-    virtual void visitExpr(Expr &it, Position pos);
-    virtual void visitIfExpr(IfExpr &it, Position pos);
-    virtual void visitLetExpr(LetExpr &it, Position pos);
-    virtual void visitFnExpr(FnExpr &it, Position pos);
-    virtual void visitLambdaExpr(LambdaExpr &it, Position pos);
-    virtual void visitBlockExpr(BlockExpr &it, Position pos);
-    virtual void visitBracketExpr(BracketExpr &it, Position pos);
-    virtual void visitColonExpr(ColonExpr &it, Position pos);
-    virtual void visitLiteralExpr(LiteralExpr &it, Position pos);
-    virtual void visitVarExpr(VarExpr &it, Position pos);
-    virtual void visitBinaryExpr(BinaryExpr &it, Position pos);
-    virtual void visitPrefixExpr(PrefixExpr &it, Position pos);
-    virtual void visitFunCallExpr(FunCallExpr &it, Position pos);
-    virtual void visitHintedExpr(HintedExpr &it, Position pos);
+  template <typename Ret=void, typename ...Arg>
+  class ExprVisitor : public ErasedExprVisitor {
+  public:
+    _EvisitImpl(Expr) _EvisitImpl(IfExpr) _EvisitImpl(LetExpr) _EvisitImpl(FnExpr)
+    _EvisitImpl(LambdaExpr) _EvisitImpl(BlockExpr) _EvisitImpl(BracketExpr)
+    _EvisitImpl(ColonExpr) _EvisitImpl(LiteralExpr) _EvisitImpl(VarExpr)
+    _EvisitImpl(BinaryExpr) _EvisitImpl(PrefixExpr) _EvisitImpl(FunCallExpr)
+    _EvisitImpl(HintedExpr)
+
+    virtual ~ExprVisitor() = default;
+    virtual _typedRoot(Expr);
+    virtual _typedVisit(IfExpr) = 0;
+    virtual _typedVisit(LetExpr) = 0;
+    virtual _typedVisit(FnExpr) = 0;
+    virtual _typedVisit(LambdaExpr) = 0;
+    virtual _typedVisit(BlockExpr) = 0;
+    virtual _typedVisit(BracketExpr) = 0;
+    virtual _typedVisit(ColonExpr) = 0;
+    virtual _typedVisit(LiteralExpr) = 0;
+    virtual _typedVisit(VarExpr) = 0;
+    virtual _typedVisit(BinaryExpr) = 0;
+    virtual _typedVisit(PrefixExpr) = 0;
+    virtual _typedVisit(FunCallExpr) = 0;
+    virtual _typedVisit(HintedExpr) = 0;
+  };
+
+  class ErasedStatementVisitor {
+  public:
+    _EvisitVirtual(Statement) _EvisitVirtual(Expr) _EvisitVirtual(Defn)
+  };
+
+  template <typename Ret=void, typename ...Arg>
+  class StatementVisitor : public ErasedStatementVisitor {
+  public:
+    _EvisitImpl(Statement) _EvisitImpl(Expr) _EvisitImpl(Defn)
+
+    virtual ~StatementVisitor() = default;
+    virtual _typedRoot(Statement);
+    virtual _typedVisit(Expr) = 0;
+    virtual _typedVisit(Defn) = 0;
+  };
+
+  template <typename Ret=void, typename ...Arg>
+  class ProgramVisitor {
+  public:
+    virtual ~ProgramVisitor() = default;
+    virtual Ret visitProgram(Program &it, Arg...) = 0;
   };
 }

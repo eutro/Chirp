@@ -8,9 +8,9 @@
 namespace err {
   class ErrorPrintContext {
   public:
-    std::vector<std::string> sourceLines;
+    const std::vector<std::string> &sourceLines;
     std::ostream &os;
-    ErrorPrintContext(std::vector<std::string> &&sourceLines, std::ostream &os);
+    ErrorPrintContext(const std::vector<std::string> &sourceLines, std::ostream &os);
   };
 
   class Line {
@@ -38,4 +38,6 @@ namespace err {
     std::vector<CompileError> errors;
     CompileError &err();
   };
+
+  void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec);
 }

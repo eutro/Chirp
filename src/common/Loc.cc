@@ -2,7 +2,7 @@
 
 namespace loc {
   SrcLoc::SrcLoc() : line(1), col(0) {}
-  SrcLoc::SrcLoc(size_t line, size_t col) : line(line), col(col) {}
+  SrcLoc::SrcLoc(std::uint32_t line, std::uint32_t col) : line(line), col(col) {}
   std::ostream &operator<<(std::ostream &os, const SrcLoc &loc) {
     os << loc.line << ":" << loc.col;
     return os;
