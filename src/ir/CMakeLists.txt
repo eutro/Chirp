@@ -8,5 +8,12 @@ add_library(hir hir/Hir.cc)
 add_library(parser tok/Parser.cc)
 target_link_libraries(parser tok ast err)
 
+add_library(hirrebind hir/Rebind.cc)
+target_link_libraries(hirrebind hir)
+
+add_library(hirjson hir/Json.cc)
+target_link_libraries(hirjson PUBLIC hir)
+target_link_libraries(hirjson PUBLIC nlohmann_json::nlohmann_json)
+
 add_library(astlower ast/Lowering.cc)
-target_link_libraries(astlower ast hir err)
+target_link_libraries(astlower ast hirrebind err)

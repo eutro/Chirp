@@ -1,5 +1,5 @@
 #include "Lowering.h"
-#include "Ast.h"
+#include "../hir/Rebind.h"
 
 #include <deque>
 #include <functional>
@@ -138,15 +138,26 @@ namespace ast::lower {
         bindings.introduce(b.name.ident.value, b.name.ident.span());
       }
 
-      hir::Block block;
+      auto blockE = std::make_unique<hir::BlockExpr>();
+      hir::Block &block = blockE->block;
       addBindingsToBlock(block);
       block.body.push_back(visitExpr(body, hir::Pos::Expr));
       bindings.pop();
+      auto &thisB = block.bindings.emplace_back();
+      thisB.name = "this";
+      thisB.source = source;
 
       hir::Idx typeIdx = program.types.size();
       hir::ADT &closure = program.types.emplace_back();
       hir::ADT::Variant &variant = closure.variants.emplace_back();
-      variant.values.resize(closed.size());
+      variant.values.reserve(closed.size());
+      for (auto &cv : closed) {
+        auto &field = variant.values.emplace_back();
+        auto &data = bindings.dataFor(cv);
+        field.name = *data.name;
+        field.source = data.source;
+      }
+
       auto expr = std::make_unique<hir::NewExpr>();
       expr->adt = typeIdx;
       expr->variant = 0;
@@ -157,7 +168,35 @@ namespace ast::lower {
         expr->values.push_back(std::move(varE));
       }
 
+      std::map<hir::VarRef, hir::Idx> mapping;
+      hir::Idx closedIdx = 0;
+      for (auto &cv : closed) {
+        mapping[cv] = closedIdx++;
+      }
+
+      hir::rebind::rebindVisitor([&mapping, typeIdx]
+                                 (hir::VarExpr &varE,
+                                  hir::Idx depth) -> Eptr {
+        auto ref = varE.ref;
+        ref.block -= depth;
+        auto found = mapping.find(ref);
+        if (found != mapping.end()) {
+          auto getE = std::make_unique<hir::GetExpr>();
+          getE->adt = typeIdx;
+          getE->variant = 0;
+          getE->field = found->second;
+          auto thisE = std::make_unique<hir::VarExpr>();
+          thisE->ref.block = depth;
+          thisE->ref.idx = mapping.size();
+          getE->value = std::move(thisE);
+          return getE;
+        }
+        return nullptr;
+      })->visitExpr(*blockE, nullptr, 0);
+
       program.fnImpls.push_back(std::move(block));
+
+      expr->span = source;
 
       return expr;
     }
@@ -182,6 +221,8 @@ namespace ast::lower {
       varE->ref.block = 0;
       varE->ref.idx = idx;
       expr->block.body.push_back(std::move(varE));
+
+      expr->span = source;
 
       bindings.pop();
       return expr;

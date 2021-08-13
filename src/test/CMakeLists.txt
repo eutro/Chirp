@@ -7,4 +7,4 @@ target_link_libraries(lexer_test regex err)
 add_test(lexer_test lexer_test)
 
 add_executable(try_lower_hir try_lower_hir.cc)
-target_link_libraries(try_lower_hir parser astlower)
+target_link_libraries(try_lower_hir parser astlower hirjson)

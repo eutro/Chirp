@@ -14,6 +14,7 @@ namespace hir {
   _acceptImpl(Expr, CallExpr);
   _acceptImpl(Expr, DefineExpr);
   _acceptImpl(Expr, NewExpr);
+  _acceptImpl(Expr, GetExpr);
   _acceptImpl(Expr, ForeignExpr);
   _acceptImpl(Expr, DummyExpr);
 }

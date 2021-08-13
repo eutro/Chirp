@@ -69,10 +69,12 @@ namespace hir {
     virtual _acceptDef(Expr) = 0;
   };
 
+  using Eptr = std::unique_ptr<Expr>;
+
   class Block {
   public:
     std::vector<Binding> bindings;
-    std::vector<std::unique_ptr<Expr>> body;
+    std::vector<Eptr> body;
   };
 
   class Program {
@@ -98,7 +100,7 @@ namespace hir {
 
   class CondExpr : public Expr {
   public:
-    std::unique_ptr<Expr> predE, thenE, elseE;
+    Eptr predE, thenE, elseE;
 
     _acceptDef(Expr) override;
   };
@@ -129,7 +131,7 @@ namespace hir {
       Rem,
     };
     Op op;
-    std::unique_ptr<Expr> lhs, rhs;
+    Eptr lhs, rhs;
 
     _acceptDef(Expr) override;
   };
@@ -140,7 +142,7 @@ namespace hir {
       Ne, Eq,
       Lt, Le, Gt, Ge,
     };
-    std::vector<std::unique_ptr<Expr>> exprs;
+    std::vector<Eptr> exprs;
     std::vector<Op> ops;
 
     _acceptDef(Expr) override;
@@ -148,15 +150,15 @@ namespace hir {
 
   class NegExpr : public Expr {
   public:
-    std::unique_ptr<Expr> value;
+    Eptr value;
 
     _acceptDef(Expr) override;
   };
 
   class CallExpr : public Expr {
   public:
-    std::unique_ptr<Expr> func;
-    std::vector<std::unique_ptr<Expr>> args;
+    Eptr func;
+    std::vector<Eptr> args;
 
     _acceptDef(Expr) override;
   };
@@ -164,7 +166,7 @@ namespace hir {
   class DefineExpr : public Expr {
   public:
     Idx idx;
-    std::unique_ptr<Expr> value;
+    Eptr value;
 
     _acceptDef(Expr) override;
   };
@@ -173,7 +175,17 @@ namespace hir {
   public:
     Idx adt;
     Idx variant;
-    std::vector<std::unique_ptr<Expr>> values;
+    std::vector<Eptr> values;
+
+    _acceptDef(Expr) override;
+  };
+
+  class GetExpr : public Expr {
+  public:
+    Idx adt;
+    Idx variant;
+    Idx field;
+    Eptr value;
 
     _acceptDef(Expr) override;
   };
@@ -204,6 +216,7 @@ namespace hir {
     _EvisitVirtual(CallExpr)
     _EvisitVirtual(DefineExpr)
     _EvisitVirtual(NewExpr)
+    _EvisitVirtual(GetExpr)
     _EvisitVirtual(ForeignExpr)
     _EvisitVirtual(DummyExpr)
   };
@@ -223,7 +236,8 @@ namespace hir {
     _EvisitImpl(CallExpr)
     _EvisitImpl(DefineExpr)
     _EvisitImpl(NewExpr)
-    _EvisitVirtual(ForeignExpr)
+    _EvisitImpl(GetExpr)
+    _EvisitImpl(ForeignExpr)
     _EvisitImpl(DummyExpr)
 
     virtual ~ExprVisitor() = default;
@@ -239,7 +253,15 @@ namespace hir {
     virtual _typedVisit(CallExpr) = 0;
     virtual _typedVisit(DefineExpr) = 0;
     virtual _typedVisit(NewExpr) = 0;
+    virtual _typedVisit(GetExpr) = 0;
     virtual _typedVisit(ForeignExpr) = 0;
     virtual _typedVisit(DummyExpr) = 0;
+  };
+
+  template <typename Ret=std::monostate, typename ...Arg>
+  class ProgramVisitor {
+  public:
+    virtual ~ProgramVisitor() = default;
+    virtual Ret visitProgram(Program &it, Arg...) = 0;
   };
 }
