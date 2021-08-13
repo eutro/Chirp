@@ -31,18 +31,20 @@ namespace hir {
     }
   };
 
-  enum class Pos {
-    /**
-     * An expression is in expr position if its value will be used.
-     */
-    Expr,
-    /**
-     * An expression is in stmt position if its value is ignored.
-     */
-    Stmt,
+  class Type {
+  public:
+    std::optional<VarRef> base;
+    std::vector<std::unique_ptr<Type>> params;
   };
 
   class Binding {
+  public:
+    std::string name;
+    loc::Span source;
+    Type type;
+  };
+
+  class TypeBinding {
   public:
     std::string name;
     loc::Span source;
@@ -59,10 +61,22 @@ namespace hir {
 
   class ErasedExprVisitor;
 
+  enum class Pos {
+    /**
+     * An expression is in expr position if its value will be used.
+     */
+    Expr,
+    /**
+     * An expression is in stmt position if its value is ignored.
+     */
+    Stmt,
+  };
+
   class Expr {
   public:
     loc::Span span;
     Pos pos = Pos::Expr;
+    Type type;
 
     virtual ~Expr();
 
@@ -74,11 +88,20 @@ namespace hir {
   class Block {
   public:
     std::vector<Binding> bindings;
+    std::vector<TypeBinding> typeBindings;
     std::vector<Eptr> body;
+  };
+
+  class Import {
+  public:
+    hir::Idx moduleIdx;
+    std::string name;
   };
 
   class Program {
   public:
+    std::vector<Import> valueImports;
+    std::vector<Import> typeImports;
     std::vector<ADT> types;
     std::vector<Block> fnImpls;
     Block topLevel;

@@ -1,7 +1,9 @@
 #include "Json.h"
 #include "Hir.h"
+#include "nlohmann/json.hpp"
 
 #include <memory>
+#include <optional>
 
 namespace loc {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(SrcLoc, line, col);
@@ -31,11 +33,13 @@ namespace hir {
   FORWARD_DEFINE_JSON(GetExpr)
   FORWARD_DEFINE_JSON(ForeignExpr)
   FORWARD_DEFINE_JSON(DummyExpr)
+
+  FORWARD_DEFINE_JSON(Type)
 }
 
 namespace hir::json {
   using json = nlohmann::json;
-#define JSON_VISIT(TYPE) json visit##TYPE(TYPE &it) { return {{"type", #TYPE}, {"value", it}}; }
+#define JSON_VISIT(TYPE) json visit##TYPE(TYPE &it) { return {{"class", #TYPE}, {"value", it}}; }
   class JsonExprVisitor : public ExprVisitor<json> {
     JSON_VISIT(BlockExpr)
     JSON_VISIT(VarExpr)
@@ -60,43 +64,85 @@ namespace nlohmann {
     static void to_json(json &j, const hir::Eptr &v) {
       if (v) {
         j = hir::json::JsonExprVisitor().visitExpr(*v);
+        j["span"] = v->span;
+        j["pos"] = v->pos;
+        j["type"] = v->type;
       } else {
         j = nullptr;
       }
     }
 
 #define FROM_EXPR_JSON(TYPE)                    \
-    if (t == #TYPE) {                           \
+    else if (t == #TYPE) {                      \
     auto expr = std::make_unique<hir::TYPE>();  \
-    j.get_to(*expr); return; }
+    j.at("value").get_to(*expr); opt = std::move(expr); }
 
     static void from_json(const json &j, hir::Eptr &opt) {
       const auto &t = j.at("type");
-      FROM_EXPR_JSON(BlockExpr);
-      FROM_EXPR_JSON(VarExpr);
-      FROM_EXPR_JSON(CondExpr);
-      FROM_EXPR_JSON(VoidExpr);
-      FROM_EXPR_JSON(LiteralExpr);
-      FROM_EXPR_JSON(BinExpr);
-      FROM_EXPR_JSON(CmpExpr);
-      FROM_EXPR_JSON(NegExpr);
-      FROM_EXPR_JSON(CallExpr);
-      FROM_EXPR_JSON(DefineExpr);
-      FROM_EXPR_JSON(NewExpr);
-      FROM_EXPR_JSON(GetExpr);
-      FROM_EXPR_JSON(ForeignExpr);
-      FROM_EXPR_JSON(DummyExpr);
-      opt = nullptr;
+      if (false);
+      FROM_EXPR_JSON(BlockExpr)
+        FROM_EXPR_JSON(VarExpr)
+        FROM_EXPR_JSON(CondExpr)
+        FROM_EXPR_JSON(VoidExpr)
+        FROM_EXPR_JSON(LiteralExpr)
+        FROM_EXPR_JSON(BinExpr)
+        FROM_EXPR_JSON(CmpExpr)
+        FROM_EXPR_JSON(NegExpr)
+        FROM_EXPR_JSON(CallExpr)
+        FROM_EXPR_JSON(DefineExpr)
+        FROM_EXPR_JSON(NewExpr)
+        FROM_EXPR_JSON(GetExpr)
+        FROM_EXPR_JSON(ForeignExpr)
+        FROM_EXPR_JSON(DummyExpr)
+      else {
+        opt = nullptr;
+        return;
+      }
+      j.at("span").get_to(opt->span);
+      j.at("pos").get_to(opt->pos);
+      j.at("type").get_to(opt->type);
+    }
+  };
+
+  template <typename T>
+  struct adl_serializer<std::optional<T>> {
+    static void to_json(json &j, const std::optional<T> &v) {
+      if (v) {
+        j = *v;
+      }
+    }
+    static void from_json(const json &j, std::optional<T> &opt) {
+      opt = j;
+    }
+  };
+
+  template <typename T>
+  struct adl_serializer<std::unique_ptr<T>> {
+    static void to_json(json &j, const std::unique_ptr<T> &v) {
+      if (v) {
+        j = *v;
+      } else {
+        j = nullptr;
+      }
+    }
+    static void from_json(const json &j, std::unique_ptr<T> &opt) {
+      if (j) {
+        opt = std::make_unique<T>();
+        j.get_to(*opt);
+      } else {
+        opt = nullptr;
+      }
     }
   };
 }
 
 namespace hir {
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Binding, name, source)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, body)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, variants)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program, types, fnImpls, topLevel)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Type, base, params)
+
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Binding, name, source, type)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TypeBinding, name, source)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, typeBindings, body)
+
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BlockExpr, block)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarRef, block, idx)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarExpr, ref)
@@ -112,13 +158,14 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GetExpr, adt, variant, field, value)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ForeignExpr, name)
   EMPTY_JSON(DummyExpr)
-}
 
-namespace hir::json {
-  json to_json(const Program &prog) {
-    return prog;
-  }
-  Program from_json(const json &j) {
-    return j;
-  }
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, variants)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name)
+
+#define inline // remove inline from the next one, it has to be emitted
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program,
+                                     valueImports, typeImports,
+                                     types, fnImpls, topLevel)
+#undef inline
 }

@@ -1,7 +1,7 @@
 #include "Lowering.h"
 #include "../hir/Rebind.h"
+#include "Ast.h"
 
-#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -11,13 +11,23 @@
 #include <variant>
 
 namespace ast::lower {
+  template <typename Data=std::monostate>
   class Bindings {
     using Ridge = std::function<void(const hir::VarRef &)>;
 
     struct ScopeSet {
-      struct Binding {
+      class Binding {
+      public:
         const std::string *name;
         loc::Span source;
+        Data data;
+
+        Binding(const std::string &name,
+                loc::Span &&source,
+                Data &&data):
+          name(&name),
+          source(source),
+          data(std::forward<Data>(data)) {}
       };
 
       std::vector<Binding> data;
@@ -26,7 +36,7 @@ namespace ast::lower {
       std::optional<Ridge> ridge;
     };
 
-    std::deque<ScopeSet> sets = {{}};
+    std::vector<ScopeSet> sets = {{}};
 
   public:
     void push() {
@@ -41,22 +51,21 @@ namespace ast::lower {
       sets.pop_back();
     }
 
-    const std::vector<ScopeSet::Binding> &datas() {
+    const std::vector<typename ScopeSet::Binding> &datas() {
       return sets.back().data;
     }
 
-    const ScopeSet::Binding &dataFor(const hir::VarRef &vr) {
+    const typename ScopeSet::Binding &dataFor(const hir::VarRef &vr) {
       return (sets.rbegin() + vr.block)->data[vr.idx];
     }
 
     hir::Idx introduce(const std::string &name,
-                       const loc::Span &source) {
+                       const loc::Span &source,
+                       Data &&extraData) {
       auto &ss = sets.back();
       hir::Idx idx = ss.data.size();
-      auto nameS = &ss.bound.insert({name, idx}).first->first;
-      auto &data = ss.data.emplace_back();
-      data.name = nameS;
-      data.source = source;
+      auto &nameS = ss.bound.insert({name, idx}).first->first;
+      ss.data.emplace_back(nameS, loc::Span(source), std::forward<Data>(extraData));
       return idx;
     }
 
@@ -90,23 +99,56 @@ namespace ast::lower {
 
   class LoweringVisitor :
     public ProgramVisitor<LowerResult>,
+    public TypeVisitor<hir::Type>,
     public ExprVisitor<Eptr, hir::Pos>,
     public StatementVisitor<Eptr, std::optional<hir::Idx>> {
   public:
     err::ErrorContext errs;
     hir::Program program;
-    Bindings bindings;
+    Bindings<std::shared_ptr<hir::Type>> bindings;
+    Bindings<> typeBindings;
+
+    void builtinType(const std::string &name) {
+      typeBindings.introduce(name, loc::Span(), {});
+      auto &import = program.typeImports.emplace_back();
+      import.moduleIdx = 0;
+      import.name = name;
+    }
+
+    LoweringVisitor() {
+      builtinType("fn");
+      builtinType("int");
+      builtinType("float");
+      typeBindings.push();
+    }
 
     void addBindingsToBlock(hir::Block &block) {
+      block.bindings.reserve(bindings.datas().size());
       for (auto &data : bindings.datas()) {
         auto &b = block.bindings.emplace_back();
+        b.name = *data.name;
+        b.source = data.source;
+        b.type = std::move(*data.data);
+      }
+      block.typeBindings.reserve(typeBindings.datas().size());
+      for (auto &data : typeBindings.datas()) {
+        auto &b = block.typeBindings.emplace_back();
         b.name = *data.name;
         b.source = data.source;
       }
     }
 
+    hir::Type visitHint(std::optional<TypeHint> &hint) {
+      return hint ? visitType(*hint->type) : hir::Type();
+    }
+
     hir::Idx introduceBinding(Binding &it) {
-      return bindings.introduce(it.name.ident.value, it.name.ident.span());
+      return bindings.introduce(it.name.ident.value,
+                                it.name.ident.span(),
+                                it.arguments ?
+                                std::make_shared<hir::Type>() :
+                                std::make_shared<hir::Type>
+                                (visitHint(it.typeHint)));
     }
 
     class BindingVisitor :
@@ -125,24 +167,68 @@ namespace ast::lower {
       }
     };
 
-    template <typename Binding>
-    Eptr fnExpr(std::vector<Binding> &params,
+    hir::Type visitNamedType(NamedType &it) override {
+      hir::Type ty;
+      auto found = typeBindings.lookup(it.raw.ident.value);
+      if (found) {
+        ty.base = found;
+      } else {
+        errs
+          .err()
+          .msg("Type '" + it.raw.ident.value + "' is not defined")
+          .span(it.raw.ident.span(), "here");
+      }
+      if (it.parameters) {
+        ty.params.reserve(it.parameters->types.size());
+        for (auto &t : it.parameters->types) {
+          ty.params.push_back(std::make_unique<hir::Type>(visitType(*t)));
+        }
+      }
+      return ty;
+    }
+
+    hir::Type visitPlaceholderType(PlaceholderType &it) override {
+      return hir::Type();
+    }
+
+    template <typename Opt>
+    auto maybePtr(Opt &it) {
+      return it ? &*it : nullptr;
+    }
+
+    template <typename Param>
+    Eptr fnExpr(Binding::TypeArguments *typeParams,
+                TypeHint *retHint,
+                std::vector<Param> &params,
                 loc::Span &source,
                 Expr &body) {
       std::set<hir::VarRef> closed;
       bindings.push([&closed](const hir::VarRef &vr) {
         closed.insert(vr);
       });
+      typeBindings.push();
+      if (typeParams) {
+        for (auto &tp : typeParams->idents) {
+          typeBindings.introduce(tp.ident.value, tp.ident.span(), {});
+        }
+      }
 
-      for (auto &b : params) {
-        bindings.introduce(b.name.ident.value, b.name.ident.span());
+      for (auto &p : params) {
+        bindings.introduce(p.name.ident.value,
+                           p.name.ident.span(),
+                           std::make_shared<hir::Type>
+                           (visitHint(p.typeHint)));
       }
 
       auto blockE = std::make_unique<hir::BlockExpr>();
+      // FIXME this actually gets dropped
+      if (retHint) blockE->type = visitType(*retHint->type);
+
       hir::Block &block = blockE->block;
       addBindingsToBlock(block);
       block.body.push_back(visitExpr(body, hir::Pos::Expr));
       bindings.pop();
+      typeBindings.pop();
       auto &thisB = block.bindings.emplace_back();
       thisB.name = "this";
       thisB.source = source;
@@ -201,20 +287,25 @@ namespace ast::lower {
       return expr;
     }
 
-    template <typename Binding>
+    template <typename Param>
     Eptr recFnExpr(Identifier &name,
-                   std::vector<Binding> &params,
+                   Binding::TypeArguments *typeParams,
+                   TypeHint *retHint,
+                   std::vector<Param> &params,
                    loc::Span &source,
                    Expr &body) {
       bindings.push();
+      typeBindings.push();
       auto expr = std::make_unique<hir::BlockExpr>();
 
-      auto idx = bindings.introduce(name.ident.value, name.ident.span());
+      auto idx = bindings.introduce(name.ident.value,
+                                    name.ident.span(),
+                                    std::make_shared<hir::Type>());
       expr->block.bindings.emplace_back().name = name.ident.value;
 
       auto defE = std::make_unique<hir::DefineExpr>();
       defE->idx = idx;
-      defE->value = fnExpr(params, source, body);
+      defE->value = fnExpr(typeParams, retHint, params, source, body);
       expr->block.body.push_back(std::move(defE));
 
       auto varE = std::make_unique<hir::VarExpr>();
@@ -225,6 +316,7 @@ namespace ast::lower {
       expr->span = source;
 
       bindings.pop();
+      typeBindings.pop();
       return expr;
     }
 
@@ -236,7 +328,12 @@ namespace ast::lower {
         fe->name = it.name.ident.value;
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
-        retExpr->value = recFnExpr(it.name, it.arguments->bindings, it.span, *it.value);
+        retExpr->value = recFnExpr(it.name,
+                                   maybePtr(it.arguments->typeArguments),
+                                   maybePtr(it.typeHint),
+                                   it.arguments->bindings,
+                                   it.span,
+                                   *it.value);
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
       }
@@ -300,6 +397,7 @@ namespace ast::lower {
 
     Eptr visitLetExpr(LetExpr &it, hir::Pos pos) override {
       bindings.push();
+      typeBindings.push();
       for (auto &b : it.bindings) {
         introduceBinding(b);
       }
@@ -315,7 +413,7 @@ namespace ast::lower {
 
       if (it.name) {
         auto call = std::make_unique<hir::CallExpr>();
-        call->func = recFnExpr(*it.name, it.bindings, it.span, *it.body);
+        call->func = recFnExpr(*it.name, nullptr, nullptr, it.bindings, it.span, *it.body);
         call->args.reserve(it.bindings.size());
         idx = 0;
         for (auto &b : it.bindings) {
@@ -333,12 +431,21 @@ namespace ast::lower {
 
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
       return it.name ?
-        recFnExpr(*it.name, it.arguments.bindings, it.span, *it.body) :
-        fnExpr(it.arguments.bindings, it.span, *it.body);
+        recFnExpr(*it.name,
+                  maybePtr(it.arguments.typeArguments),
+                  maybePtr(it.typeHint),
+                  it.arguments.bindings,
+                  it.span,
+                  *it.body) :
+        fnExpr(maybePtr(it.arguments.typeArguments),
+               maybePtr(it.typeHint),
+               it.arguments.bindings,
+               it.span,
+               *it.body);
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      return fnExpr(it.arguments, it.span, *it.body);
+      return fnExpr(nullptr, nullptr, it.arguments, it.span, *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {
@@ -347,6 +454,7 @@ namespace ast::lower {
       }
 
       bindings.push();
+      typeBindings.push();
 
       std::vector<std::optional<hir::Idx>> indeces;
       indeces.reserve(it.statements.size());
@@ -364,6 +472,7 @@ namespace ast::lower {
       }
       body.push_back(visitExpr(*it.value, pos));
       bindings.pop();
+      typeBindings.pop();
       return expr;
     }
 
@@ -518,8 +627,9 @@ namespace ast::lower {
     }
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
-      // TODO type hints
-      return visitExpr(*it.expr, pos);
+      auto expr = visitExpr(*it.expr, pos);
+      expr->type = visitType(*it.hint.type);
+      return expr;
     }
   };
 
