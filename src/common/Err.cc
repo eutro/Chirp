@@ -108,6 +108,7 @@ namespace err {
     if (!ec.errors.empty()) {
       epc.os << "Aborting due to errors:\n";
       for (auto &err : ec.errors) {
+        epc.os << "\nError:\n";
         epc << err;
       }
       std::exit(1);

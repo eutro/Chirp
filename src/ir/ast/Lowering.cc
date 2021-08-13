@@ -2,17 +2,28 @@
 #include "Ast.h"
 
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <variant>
 
 namespace ast::lower {
   class Bindings {
+    using Ridge = std::function<void(const hir::VarRef &)>;
+
     struct ScopeSet {
-      std::vector<const std::string*> names;
+      struct Binding {
+        const std::string *name;
+        loc::Span source;
+      };
+
+      std::vector<Binding> data;
       std::map<std::string, hir::Idx> bound;
+
+      std::optional<Ridge> ridge;
     };
 
     std::deque<ScopeSet> sets = {{}};
@@ -22,34 +33,54 @@ namespace ast::lower {
       sets.emplace_back();
     }
 
+    void push(Ridge &&ridge) {
+      sets.emplace_back().ridge = std::move(ridge);
+    }
+
     void pop() {
       sets.pop_back();
     }
 
-    const std::vector<const std::string*> &names() {
-      return sets.back().names;
+    const std::vector<ScopeSet::Binding> &datas() {
+      return sets.back().data;
     }
 
-    hir::Idx introduce(const std::string &name) {
+    const ScopeSet::Binding &dataFor(const hir::VarRef &vr) {
+      return (sets.rbegin() + vr.block)->data[vr.idx];
+    }
+
+    hir::Idx introduce(const std::string &name,
+                       const loc::Span &source) {
       auto &ss = sets.back();
-      hir::Idx idx = ss.names.size();
-      ss.names.push_back(&ss.bound.insert({name, idx}).first->first);
+      hir::Idx idx = ss.data.size();
+      auto nameS = &ss.bound.insert({name, idx}).first->first;
+      auto &data = ss.data.emplace_back();
+      data.name = nameS;
+      data.source = source;
       return idx;
     }
 
-    struct Var {
-      hir::Idx block, idx;
-    };
-
-    std::optional<Var> lookup(const std::string &name) {
-      Var var;
-      var.block = 0;
-      for (auto it = sets.rbegin(); it != sets.rend(); ++it, ++var.block) {
+    std::optional<hir::VarRef> lookup(const std::string &name) {
+      hir::VarRef ref;
+      ref.block = 0;
+      auto it = sets.rbegin();
+      std::vector<std::pair<Ridge*, hir::Idx>> ridges;
+      while (it != sets.rend()) {
         auto found = it->bound.find(name);
         if (found != it->bound.end()) {
-          var.idx = found->second;
-          return var;
+          ref.idx = found->second;
+          for (auto &r : ridges) {
+            hir::VarRef rRef = ref;
+            rRef.block -= r.second;
+            (*r.first)(rRef);
+          }
+          return ref;
         }
+        ++ref.block;
+        if (it->ridge) {
+          ridges.push_back({&*it->ridge, ref.block});
+        }
+        ++it;
       }
       return std::nullopt;
     }
@@ -67,14 +98,15 @@ namespace ast::lower {
     Bindings bindings;
 
     void addBindingsToBlock(hir::Block &block) {
-      for (const std::string *name : bindings.names()) {
+      for (auto &data : bindings.datas()) {
         auto &b = block.bindings.emplace_back();
-        b.name = *name;
+        b.name = *data.name;
+        b.source = data.source;
       }
     }
 
     hir::Idx introduceBinding(Binding &it) {
-      return bindings.introduce(it.name.ident.value);
+      return bindings.introduce(it.name.ident.value, it.name.ident.span());
     }
 
     class BindingVisitor :
@@ -94,33 +126,61 @@ namespace ast::lower {
     };
 
     template <typename Binding>
-    Eptr fnExpr(std::vector<Binding> &params, Expr &body) {
-      auto expr = std::make_unique<hir::FnExpr>();
-      bindings.push();
+    Eptr fnExpr(std::vector<Binding> &params,
+                loc::Span &source,
+                Expr &body) {
+      std::set<hir::VarRef> closed;
+      bindings.push([&closed](const hir::VarRef &vr) {
+        closed.insert(vr);
+      });
+
       for (auto &b : params) {
-        bindings.introduce(b.name.ident.value);
+        bindings.introduce(b.name.ident.value, b.name.ident.span());
       }
-      addBindingsToBlock(expr->block);
-      expr->block.body.push_back(visitExpr(body, hir::Pos::Tail));
+
+      hir::Block block;
+      addBindingsToBlock(block);
+      block.body.push_back(visitExpr(body, hir::Pos::Expr));
       bindings.pop();
+
+      hir::Idx typeIdx = program.types.size();
+      hir::ADT &closure = program.types.emplace_back();
+      hir::ADT::Variant &variant = closure.variants.emplace_back();
+      variant.values.resize(closed.size());
+      auto expr = std::make_unique<hir::NewExpr>();
+      expr->adt = typeIdx;
+      expr->variant = 0;
+      expr->values.reserve(closed.size());
+      for (auto &cv : closed) {
+        auto varE = std::make_unique<hir::VarExpr>();
+        varE->ref = cv;
+        expr->values.push_back(std::move(varE));
+      }
+
+      program.fnImpls.push_back(std::move(block));
+
       return expr;
     }
 
     template <typename Binding>
-    Eptr recFnExpr(Identifier &name, std::vector<Binding> &params, Expr &body) {
+    Eptr recFnExpr(Identifier &name,
+                   std::vector<Binding> &params,
+                   loc::Span &source,
+                   Expr &body) {
       bindings.push();
       auto expr = std::make_unique<hir::BlockExpr>();
 
-      auto idx = bindings.introduce(name.ident.value);
+      auto idx = bindings.introduce(name.ident.value, name.ident.span());
       expr->block.bindings.emplace_back().name = name.ident.value;
 
       auto defE = std::make_unique<hir::DefineExpr>();
       defE->idx = idx;
-      defE->value = fnExpr(params, body);
+      defE->value = fnExpr(params, source, body);
       expr->block.body.push_back(std::move(defE));
 
       auto varE = std::make_unique<hir::VarExpr>();
-      varE->idx = idx;
+      varE->ref.block = 0;
+      varE->ref.idx = idx;
       expr->block.body.push_back(std::move(varE));
 
       bindings.pop();
@@ -135,7 +195,7 @@ namespace ast::lower {
         fe->name = it.name.ident.value;
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
-        retExpr->value = recFnExpr(it.name, it.arguments->bindings, *it.value);
+        retExpr->value = recFnExpr(it.name, it.arguments->bindings, it.span, *it.value);
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
       }
@@ -214,13 +274,13 @@ namespace ast::lower {
 
       if (it.name) {
         auto call = std::make_unique<hir::CallExpr>();
-        call->func = recFnExpr(*it.name, it.bindings, *it.body);
+        call->func = recFnExpr(*it.name, it.bindings, it.span, *it.body);
         call->args.reserve(it.bindings.size());
         idx = 0;
         for (auto &b : it.bindings) {
           auto var = std::make_unique<hir::VarExpr>();
-          var->block = 0;
-          var->idx = idx;
+          var->ref.block = 0;
+          var->ref.idx = idx;
           var->span = b.span;
           call->args.push_back(std::move(var));
         }
@@ -232,12 +292,12 @@ namespace ast::lower {
 
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
       return it.name ?
-        recFnExpr(*it.name, it.arguments.bindings, *it.body) :
-        fnExpr(it.arguments.bindings, *it.body);
+        recFnExpr(*it.name, it.arguments.bindings, it.span, *it.body) :
+        fnExpr(it.arguments.bindings, it.span, *it.body);
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      return fnExpr(it.arguments, *it.body);
+      return fnExpr(it.arguments, it.span, *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {
@@ -298,8 +358,8 @@ namespace ast::lower {
       auto lookup = bindings.lookup(it.name.ident.value);
       if (lookup) {
         auto expr = std::make_unique<hir::VarExpr>();
-        expr->block = lookup->block;
-        expr->idx = lookup->idx;
+        expr->ref.block = lookup->block;
+        expr->ref.idx = lookup->idx;
         return expr;
       } else {
         errs

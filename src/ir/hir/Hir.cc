@@ -13,7 +13,7 @@ namespace hir {
   _acceptImpl(Expr, NegExpr);
   _acceptImpl(Expr, CallExpr);
   _acceptImpl(Expr, DefineExpr);
-  _acceptImpl(Expr, FnExpr);
+  _acceptImpl(Expr, NewExpr);
   _acceptImpl(Expr, ForeignExpr);
   _acceptImpl(Expr, DummyExpr);
 }

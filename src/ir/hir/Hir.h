@@ -3,6 +3,9 @@
 #include "../Visitor.h"
 #include "../../common/Loc.h"
 
+#include <functional>
+#include <set>
+#include <utility>
 #include <variant>
 #include <cstdint>
 #include <vector>
@@ -11,16 +14,26 @@
 namespace hir {
   typedef std::uint32_t Idx;
 
+  class VarRef {
+  public:
+    /**
+     * The depth of the block in which this var is.
+     * 0 being the current block.
+     */
+    Idx block;
+    Idx idx;
+
+    // lower VarRefs were introduced first
+    bool operator<(const VarRef &o) const {
+      if (block > o.block) return true;
+      if (o.block > block) return false;
+      return idx < o.idx;
+    }
+  };
+
   enum class Pos {
     /**
-     * An expression is in tail position
-     * if its values is the return
-     * value of the function it's in.
-     */
-    Tail,
-    /**
-     * An expression is in expr position
-     * if its value will be used in another expression.
+     * An expression is in expr position if its value will be used.
      */
     Expr,
     /**
@@ -29,22 +42,31 @@ namespace hir {
     Stmt,
   };
 
+  class Binding {
+  public:
+    std::string name;
+    loc::Span source;
+  };
+
+  class ADT {
+  public:
+    class Variant {
+    public:
+      std::vector<Binding> values;
+    };
+    std::vector<Variant> variants;
+  };
+
   class ErasedExprVisitor;
 
   class Expr {
   public:
     loc::Span span;
-    Pos pos;
-    // type id
+    Pos pos = Pos::Expr;
 
     virtual ~Expr();
 
     virtual _acceptDef(Expr) = 0;
-  };
-
-  class Binding {
-  public:
-    std::string name;
   };
 
   class Block {
@@ -55,6 +77,8 @@ namespace hir {
 
   class Program {
   public:
+    std::vector<ADT> types;
+    std::vector<Block> fnImpls;
     Block topLevel;
   };
 
@@ -67,12 +91,7 @@ namespace hir {
 
   class VarExpr : public Expr {
   public:
-    /**
-     * The depth of the block in which this var is.
-     * 0 being the current block.
-     */
-    Idx block;
-    Idx idx;
+    VarRef ref;
 
     _acceptDef(Expr) override;
   };
@@ -150,9 +169,11 @@ namespace hir {
     _acceptDef(Expr) override;
   };
 
-  class FnExpr : public Expr {
+  class NewExpr : public Expr {
   public:
-    Block block;
+    Idx adt;
+    Idx variant;
+    std::vector<std::unique_ptr<Expr>> values;
 
     _acceptDef(Expr) override;
   };
@@ -182,7 +203,7 @@ namespace hir {
     _EvisitVirtual(NegExpr)
     _EvisitVirtual(CallExpr)
     _EvisitVirtual(DefineExpr)
-    _EvisitVirtual(FnExpr)
+    _EvisitVirtual(NewExpr)
     _EvisitVirtual(ForeignExpr)
     _EvisitVirtual(DummyExpr)
   };
@@ -201,7 +222,7 @@ namespace hir {
     _EvisitImpl(NegExpr)
     _EvisitImpl(CallExpr)
     _EvisitImpl(DefineExpr)
-    _EvisitImpl(FnExpr)
+    _EvisitImpl(NewExpr)
     _EvisitVirtual(ForeignExpr)
     _EvisitImpl(DummyExpr)
 
@@ -217,7 +238,7 @@ namespace hir {
     virtual _typedVisit(NegExpr) = 0;
     virtual _typedVisit(CallExpr) = 0;
     virtual _typedVisit(DefineExpr) = 0;
-    virtual _typedVisit(FnExpr) = 0;
+    virtual _typedVisit(NewExpr) = 0;
     virtual _typedVisit(ForeignExpr) = 0;
     virtual _typedVisit(DummyExpr) = 0;
   };
