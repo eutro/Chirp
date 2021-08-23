@@ -19,24 +19,26 @@ namespace err {
     virtual void output(ErrorPrintContext &ctx) const = 0;
   };
 
-  class CompileError {
+  class Location {
   private:
-    std::vector<std::unique_ptr<Line>> lines;
+    std::vector<std::shared_ptr<Line>> lines;
 
   public:
-    CompileError &msg(const std::string &msg);
+    Location &msg(const std::string &msg);
 
-    CompileError &span(const loc::Span &span, const std::string &msg);
+    Location &span(const loc::Span &span, const std::string &msg);
 
-    CompileError &pos(const loc::SrcLoc &loc, const std::string &msg);
+    Location &pos(const loc::SrcLoc &loc, const std::string &msg);
 
-    friend ErrorPrintContext &operator<<(ErrorPrintContext &ctx, const CompileError &err);
+    Location &chain(const Location &o);
+
+    friend ErrorPrintContext &operator<<(ErrorPrintContext &ctx, const Location &err);
   };
 
   class ErrorContext {
   public:
-    std::vector<CompileError> errors;
-    CompileError &err();
+    std::vector<Location> errors;
+    Location &err();
   };
 
   void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec);

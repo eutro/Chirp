@@ -1,18 +1,20 @@
 #include "Err.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iomanip>
+#include <iterator>
 #include <valarray>
 
 namespace err {
-  ErrorPrintContext &operator<<(ErrorPrintContext &ctx, const CompileError &err) {
+  ErrorPrintContext &operator<<(ErrorPrintContext &ctx, const Location &err) {
     for (const auto &line : err.lines) {
       line->output(ctx);
     }
     return ctx;
   }
 
-  CompileError &ErrorContext::err() {
+  Location &ErrorContext::err() {
     return errors.emplace_back();
   }
 
@@ -87,16 +89,20 @@ namespace err {
     }
   };
 
-  CompileError &CompileError::msg(const std::string &msg) {
-    lines.push_back(std::make_unique<RawLine>(msg));
+  Location &Location::msg(const std::string &msg) {
+    lines.push_back(std::make_shared<RawLine>(msg));
     return *this;
   }
-  CompileError &CompileError::span(const loc::Span &span, const std::string &msg) {
-    lines.push_back(std::make_unique<SpanLine>(span, msg));
+  Location &Location::span(const loc::Span &span, const std::string &msg) {
+    lines.push_back(std::make_shared<SpanLine>(span, msg));
     return *this;
   }
-  CompileError &CompileError::pos(const loc::SrcLoc &loc, const std::string &msg) {
-    lines.push_back(std::make_unique<PosLine>(loc, msg));
+  Location &Location::pos(const loc::SrcLoc &loc, const std::string &msg) {
+    lines.push_back(std::make_shared<PosLine>(loc, msg));
+    return *this;
+  }
+  Location &Location::chain(const Location &o) {
+    std::copy(o.lines.begin(), o.lines.end(), std::back_insert_iterator(lines));
     return *this;
   }
 
