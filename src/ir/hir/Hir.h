@@ -4,6 +4,7 @@
 #include "../../common/Loc.h"
 
 #include <functional>
+#include <map>
 #include <set>
 #include <utility>
 #include <variant>
@@ -13,27 +14,11 @@
 
 namespace hir {
   typedef std::uint32_t Idx;
-
-  class VarRef {
-  public:
-    /**
-     * The depth of the block in which this var is.
-     * 0 being the current block.
-     */
-    Idx block;
-    Idx idx;
-
-    // lower VarRefs were introduced first
-    bool operator<(const VarRef &o) const {
-      if (block > o.block) return true;
-      if (o.block > block) return false;
-      return idx < o.idx;
-    }
-  };
+  typedef Idx DefIdx;
 
   class Type {
   public:
-    std::optional<VarRef> base;
+    std::optional<DefIdx> base;
     std::vector<std::unique_ptr<Type>> params;
   };
 
@@ -54,7 +39,7 @@ namespace hir {
   public:
     class Variant {
     public:
-      std::vector<Binding> values;
+      std::vector<DefIdx> values;
     };
     std::vector<Variant> variants;
   };
@@ -87,21 +72,25 @@ namespace hir {
 
   class Block {
   public:
-    std::vector<Binding> bindings;
-    std::vector<TypeBinding> typeBindings;
+    std::vector<DefIdx> bindings;
+    std::vector<DefIdx> typeBindings;
     std::vector<Eptr> body;
   };
 
   class Import {
   public:
-    hir::Idx moduleIdx;
+    Idx moduleIdx;
     std::string name;
+    DefIdx defIdx;
   };
 
   class Program {
   public:
     std::vector<Import> valueImports;
     std::vector<Import> typeImports;
+    std::map<DefIdx, Binding> bindings;
+    std::map<DefIdx, TypeBinding> typeBindings;
+
     std::vector<ADT> types;
     std::vector<Block> fnImpls;
     Block topLevel;
@@ -116,7 +105,7 @@ namespace hir {
 
   class VarExpr : public Expr {
   public:
-    VarRef ref;
+    DefIdx ref;
 
     _acceptDef(Expr) override;
   };

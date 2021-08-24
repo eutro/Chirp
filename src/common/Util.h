@@ -23,4 +23,13 @@ namespace util {
       intercept(intercept) {}
     T operator()(const T &x) { return gradient * x + intercept; }
   };
+
+  template <typename Compare = std::less<>>
+  struct DerefCmp {
+    template <typename LHS, typename RHS>
+    bool operator()(const LHS &lhs, const RHS &rhs) const {
+      Compare cmp;
+      return cmp(*lhs, *rhs);
+    }
+  };
 }

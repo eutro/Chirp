@@ -144,7 +144,6 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, typeBindings, body)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BlockExpr, block)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarRef, block, idx)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarExpr, ref)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CondExpr, predE, thenE, elseE)
   EMPTY_JSON(VoidExpr)
@@ -161,11 +160,12 @@ namespace hir {
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, variants)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name, defIdx)
 
 #define inline // remove inline from the next one, it has to be emitted
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program,
                                      valueImports, typeImports,
+                                     bindings, typeBindings,
                                      types, fnImpls, topLevel)
 #undef inline
 }

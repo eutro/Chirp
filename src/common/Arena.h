@@ -1,20 +1,13 @@
 #pragma once
 
+#include "Util.h"
+
 #include <type_traits>
 #include <set>
 #include <memory>
 #include <vector>
 
 namespace arena {
-  template <typename Compare>
-  struct DerefCmp {
-    template <typename LHS, typename RHS>
-    bool operator()(const LHS &lhs, const RHS &rhs) const {
-      Compare cmp;
-      return cmp(*lhs, *rhs);
-    }
-  };
-
   template <typename Base, typename T = Base>
   class Arena {
   public:
@@ -37,7 +30,7 @@ namespace arena {
             typename T = Base>
   class InternArena {
   public:
-    std::set<std::unique_ptr<Base>, DerefCmp<Compare>> interned;
+    std::set<std::unique_ptr<Base>, util::DerefCmp<Compare>> interned;
 
     template <typename NT,
               std::enable_if_t<std::is_base_of<Base, NT>::value, bool> = 0>
