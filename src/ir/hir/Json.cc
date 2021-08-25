@@ -24,6 +24,7 @@ namespace hir {
   FORWARD_DEFINE_JSON(CondExpr)
   FORWARD_DEFINE_JSON(VoidExpr)
   FORWARD_DEFINE_JSON(LiteralExpr)
+  FORWARD_DEFINE_JSON(BoolExpr)
   FORWARD_DEFINE_JSON(BinExpr)
   FORWARD_DEFINE_JSON(CmpExpr)
   FORWARD_DEFINE_JSON(NegExpr)
@@ -46,6 +47,7 @@ namespace hir::json {
     JSON_VISIT(CondExpr)
     JSON_VISIT(VoidExpr)
     JSON_VISIT(LiteralExpr)
+    JSON_VISIT(BoolExpr)
     JSON_VISIT(BinExpr)
     JSON_VISIT(CmpExpr)
     JSON_VISIT(NegExpr)
@@ -85,6 +87,7 @@ namespace nlohmann {
         FROM_EXPR_JSON(CondExpr)
         FROM_EXPR_JSON(VoidExpr)
         FROM_EXPR_JSON(LiteralExpr)
+        FROM_EXPR_JSON(BoolExpr)
         FROM_EXPR_JSON(BinExpr)
         FROM_EXPR_JSON(CmpExpr)
         FROM_EXPR_JSON(NegExpr)
@@ -137,7 +140,7 @@ namespace nlohmann {
 }
 
 namespace hir {
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Type, base, params)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Type, source, base, params)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Binding, name, source, type)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TypeBinding, name, source)
@@ -148,8 +151,9 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CondExpr, predE, thenE, elseE)
   EMPTY_JSON(VoidExpr)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(LiteralExpr, type, value)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BoolExpr, value)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BinExpr, op, lhs, rhs)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CmpExpr, exprs, ops)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CmpExpr, op, lhs, rhs)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(NegExpr, value)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CallExpr, func, args)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefineExpr, idx, value)
@@ -159,7 +163,7 @@ namespace hir {
   EMPTY_JSON(DummyExpr)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, variants)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, id, variants)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name, defIdx)
 
 #define inline // remove inline from the next one, it has to be emitted

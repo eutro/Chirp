@@ -5,10 +5,9 @@
 #include <functional>
 
 namespace hir::rebind {
-  using Rebinder =
-      std::function<std::unique_ptr<Expr>(VarExpr &old, Idx depth)>;
+  using Rebinder = std::function<std::unique_ptr<Expr>(VarExpr &old)>;
 
-  class RebindVisitor : public ExprVisitor<std::monostate, Eptr*, Idx> {
+  class RebindVisitor : public ExprVisitor<std::monostate, Eptr*> {
   };
 
   std::unique_ptr<RebindVisitor> rebindVisitor(Rebinder &&rb);

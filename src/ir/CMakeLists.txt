@@ -17,3 +17,6 @@ target_link_libraries(hirjson PUBLIC nlohmann_json::nlohmann_json)
 
 add_library(astlower ast/Lowering.cc)
 target_link_libraries(astlower ast hirrebind err)
+
+add_library(hirinfer hir/Infer.cc)
+target_link_libraries(hirinfer hir err type)

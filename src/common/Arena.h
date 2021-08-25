@@ -7,6 +7,10 @@
 #include <memory>
 #include <vector>
 
+#ifdef ARENA_LOGGING
+#include <iostream>
+#endif
+
 namespace arena {
   template <typename Base, typename T = Base>
   class Arena {
@@ -43,8 +47,16 @@ namespace arena {
       auto value = std::make_unique<T>(std::forward<Args>(args)...);
       auto found = interned.find(value);
       if (found == interned.end()) {
+#ifdef ARENA_LOGGING
+        std::cerr << "[ARENA] miss\n";
+#endif
         found = interned.insert(std::move(value)).first;
       }
+#ifdef ARENA_LOGGING
+      else {
+        std::cerr << "[ARENA] hit\n";
+      }
+#endif
       return found->get();
     }
   };

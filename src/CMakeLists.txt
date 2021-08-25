@@ -4,7 +4,7 @@ project(CodingResearchProject)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(LLVM REQUIRED CONFIG)
+find_package(LLVM 10 REQUIRED CONFIG)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -26,8 +26,15 @@ if(NOT json_POPULATED)
   add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
+option(ARENA_LOGGING "Logging of arena intern hits and misses" OFF)
+
+if(ARENA_LOGGING)
+  add_definitions(-DARENA_LOGGING)
+endif(ARENA_LOGGING)
+
 add_subdirectory(common)
 add_subdirectory(fsm)
+add_subdirectory(type)
 add_subdirectory(ir)
 add_subdirectory(runtime)
 add_subdirectory(bin)

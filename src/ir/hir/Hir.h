@@ -18,8 +18,9 @@ namespace hir {
 
   class Type {
   public:
+    loc::Span source;
     std::optional<DefIdx> base;
-    std::vector<std::unique_ptr<Type>> params;
+    std::vector<Type> params;
   };
 
   class Binding {
@@ -37,6 +38,7 @@ namespace hir {
 
   class ADT {
   public:
+    DefIdx id;
     class Variant {
     public:
       std::vector<DefIdx> values;
@@ -125,7 +127,7 @@ namespace hir {
   class LiteralExpr : public Expr {
   public:
     enum Type {
-      Int, Float, String, Bool,
+      Int, Float, String,
     };
     Type type;
     std::string value;
@@ -133,10 +135,16 @@ namespace hir {
     _acceptDef(Expr) override;
   };
 
+  class BoolExpr : public Expr {
+  public:
+    bool value;
+
+    _acceptDef(Expr) override;
+  };
+
   class BinExpr : public Expr {
   public:
     enum Op {
-      LogAnd, LogOr,
       BitOr, BitAnd,
       Add, Sub,
       Mul, Div,
@@ -154,8 +162,8 @@ namespace hir {
       Ne, Eq,
       Lt, Le, Gt, Ge,
     };
-    std::vector<Eptr> exprs;
-    std::vector<Op> ops;
+    Op op;
+    Eptr lhs, rhs;
 
     _acceptDef(Expr) override;
   };
@@ -222,6 +230,7 @@ namespace hir {
     _EvisitVirtual(CondExpr)
     _EvisitVirtual(VoidExpr)
     _EvisitVirtual(LiteralExpr)
+    _EvisitVirtual(BoolExpr)
     _EvisitVirtual(BinExpr)
     _EvisitVirtual(CmpExpr)
     _EvisitVirtual(NegExpr)
@@ -242,6 +251,7 @@ namespace hir {
     _EvisitImpl(CondExpr)
     _EvisitImpl(VoidExpr)
     _EvisitImpl(LiteralExpr)
+    _EvisitImpl(BoolExpr)
     _EvisitImpl(BinExpr)
     _EvisitImpl(CmpExpr)
     _EvisitImpl(NegExpr)
@@ -259,6 +269,7 @@ namespace hir {
     virtual _typedVisit(CondExpr) = 0;
     virtual _typedVisit(VoidExpr) = 0;
     virtual _typedVisit(LiteralExpr) = 0;
+    virtual _typedVisit(BoolExpr) = 0;
     virtual _typedVisit(BinExpr) = 0;
     virtual _typedVisit(CmpExpr) = 0;
     virtual _typedVisit(NegExpr) = 0;

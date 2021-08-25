@@ -8,6 +8,7 @@ namespace hir {
   _acceptImpl(Expr, CondExpr);
   _acceptImpl(Expr, VoidExpr);
   _acceptImpl(Expr, LiteralExpr);
+  _acceptImpl(Expr, BoolExpr);
   _acceptImpl(Expr, BinExpr);
   _acceptImpl(Expr, CmpExpr);
   _acceptImpl(Expr, NegExpr);
