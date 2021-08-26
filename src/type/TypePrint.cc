@@ -49,7 +49,7 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           os << "tv::";
           while (true) {
             os << (char) ('A' + (i % 26));
-            if (i == 0) return;
+            if (i <= 25) return;
             i /= 26;
           }
           os << "";

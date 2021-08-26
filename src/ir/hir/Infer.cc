@@ -72,11 +72,17 @@ namespace hir::infer {
       */
     }
 
-    Tp visitBlock(Block &b) {
+    Idx paramC = 0;
+    Tp visitBlock(Block &block) {
+      Idx oldParamC = paramC;
+      for (auto &b : block.bindings) {
+        varTypes[b] = freshType();
+      }
       Tp last;
-      for (auto &e : b.body) {
+      for (auto &e : block.body) {
         last = visitExpr(*e);
       }
+      paramC = oldParamC;
       return last;
     }
 
@@ -86,10 +92,6 @@ namespace hir::infer {
         tds[import.defIdx] = modules.at(import.moduleIdx).types.at(import.name);
       }
       */
-
-      for (auto &binding : p.bindings) {
-        varTypes[binding.first] = freshType();
-      }
 
       for (auto &adt : p.types) {
         adts[adt.id] = &adt;
@@ -107,7 +109,6 @@ namespace hir::infer {
       return res;
     }
 
-    Idx paramC = 0;
     Tp freshType() { return tcx.intern(Ty::Placeholder{paramC++}); }
     Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
     Tp boolType() { return tcx.intern(Ty::Bool{}); }

@@ -302,7 +302,7 @@ namespace ast::lower {
       recBinding.name = name.ident.value;
       recBinding.source = name.ident.span();
       auto idx = bindings.introduce(recBinding.name, refIdx);
-
+      expr->block.bindings.push_back(idx);
       auto defE = withSpan<hir::DefineExpr>(source);
       defE->idx = idx;
       defE->value = fnExpr(typeParams, retHint, params, source, body);
