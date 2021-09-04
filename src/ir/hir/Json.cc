@@ -182,10 +182,12 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Type, source, base, params)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition, name, source)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition::DefType, v);
-  EMPTY_JSON(Definition::DefType::Type);
-  EMPTY_JSON(Definition::DefType::Trait);
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition::DefType::Variable, hints);
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType, v);
+  EMPTY_JSON(DefType::Type);
+  EMPTY_JSON(DefType::Trait);
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT::Variant, values)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT, variants)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::Variable, hints);
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, body)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BlockExpr, block)
@@ -204,11 +206,9 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ForeignExpr, name)
   EMPTY_JSON(DummyExpr)
 
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, id, variants)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TraitImpl, type, trait, types, methods, params, source)
 
 #define inline // remove inline from the next one, it has to be emitted
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program, bindings, types, traitImpls, topLevel)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program, bindings, traitImpls, topLevel)
 #undef inline
 }

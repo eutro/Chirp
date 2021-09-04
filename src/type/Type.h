@@ -34,12 +34,14 @@ namespace type {
 
   using Substs = std::vector<Ty*>;
 
+#define BIN_OPS(TYPE)                            \
+  bool operator<(const TYPE &o) const;           \
+  bool operator==(const TYPE &o) const;
+
   struct TraitBound {
     Idx i;
     Substs s;
-    bool operator<(const TraitBound &o) const {
-      return std::make_tuple(i, s) < std::make_tuple(o.i, o.s);
-    }
+    BIN_OPS(TraitBound)
   };
 
   using Variants = std::set<Idx>;
@@ -49,61 +51,57 @@ namespace type {
   class Ty {
   public:
     struct Err {
-      bool operator<(const Err &o) const { return false; }
+      BIN_OPS(Err)
     };
     struct Bool {
-      bool operator<(const Bool &o) const { return false; }
+      BIN_OPS(Bool)
     };
     struct Int {
       IntSize s;
-      bool operator<(const Int &o) const { return s < o.s; }
+      BIN_OPS(Int)
     };
     struct UInt {
       IntSize s;
-      bool operator<(const UInt &o) const { return s < o.s; }
+      BIN_OPS(UInt)
     };
     struct Float {
       FloatSize s;
-      bool operator<(const Float &o) const { return s < o.s; }
+      BIN_OPS(Float)
     };
     struct Placeholder {
       Idx i;
-      bool operator<(const Placeholder &o) const { return i < o.i; }
+      BIN_OPS(Placeholder)
     };
     struct ADT {
       Idx i;
       Variants v;
       Substs s;
-      bool operator<(const ADT &o) const {
-        return std::make_tuple(i, v, s) < std::make_tuple(o.i, o.v, o.s);
-      }
+      BIN_OPS(ADT)
     };
     struct Dyn {
       TraitBounds t;
-      bool operator<(const Dyn &o) const { return t < o.t; }
+      BIN_OPS(Dyn)
     };
     struct Tuple {
       std::vector<Ty*> t;
-      bool operator<(const Tuple &o) const { return t < o.t; }
+      BIN_OPS(Tuple)
     };
     struct TraitRef {
       Ty *ty;
       TraitBound *trait;
       Idx ref;
-      bool operator<(const TraitRef &o) const {
-        return std::make_tuple(ty, trait, ref) < std::make_tuple(o.ty, o.trait, o.ref);
-      }
+      BIN_OPS(TraitRef)
     };
     struct String {
-      bool operator<(const String &o) const { return false; }
+      BIN_OPS(String)
     };
     struct Cyclic {
       Ty *ty;
-      bool operator<(const Cyclic &o) const { return ty < o.ty; }
+      BIN_OPS(Cyclic)
     };
     struct CyclicRef {
       Idx depth;
-      bool operator<(const CyclicRef &o) const { return depth < o.depth; }
+      BIN_OPS(CyclicRef)
     };
     std::variant<
       Err,
@@ -123,6 +121,26 @@ namespace type {
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
 
-    bool operator<(const Ty &o) const { return v < o.v; }
+    BIN_OPS(Ty)
   };
 }
+
+#define ITER_HASH(TYPE)                             \
+  namespace std { template <> struct hash<TYPE> {   \
+      std::size_t operator()(const TYPE &o) {       \
+        return util::hashIterable(o); } }; }
+
+ITER_HASH(type::Substs);
+ITER_HASH(type::TraitBounds);
+ITER_HASH(std::set<type::Idx>)
+
+#define IMPL_OPS(TYPE, LHSA, RHSA)                               \
+  namespace std { template <> struct hash<type::TYPE> {          \
+      std::size_t operator()(const type::TYPE &o) {              \
+        return util::hashMulti RHSA; } }; }
+#define IMPL_SINGLETON(TYPE)                                            \
+  namespace std { template <> struct hash<type::TYPE> {                 \
+    std::size_t operator()(const type::TYPE &o) { return 1; } }; }
+#include "TypeImpl.h"
+#undef IMPL_OPS
+#undef IMPL_SINGLETON

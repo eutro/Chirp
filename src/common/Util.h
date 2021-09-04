@@ -44,4 +44,28 @@ namespace util {
       return cmp(*lhs, *rhs);
     }
   };
+
+  template <typename T, typename Hash = std::hash<T>>
+  struct DerefHash {
+    std::size_t operator()(const T &v) const {
+      Hash hash;
+      return hash(v);
+    }
+  };
+
+  template <typename Iterable>
+  std::size_t hashIterable(const Iterable &iterable) {
+    std::size_t result = 1;
+    for (auto x : iterable) {
+      result = 32 * result + std::hash<decltype(x)>()(x);
+    }
+    return result;
+  }
+
+  template <typename... Arg>
+  std::size_t hashMulti(const Arg &...t) {
+    std::size_t result = 1;
+    ((result = 32 * result + std::hash<Arg>()(t)), ...);
+    return result;
+  }
 }

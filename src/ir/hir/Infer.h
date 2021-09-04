@@ -2,13 +2,24 @@
 #include "../../type/Type.h"
 #include "../../common/Arena.h"
 
+#include <unordered_set>
+
 namespace hir::infer {
   using type::Ty;
   using type::TraitBound;
   using Tp = Ty *;
+  template <typename T>
+  using HashInternArena = arena::InternArena<
+    T//, it's still significantly quicker to compare
+    // std::unordered_set<
+    //   std::unique_ptr<T>,
+    //   util::DerefHash<std::unique_ptr<T>>,
+    //   util::DerefCmp<std::equal_to<>>
+    //   >
+    >;
 
   struct InferResult {
-    arena::InternArena<Ty> tcx;
+    HashInternArena<Ty> tcx;
     err::ErrorContext errors;
     struct BlockInstantiation {
       std::set<std::map<Expr *, Tp>> exprTypes;

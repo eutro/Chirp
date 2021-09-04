@@ -20,8 +20,6 @@
 #include <vector>
 
 namespace hir::infer {
-  using DefType = Definition::DefType;
-
   struct Constraints {
     arena::Arena<std::map<Tp, Tp>> instantiations;
     std::map<Tp, std::set<TraitBound *>> traitBounds;
@@ -49,13 +47,11 @@ namespace hir::infer {
     public ExprVisitor<Tp>,
     public ProgramVisitor<InferResult> {
   public:
-    arena::InternArena<Ty> tcx;
-    arena::InternArena<type::TraitBound> tbcx;
+    HashInternArena<Ty> tcx;
+    HashInternArena<type::TraitBound> tbcx;
     arena::Arena<AbstractTraitImpl> aticx;
 
     std::map<DefIdx, Tp> varTypes;
-
-    std::map<DefIdx, ADT*> adts;
     std::map<DefIdx, Tp> definedTys;
 
     std::map<Tp, err::Location> typeSources;
@@ -114,10 +110,6 @@ namespace hir::infer {
     Program *program = nullptr;
 
     InferResult visitProgram(Program &p) {
-      for (ADT &adt : p.types) {
-        adts[adt.id] = &adt;
-      }
-
       program = &p;
 
       std::vector<std::pair<Block *, Constraints *>> traitConstraints;
@@ -247,16 +239,6 @@ namespace hir::infer {
     std::optional<Tp> maybeParseTy(Type &ty) {
       DefIdx idx = *ty.base;
 
-      auto foundAdt = adts.find(idx);
-      if (foundAdt != adts.end()) {
-        ADT &adt = *foundAdt->second;
-        type::Variants variants;
-        for (Idx i = 0; i < adt.variants.size(); ++i) {
-          variants.insert(i);
-        }
-        return tcx.intern(Ty::ADT{adt.id, variants, parseTyParams(ty.params)});
-      }
-
       // builtins
       switch (idx) {
       case BOOL:
@@ -275,6 +257,13 @@ namespace hir::infer {
       auto &def = program->bindings.at(idx);
       if (std::holds_alternative<DefType::Type>(def.defType.v)) {
         return getDefinedType(idx);
+      } if (std::holds_alternative<DefType::ADT>(def.defType.v)) {
+        auto &adt = std::get<DefType::ADT>(def.defType.v);
+        type::Variants variants;
+        for (Idx i = 0; i < adt.variants.size(); ++i) {
+          variants.insert(i);
+        }
+        return tcx.intern(Ty::ADT{idx, variants, parseTyParams(ty.params)});
       }
 
       return std::nullopt;
@@ -876,14 +865,20 @@ namespace hir::infer {
     }
     Tp visitGetExpr(GetExpr &it) {
       std::vector<Tp> argTys;
-      ADT &adt = *adts.at(it.adt);
-      auto size = adt.variants.at(it.variant).values.size();
+      auto &adt = std::get<DefType::ADT>(program->bindings.at(it.adt).defType.v);
+      Idx size = 0;
+      std::optional<Idx> fieldTyIdx;
+      for (Idx v = 0; v < adt.variants.size(); ++v) {
+        if (v == it.variant) {
+          fieldTyIdx = size + it.field;
+        }
+        size += adt.variants[v].values.size();
+      }
       argTys.reserve(size);
       for (Idx i = 0; i < size; ++i) argTys.push_back(freshType());
       Tp adtTy = tcx.intern(Ty::ADT{it.adt, {it.variant}, argTys});
       constrainUnite(adtTy, visitExpr(*it.value));
-      Tp retTy = argTys.at(it.field);
-      return retTy;
+      return argTys.at(fieldTyIdx.value());
     }
     Tp visitForeignExpr(ForeignExpr &it) {
       return freshType(maybeLoc(it.span, "this value"));

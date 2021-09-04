@@ -13,7 +13,7 @@
 #include <variant>
 
 namespace ast::lower {
-  using DefType = hir::Definition::DefType;
+  using DefType = hir::DefType;
 
   class Bindings {
     using Ridge = std::function<void(const hir::DefIdx &)>;
@@ -258,10 +258,14 @@ namespace ast::lower {
       bindings.pop();
       typeBindings.pop();
 
-      hir::Idx typeIdx = defNo++; // TODO move ADTs to use global definitions
-      hir::ADT &closure = program.types.emplace_back();
-      hir::ADT::Variant &variant = closure.variants.emplace_back();
-      closure.id = typeIdx;
+      hir::Idx typeIdx = introduceDef(hir::Definition{
+          "",
+          source,
+            DefType::ADT{},
+        });
+      DefType::ADT &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
+
+      DefType::ADT::Variant &variant = closure.variants.emplace_back();
       variant.values.reserve(closed.size());
       for (auto &cv : closed) {
         auto &data = program.bindings.at(cv);

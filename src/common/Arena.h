@@ -30,11 +30,13 @@ namespace arena {
   };
 
   template <typename Base,
-            typename Compare = std::less<Base>,
+            typename Set
+            = std::set<std::unique_ptr<Base>,
+                       util::DerefCmp<std::less<Base>>>,
             typename T = Base>
   class InternArena {
   public:
-    std::set<std::unique_ptr<Base>, util::DerefCmp<Compare>> interned;
+    Set interned;
 
     template <typename NT,
               std::enable_if_t<std::is_base_of<Base, NT>::value, bool> = 0>

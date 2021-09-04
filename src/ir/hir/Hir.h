@@ -23,31 +23,28 @@ namespace hir {
     std::vector<Type> params;
   };
 
+  struct DefType {
+    struct Variable {
+      std::vector<Type> hints;
+    };
+    struct Type {};
+    struct Trait {};
+    struct ADT {
+      struct Variant {
+        std::vector<DefIdx> values;
+      };
+      std::vector<Variant> variants;
+    };
+    std::variant<Variable, Trait, Type, ADT> v;
+    template <typename... Arg>
+    DefType(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
+  };
+
   class Definition {
   public:
     std::string name;
     std::optional<loc::Span> source;
-    struct DefType {
-      struct Variable {
-        std::vector<Type> hints;
-      };
-      struct Type {};
-      struct Trait {};
-      std::variant<Variable, Trait, Type> v;
-      template <typename... Arg>
-      DefType(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
-    };
     DefType defType = DefType::Type{};
-  };
-
-  class ADT {
-  public:
-    DefIdx id;
-    class Variant {
-    public:
-      std::vector<DefIdx> values;
-    };
-    std::vector<Variant> variants;
   };
 
   class ErasedExprVisitor;
@@ -94,8 +91,6 @@ namespace hir {
   class Program {
   public:
     std::map<DefIdx, Definition> bindings;
-
-    std::vector<ADT> types;
     std::vector<TraitImpl> traitImpls;
     Block topLevel;
   };
