@@ -1,41 +1,18 @@
-defn zero<T>(f: fn<T, T>): fn<T, T> = fn(x) = x
+defn inc(n) = \f.\x.n(f)(f(x))
+defn add(a, b) = \f.\x.a(f)(b(f)(x))
+defn mul(a, b) = \f.\x.a(b(f))(x)
+defn exp(a, b) = \f.\x.b(a)(f)(x)
 
-defn one<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(x)
-
-defn two<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(x))
-
-defn three<T>(f: fn<T, T>): fn<T, T> = fn(x) = f(f(f(x)))
-
-defn inc<T>(n: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
-  = \f.\x.f(n(f)(x))
-
-defn dec<T, F>(n: fn<F, F>): fn<fn<T, T>, fn<T, T>>
-  = \f.\x.n(\g.\h.h(g(f)))(\u.x)(\x.x)
-
-defn add<T>(a: fn<fn<T, T>, fn<T, T>>,
-            b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
-  = \f.\x.a(f)(b(f)(x))
-
-defn sub<T>(a, b): fn<fn<T, T>, fn<T, T>>
-  = b(dec)(a)
-
-defn mul<T>(a: fn<fn<T, T>, fn<T, T>>,
-            b: fn<fn<T, T>, fn<T, T>>): fn<fn<T, T>, fn<T, T>>
-  = \f.\x.a(b(f))(x)
-
-defn pow<T>(a: fn<fn<T, T>, fn<T, T>>,
-            b: fn<fn<fn<T, T>, fn<T, T>>,
-                  fn<fn<T, T>, fn<T, T>>>): fn<fn<T, T>, fn<T, T>>
-  = b(a)
-
-defn four<T>(f: fn<T, T>): fn<T, T> = pow(two, two)(f)
-
-defn five<T>(f: fn<T, T>): fn<T, T> = add(two, three)(f)
-
-defn six<T>(f: fn<T, T>): fn<T, T> = mul(two, three)(f)
-
-defn seven<T>(f: fn<T, T>): fn<T, T> = add(three, four)(f)
+defn zero(f) = \x.x
+defn one = inc(zero)
+defn two = add(one, one)
+defn three = add(one, two)
+defn four = mul(two, two)
+defn five = add(two, three)
+defn six = mul(two, three)
+defn seven = add(four, three)
+defn eight = exp(two, three)
 
 defn church2int(n) = n(\x.x + 1)(0)
 
-church2int(dec(mul(two, pow(three, two))))
+church2int(add(mul(eight, eight), seven))

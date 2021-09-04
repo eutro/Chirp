@@ -8,6 +8,7 @@ namespace ast {
 
   _acceptImpl(Type, NamedType)
   _acceptImpl(Type, PlaceholderType)
+  _acceptImpl(Type, TupleType)
 
   _acceptImpl(Statement, Defn)
   _acceptImpl(Statement, Expr)

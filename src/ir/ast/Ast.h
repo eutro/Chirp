@@ -51,6 +51,16 @@ namespace ast {
     _acceptDef(Type) override;
   };
 
+  class TupleType : public Type {
+  public:
+    Token openToken;
+    std::vector<std::unique_ptr<Type>> types;
+    std::vector<Token> commas;
+    Token closeToken;
+
+    _acceptDef(Type) override;
+  };
+
   class TypeHint {
   public:
     Token colon;
@@ -277,17 +287,19 @@ namespace ast {
 
   class ErasedTypeVisitor {
   public:
-    _EvisitVirtual(Type) _EvisitVirtual(NamedType) _EvisitVirtual(PlaceholderType)
+    _EvisitVirtual(Type) _EvisitVirtual(NamedType)
+    _EvisitVirtual(PlaceholderType) _EvisitVirtual(TupleType)
   };
 
   template <typename Ret=std::monostate, typename ...Arg>
   class TypeVisitor : public ErasedTypeVisitor {
   public:
-    _EvisitImpl(Type) _EvisitImpl(NamedType) _EvisitImpl(PlaceholderType)
+    _EvisitImpl(Type) _EvisitImpl(NamedType) _EvisitImpl(PlaceholderType) _EvisitImpl(TupleType)
 
     virtual _typedRoot(Type);
     virtual _typedVisit(NamedType)  = 0;
     virtual _typedVisit(PlaceholderType) = 0;
+    virtual _typedVisit(TupleType) = 0;
   };
 
   class ErasedExprVisitor {

@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <optional>
 #include "Loc.h"
 
 namespace err {
@@ -27,6 +28,8 @@ namespace err {
     Location &msg(const std::string &msg);
 
     Location &span(const loc::Span &span, const std::string &msg);
+
+    Location &maybeSpan(std::optional<loc::Span> span, const std::string &msg);
 
     Location &pos(const loc::SrcLoc &loc, const std::string &msg);
 

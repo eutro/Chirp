@@ -97,12 +97,23 @@ namespace err {
     lines.push_back(std::make_shared<SpanLine>(span, msg));
     return *this;
   }
+  Location &Location::maybeSpan(std::optional<loc::Span> maybeSpan, const std::string &message) {
+    if (maybeSpan) {
+      span(*maybeSpan, message);
+    } else {
+      msg(message);
+    }
+    return *this;
+  }
   Location &Location::pos(const loc::SrcLoc &loc, const std::string &msg) {
     lines.push_back(std::make_shared<PosLine>(loc, msg));
     return *this;
   }
   Location &Location::chain(const Location &o) {
-    std::copy(o.lines.begin(), o.lines.end(), std::back_insert_iterator(lines));
+    lines.reserve(o.lines.size());
+    for (auto &line : o.lines) {
+      lines.push_back(line);
+    }
     return *this;
   }
 

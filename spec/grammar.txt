@@ -16,11 +16,13 @@ Identifier ::= TIdent
 
 TypeHint ::= ':' Type
 
-Type ::= PlaceholderType | NamedType
+Type ::= PlaceholderType | NamedType | TupleType
 
 PlaceholderType ::= '_'
 
 NamedType ::= Identifier ( '<' Type ( ',' Type )* ','? '>' )?
+
+TupleType ::= '#(' ( Type ( ',' Type )* ','? )? ')'
 
 Expr ::= LogCmpExpr
 

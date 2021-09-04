@@ -27,9 +27,10 @@ int main() {
     for (auto &inst : block.second.exprTypes) {
       std::cerr << "Instantiation #" << i++ << std::endl;
       for (auto &e : inst) {
+        if (!e.first->span) continue;
         std::stringstream ss;
         ss << "has type: " << e.second;
-        epc << err::Location().span(e.first->span, ss.str());
+        epc << err::Location().span(*e.first->span, ss.str());
       }
     }
   }

@@ -20,6 +20,7 @@ TFloat ::= /[0-9]+\.[0-9]+/
 TStr ::= /"([^"\\]|\\["\\])*"/
 
 TParOpen ::= '('
+TTupleOpen ::= '#('
 TParClose ::= ')'
 TBrOpen ::= '{'
 TBrClose ::= '}'

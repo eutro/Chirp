@@ -1,6 +1,7 @@
 #include "Lowering.h"
 #include "Ast.h"
 #include "../hir/Rebind.h"
+#include "../hir/Builtins.h"
 #include "../../common/Util.h"
 
 #include <functional>
@@ -12,6 +13,8 @@
 #include <variant>
 
 namespace ast::lower {
+  using DefType = hir::Definition::DefType;
+
   class Bindings {
     using Ridge = std::function<void(const hir::DefIdx &)>;
 
@@ -68,7 +71,7 @@ namespace ast::lower {
   typedef std::unique_ptr<hir::Expr> Eptr;
 
   template <typename T>
-  std::unique_ptr<T> withSpan(const loc::Span &span) {
+  std::unique_ptr<T> withSpan(std::optional<loc::Span> span) {
     auto tptr = std::make_unique<T>();
     tptr->span = span;
     return tptr;
@@ -86,63 +89,74 @@ namespace ast::lower {
     Bindings typeBindings;
     hir::DefIdx defNo = 0;
 
-    hir::DefIdx fnTrait;
-    hir::DefIdx tupleType;
+    hir::DefIdx introduceDef(hir::Definition &&def) {
+      hir::DefIdx id = defNo++;
+      program.bindings[id] = std::forward<hir::Definition>(def);
+      return id;
+    }
 
-    hir::DefIdx builtinType(const std::string &name) {
-      auto tyIdx = defNo++;
-      auto &newTy = program.typeBindings[tyIdx];
-      newTy.name = name;
-      auto &import = program.typeImports.emplace_back();
-      import.moduleIdx = 0;
-      import.name = name;
-      import.defIdx = tyIdx;
-      typeBindings.introduce(newTy.name, tyIdx);
-      return tyIdx;
+    hir::DefIdx introduceDef(Bindings &b, hir::Definition &&def) {
+      auto id = introduceDef(std::forward<hir::Definition>(def));
+      b.introduce(program.bindings.at(id).name, id);
+      return id;
+    }
+
+    hir::DefIdx builtinType(const std::string &name, DefType type) {
+      return introduceDef(typeBindings, hir::Definition{
+          name,
+          std::nullopt,
+          std::move(type)
+        });
     }
 
     LoweringVisitor() {
-      builtinType("bool");
+      builtinType("Fn", DefType::Trait{});
+      builtinType("Add", DefType::Trait{});
+      builtinType("Sub", DefType::Trait{});
+      builtinType("Mul", DefType::Trait{});
+      builtinType("Div", DefType::Trait{});
+      builtinType("Rem", DefType::Trait{});
+      builtinType("BitOr", DefType::Trait{});
+      builtinType("BitAnd", DefType::Trait{});
+      builtinType("Cmp", DefType::Trait{});
+      builtinType("Neg", DefType::Trait{});
 
-      builtinType("i8");
-      builtinType("i16");
-      builtinType("i32");
-      builtinType("i64");
+      builtinType("bool", DefType::Type{});
 
-      builtinType("u8");
-      builtinType("u16");
-      builtinType("u32");
-      builtinType("u64");
+      builtinType("i8", DefType::Type{});
+      builtinType("i16", DefType::Type{});
+      builtinType("i32", DefType::Type{});
+      builtinType("i64", DefType::Type{});
 
-      builtinType("f16");
-      builtinType("f32");
-      builtinType("f64");
+      builtinType("u8", DefType::Type{});
+      builtinType("u16", DefType::Type{});
+      builtinType("u32", DefType::Type{});
+      builtinType("u64", DefType::Type{});
 
-      fnTrait = builtinType("fn");
-      tupleType = builtinType("tuple");
+      builtinType("f16", DefType::Type{});
+      builtinType("f32", DefType::Type{});
+      builtinType("f64", DefType::Type{});
+
+      builtinType("tuple", DefType::Type{});
+      builtinType("ffifn", DefType::Type{});
 
       typeBindings.push();
     }
 
     void addBindingsToBlock(hir::Block &block) {
       block.bindings = bindings.defs();
-      block.typeBindings = typeBindings.defs();
     }
 
     hir::Type visitHint(std::optional<TypeHint> &hint) {
       return hint ? visitType(*hint->type) : hir::Type();
     }
 
-    /**
-     * Introduce a binding, return the index of the variable in the block.
-     */
-    hir::Idx introduceBinding(Binding &it) {
-      auto idx = defNo++;
-      hir::Binding &b = program.bindings[idx];
-      b.name = it.name.ident.value;
-      b.source = it.name.ident.span();
-      if (!it.arguments) b.type.push_back(visitHint(it.typeHint));
-      return bindings.introduce(b.name, idx);
+    hir::DefIdx introduceBinding(Binding &it) {
+      return introduceDef(bindings, hir::Definition{
+          it.name.ident.value,
+          it.name.ident.span(),
+            DefType::Variable{{}},
+        });
     }
 
     class BindingVisitor :
@@ -186,6 +200,16 @@ namespace ast::lower {
       return hir::Type();
     }
 
+    hir::Type visitTupleType(TupleType &it) override {
+      hir::Type ty;
+      ty.base = hir::TUPLE;
+      ty.params.reserve(it.types.size());
+      for (auto &t : it.types) {
+        ty.params.push_back(visitType(*t));
+      }
+      return ty;
+    }
+
     template <typename Opt>
     auto maybePtr(Opt &it) {
       return it ? &*it : nullptr;
@@ -204,26 +228,25 @@ namespace ast::lower {
       typeBindings.push();
       if (typeParams) {
         for (auto &tp : typeParams->idents) {
-          auto idx = defNo++;
-          auto &tB = program.typeBindings[idx];
-          tB.name = tp.ident.value;
-          tB.source = tp.ident.span();
-          typeBindings.introduce(tB.name, idx);
+          introduceDef(typeBindings, hir::Definition{
+              tp.ident.value,
+              tp.ident.span(),
+                DefType::Type{},
+            });
         }
       }
 
       hir::Idx arity = params.size();
 
       for (auto &p : params) {
-        auto idx = defNo++;
-        auto &b = program.bindings[idx];
-        b.name = p.name.ident.value;
-        b.source = p.name.ident.span();
-        b.type.push_back(visitHint(p.typeHint));
-        bindings.introduce(b.name, idx);
+        introduceDef(bindings, hir::Definition{
+            p.name.ident.value,
+            p.name.ident.span(),
+            DefType::Variable{{visitHint(p.typeHint)}},
+          });
       }
 
-      auto blockE = withSpan<hir::BlockExpr>(source);
+      auto blockE = withSpan<hir::BlockExpr>(std::nullopt);
 
       hir::Block &block = blockE->block;
       addBindingsToBlock(block);
@@ -235,60 +258,73 @@ namespace ast::lower {
       bindings.pop();
       typeBindings.pop();
 
-      hir::Idx typeIdx = defNo++;
+      hir::Idx typeIdx = defNo++; // TODO move ADTs to use global definitions
       hir::ADT &closure = program.types.emplace_back();
       hir::ADT::Variant &variant = closure.variants.emplace_back();
       closure.id = typeIdx;
       variant.values.reserve(closed.size());
       for (auto &cv : closed) {
-        auto idx = defNo++;
-        auto &field = program.bindings[idx];
-        variant.values.push_back(idx);
         auto &data = program.bindings.at(cv);
-        field.name = data.name;
-        field.source = data.source;
+        variant.values.push_back(introduceDef(hir::Definition{
+              data.name,
+              data.source,
+                DefType::Variable{},
+            }));
       }
 
-      hir::TraitImpl fnImpl;
+      hir::TraitImpl &fnImpl = program.traitImpls.emplace_back();
       fnImpl.source = source;
       fnImpl.params.reserve(closed.size() + arity);
 
       hir::Type &adtType = fnImpl.type;
       adtType.base = typeIdx;
       adtType.params.reserve(closed.size());
-      for (auto &_cv : closed) {
-        hir::Idx paramIdx = defNo++;
+      for (auto &cv : closed) {
+        hir::Idx paramIdx = introduceDef(hir::Definition{
+            "",
+              program.bindings.at(cv).source,
+              DefType::Type{}
+          });
         adtType.params.emplace_back().base = paramIdx;
         fnImpl.params.push_back(paramIdx);
       }
 
       hir::Type fnArgsTy;
-      fnArgsTy.base = tupleType;
+      fnArgsTy.base = hir::TUPLE;
       fnArgsTy.params.reserve(params.size());
       {
         hir::Idx i = 0;
-        for (auto &_p : params) {
-          hir::Idx paramIdx = defNo++;
+        for (Param &param : params) {
+          hir::Idx paramIdx = introduceDef(hir::Definition{
+              "",
+                param.name.ident.span(),
+                DefType::Type{},
+                });
           fnArgsTy.params.emplace_back().base = paramIdx;
-          program.bindings.at(block.bindings[i++]).type.emplace_back().base = paramIdx;
+          std::get<DefType::Variable>(program.bindings.at(block.bindings[i++]).defType.v)
+                     .hints.emplace_back().base = paramIdx;
           fnImpl.params.push_back(paramIdx);
         }
       }
       hir::Type &fnType = fnImpl.trait;
-      fnType.base = fnTrait;
-      hir::Idx retIdx = defNo++;
+      fnType.base = hir::Fn;
+      hir::Idx retIdx = introduceDef(hir::Definition{
+          "",
+            body.span,
+            DefType::Type{}
+        });
       fnImpl.params.push_back(retIdx);
       block.body.back()->type.emplace_back().base = retIdx;
       hir::Type retTy;
       retTy.base = retIdx;
       fnType.params = {fnArgsTy, retTy};
 
-      auto expr = withSpan<hir::NewExpr>(source);
+      auto expr = withSpan<hir::NewExpr>(std::nullopt);
       expr->adt = typeIdx;
       expr->variant = 0;
       expr->values.reserve(closed.size());
       for (auto &cv : closed) {
-        auto varE = withSpan<hir::VarExpr>(source);
+        auto varE = withSpan<hir::VarExpr>(std::nullopt);
         varE->ref = cv;
         expr->values.push_back(std::move(varE));
       }
@@ -299,14 +335,12 @@ namespace ast::lower {
         mapping[cv] = closedIdx++;
       }
 
-      auto thisIdx = defNo++;
-      {
-        auto &thisB = program.bindings[thisIdx];
-        thisB.name = "this";
-        thisB.source = source;
-        thisB.type.push_back(adtType);
-        block.bindings.push_back(thisIdx);
-      }
+      auto thisIdx = introduceDef(hir::Definition{
+          "this",
+          source,
+          DefType::Variable{{adtType}},
+        });
+      block.bindings.push_back(thisIdx);
 
       hir::rebind::rebindVisitor([&mapping, typeIdx, thisIdx]
                                  (hir::VarExpr &varE) -> Eptr {
@@ -317,7 +351,7 @@ namespace ast::lower {
           getE->adt = typeIdx;
           getE->variant = 0;
           getE->field = found->second;
-          auto thisE = withSpan<hir::VarExpr>(varE.span);
+          auto thisE = withSpan<hir::VarExpr>(std::nullopt);
           thisE->ref = thisIdx;
           getE->value = std::move(thisE);
           return getE;
@@ -326,8 +360,6 @@ namespace ast::lower {
       })->visitExpr(*blockE, nullptr);
 
       fnImpl.methods.push_back(std::move(block));
-
-      program.traitImpls.push_back(std::move(fnImpl));
 
       return expr;
     }
@@ -341,21 +373,21 @@ namespace ast::lower {
                    Expr &body) {
       bindings.push();
       typeBindings.push();
-      auto expr = withSpan<hir::BlockExpr>(source);
+      auto expr = withSpan<hir::BlockExpr>(std::nullopt);
 
-      auto refIdx = defNo++;
-      auto &recBinding = program.bindings[refIdx];
-      recBinding.name = name.ident.value;
-      recBinding.source = name.ident.span();
-      auto idx = bindings.introduce(recBinding.name, refIdx);
+      auto idx = introduceDef(bindings, hir::Definition{
+          name.ident.value,
+          name.ident.span(),
+            DefType::Variable{},
+        });
       expr->block.bindings.push_back(idx);
-      auto defE = withSpan<hir::DefineExpr>(source);
+      auto defE = withSpan<hir::DefineExpr>(std::nullopt);
       defE->idx = idx;
       defE->value = fnExpr(typeParams, retHint, params, source, body);
       expr->block.body.push_back(std::move(defE));
 
-      auto varE = withSpan<hir::VarExpr>(source);
-      varE->ref = refIdx;
+      auto varE = withSpan<hir::VarExpr>(std::nullopt);
+      varE->ref = idx;
       expr->block.body.push_back(std::move(varE));
 
       bindings.pop();
@@ -363,12 +395,26 @@ namespace ast::lower {
       return expr;
     }
 
-    Eptr visitBindingExpr(Binding &it, hir::Idx idx) {
-      auto retExpr = withSpan<hir::DefineExpr>(it.span);
+    Eptr visitBindingExpr(Binding &it, hir::Idx idx, std::optional<loc::Span> span) {
+      auto retExpr = withSpan<hir::DefineExpr>(span);
       retExpr->idx = idx;
       if (it.foreignToken) {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
+        /* TODO ffi
+        if (it.arguments) {
+          hir::Type &fType = fe->type.emplace_back();
+          fType.base = hir::FFIFN;
+          fType.params.reserve(2);
+          hir::Type &argTypes = fType.params.emplace_back();
+          argTypes.base = hir::TUPLE;
+          argTypes.params.reserve(it.arguments->bindings.size());
+          for (auto &rb : it.arguments->bindings) {
+            argTypes.params.push_back(visitHint(rb.typeHint));
+          }
+          fType.params.push_back(visitHint(it.typeHint));
+        }
+        */
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
         retExpr->value = recFnExpr(it.name,
@@ -379,6 +425,9 @@ namespace ast::lower {
                                    *it.value);
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
+        if (it.typeHint) {
+          retExpr->type.push_back(visitHint(it.typeHint));
+        }
       }
       return retExpr;
     }
@@ -403,7 +452,7 @@ namespace ast::lower {
     }
 
     Eptr visitDefn(Defn &it, std::optional<hir::Idx> idx) override {
-      return visitBindingExpr(it.binding, *idx);
+      return visitBindingExpr(it.binding, *idx, it.span);
     }
 
     Eptr visitExpr(Expr &it, std::optional<hir::Idx>) override {
@@ -451,7 +500,7 @@ namespace ast::lower {
 
       hir::Idx idx = 0;
       for (auto &b : it.bindings) {
-        block.body.push_back(visitBindingExpr(b, idx++));
+        block.body.push_back(visitBindingExpr(b, idx++, std::nullopt));
       }
 
       if (it.name) {
@@ -460,7 +509,7 @@ namespace ast::lower {
         call->args.reserve(it.bindings.size());
         auto refs = bindings.defs().begin();
         for (auto &b : it.bindings) {
-          auto var = withSpan<hir::VarExpr>(it.span);
+          auto var = withSpan<hir::VarExpr>(std::nullopt);
           var->ref = *refs++;
           call->args.push_back(std::move(var));
         }
@@ -577,9 +626,13 @@ namespace ast::lower {
         auto blockE = withSpan<hir::BlockExpr>(it.span);
         blockE->block.bindings.reserve(it.terms.size() + 1);
 
-        auto addTemp = [&blockE, this](hir::BlockExpr &bE, Expr &expr) {
-          auto tmpIdx = defNo++;
-          program.bindings[tmpIdx].source = expr.span;
+        auto addTemp = [&blockE, this](hir::BlockExpr &bE, Expr &expr)
+          -> hir::DefIdx {
+          hir::DefIdx tmpIdx = introduceDef(hir::Definition{
+              "",
+                expr.span,
+                DefType::Variable{},
+                });
           blockE->block.bindings.push_back(tmpIdx);
           auto defE = withSpan<hir::DefineExpr>(expr.span);
           defE->idx = tmpIdx;
@@ -589,7 +642,6 @@ namespace ast::lower {
         };
 
         loc::Span lhsSpan = it.lhs->span;
-        loc::SrcLoc end = it.terms.back().expr->span.hi;
 
         std::function<Eptr(hir::Idx, hir::DefIdx)> addRhs =
           [&](hir::Idx i, hir::DefIdx lastVar) -> Eptr {
@@ -619,10 +671,10 @@ namespace ast::lower {
               break; // unreachable
             }
 
-            auto predE = withSpan<hir::BlockExpr>(loc::Span(lhsSpan.lo, term.expr->span.hi));
+            auto predE = withSpan<hir::BlockExpr>(std::nullopt);
             hir::DefIdx thisVar = addTemp(*predE, *term.expr);
             {
-              auto cmpE = withSpan<hir::CmpExpr>(predE->span);
+              auto cmpE = withSpan<hir::CmpExpr>(loc::Span(lhsSpan.lo, term.expr->span.hi));
               {
                 auto lhsE = withSpan<hir::VarExpr>(lhsSpan);
                 lhsE->ref = lastVar;
@@ -637,8 +689,8 @@ namespace ast::lower {
             if (i + 1 >= it.terms.size()) {
               return predE;
             } else {
-              auto condE = withSpan<hir::CondExpr>(loc::Span(lhsSpan.lo, end));
-              auto falseE = withSpan<hir::BoolExpr>(term.operatorToken.span());
+              auto condE = withSpan<hir::CondExpr>(std::nullopt);
+              auto falseE = withSpan<hir::BoolExpr>(std::nullopt);
               falseE->value = false;
               condE->predE = std::move(predE);
               condE->elseE = addRhs(i + 1, thisVar);
@@ -660,7 +712,7 @@ namespace ast::lower {
           auto logicExpr = withSpan<hir::CondExpr>(it.span);
           logicExpr->predE = std::move(retExpr);
           std::unique_ptr<hir::Expr> *cont;
-          auto boolE = withSpan<hir::BoolExpr>(term.operatorToken.span());
+          auto boolE = withSpan<hir::BoolExpr>(std::nullopt);
           if (term.operatorToken.type == Tok::TAnd2) {
             cont = &logicExpr->thenE;
             boolE->value = false;

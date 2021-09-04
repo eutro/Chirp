@@ -18,22 +18,26 @@ namespace hir {
 
   class Type {
   public:
-    loc::Span source;
+    std::optional<loc::Span> source;
     std::optional<DefIdx> base;
     std::vector<Type> params;
   };
 
-  class Binding {
+  class Definition {
   public:
     std::string name;
-    loc::Span source;
-    std::vector<Type> type;
-  };
-
-  class TypeBinding {
-  public:
-    std::string name;
-    loc::Span source;
+    std::optional<loc::Span> source;
+    struct DefType {
+      struct Variable {
+        std::vector<Type> hints;
+      };
+      struct Type {};
+      struct Trait {};
+      std::variant<Variable, Trait, Type> v;
+      template <typename... Arg>
+      DefType(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
+    };
+    DefType defType = DefType::Type{};
   };
 
   class ADT {
@@ -61,7 +65,7 @@ namespace hir {
 
   class Expr {
   public:
-    loc::Span span;
+    std::optional<loc::Span> span;
     Pos pos = Pos::Expr;
     std::vector<Type> type;
 
@@ -75,15 +79,7 @@ namespace hir {
   class Block {
   public:
     std::vector<DefIdx> bindings;
-    std::vector<DefIdx> typeBindings;
     std::vector<Eptr> body;
-  };
-
-  class Import {
-  public:
-    Idx moduleIdx;
-    std::string name;
-    DefIdx defIdx;
   };
 
   class TraitImpl {
@@ -97,10 +93,7 @@ namespace hir {
 
   class Program {
   public:
-    std::vector<Import> valueImports;
-    std::vector<Import> typeImports;
-    std::map<DefIdx, Binding> bindings;
-    std::map<DefIdx, TypeBinding> typeBindings;
+    std::map<DefIdx, Definition> bindings;
 
     std::vector<ADT> types;
     std::vector<TraitImpl> traitImpls;

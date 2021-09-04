@@ -4,6 +4,9 @@
 
 #include <memory>
 #include <optional>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace loc {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(SrcLoc, line, col);
@@ -61,6 +64,73 @@ namespace hir::json {
 }
 
 namespace nlohmann {
+  template <typename T>
+  struct adl_serializer<std::optional<T>> {
+    static void to_json(json &j, const std::optional<T> &v) {
+      if (v) {
+        j = *v;
+      }
+    }
+    static void from_json(const json &j, std::optional<T> &opt) {
+      opt = j;
+    }
+  };
+
+  template <typename... T>
+  struct adl_serializer<std::variant<T...>> {
+    static void to_json(json &j, const std::variant<T...> &v) {
+      j["index"] = v.index();
+      std::visit([&j](auto x) { j["value"] = x; }, v);
+    }
+
+    template <std::size_t Idx, typename Ty>
+    static void from_json_idx_ty(const json &j, std::variant<T...> &v) {
+      v = std::variant<T...>(std::in_place_index<Idx>, j.get<Ty>());
+    }
+
+    template <std::size_t Idx>
+    static bool from_json_idx(const json &j, std::variant<T...> &v) {
+      using Ty = std::variant_alternative_t<Idx, std::variant<T...>>;
+      from_json_idx_ty<Idx, Ty>(j, v);
+      return true;
+    }
+
+    template<std::size_t... Idx>
+    static void from_json(const json &j, std::variant<T...> &v,
+                          std::size_t idx,
+                          std::integer_sequence<std::size_t, Idx...>) {
+      if (!((idx == Idx && from_json_idx<Idx>(j, v))
+            || ...)) {
+        throw std::bad_variant_access();
+      }
+    }
+
+    static void from_json(const json &j, std::variant<T...> &v) {
+      std::size_t idx = j.at("index").get<std::size_t>();
+      using Indices = typename std::index_sequence_for<T...>;
+      from_json(j.at("value"), v, idx, Indices{});
+    }
+  };
+
+  template <typename T>
+  struct adl_serializer<std::unique_ptr<T>> {
+    static void to_json(json &j, const std::unique_ptr<T> &v) {
+      if (v) {
+        j = *v;
+      } else {
+        j = nullptr;
+      }
+    }
+    static void from_json(const json &j, std::unique_ptr<T> &opt) {
+      if (j) {
+        opt = std::make_unique<T>();
+        j.get_to(*opt);
+      } else {
+        opt = nullptr;
+      }
+    }
+  };
+
   template <>
   struct adl_serializer<hir::Eptr> {
     static void to_json(json &j, const hir::Eptr &v) {
@@ -106,45 +176,17 @@ namespace nlohmann {
       j.at("type").get_to(opt->type);
     }
   };
-
-  template <typename T>
-  struct adl_serializer<std::optional<T>> {
-    static void to_json(json &j, const std::optional<T> &v) {
-      if (v) {
-        j = *v;
-      }
-    }
-    static void from_json(const json &j, std::optional<T> &opt) {
-      opt = j;
-    }
-  };
-
-  template <typename T>
-  struct adl_serializer<std::unique_ptr<T>> {
-    static void to_json(json &j, const std::unique_ptr<T> &v) {
-      if (v) {
-        j = *v;
-      } else {
-        j = nullptr;
-      }
-    }
-    static void from_json(const json &j, std::unique_ptr<T> &opt) {
-      if (j) {
-        opt = std::make_unique<T>();
-        j.get_to(*opt);
-      } else {
-        opt = nullptr;
-      }
-    }
-  };
 }
 
 namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Type, source, base, params)
 
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Binding, name, source, type)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TypeBinding, name, source)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, typeBindings, body)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition, name, source)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition::DefType, v);
+  EMPTY_JSON(Definition::DefType::Type);
+  EMPTY_JSON(Definition::DefType::Trait);
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Definition::DefType::Variable, hints);
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, body)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BlockExpr, block)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarExpr, ref)
@@ -164,13 +206,9 @@ namespace hir {
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, id, variants)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name, defIdx)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TraitImpl, type, trait, types, methods, params, source)
 
 #define inline // remove inline from the next one, it has to be emitted
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program,
-                                     valueImports, typeImports,
-                                     bindings, typeBindings,
-                                     types, traitImpls, topLevel)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program, bindings, types, traitImpls, topLevel)
 #undef inline
 }

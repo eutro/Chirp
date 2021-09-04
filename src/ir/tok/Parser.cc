@@ -183,35 +183,56 @@ namespace tok::parser {
       type.span.lo = type.placeholder.loc;
       type.span.hi = tokEnd(type.placeholder);
       return std::make_unique<PlaceholderType>(std::move(type));
-    } else {
-      NamedType type;
-      type.raw = parseIdent(stream.require({Tok::TFn, Tok::TIdent}, "Type name expected"));
-      type.span.lo = type.raw.ident.loc;
-      auto ltToken = stream.optional(Tok::TLt);
-      if (ltToken) {
-        NamedType::TypeParameters params;
-        params.openToken = std::move(*ltToken);
-        while (true) {
-          auto closeToken = stream.optional(Tok::TGt);
-          if (closeToken) {
-            params.closeToken = std::move(*closeToken);
-            break;
-          }
-          params.types.push_back(parseType(stream));
-          auto comma = stream.optional(Tok::TComma);
-          if (!comma) {
-            params.closeToken = stream.require(Tok::TGt, "> or , expected");
-            break;
-          }
-          params.commas.push_back(std::move(*comma));
-        }
-        type.span.hi = tokEnd(params.closeToken);
-        type.parameters = std::move(params);
-      } else {
-        type.span.hi = tokEnd(type.raw.ident);
-      }
-      return std::make_unique<NamedType>(std::move(type));
     }
+    auto paren = stream.optional(Tok::TTupleOpen);
+    if (paren) {
+      TupleType type;
+      type.span.lo = paren->loc;
+      type.openToken = std::move(*paren);
+      while (true) {
+        auto closeToken = stream.optional(Tok::TParClose);
+        if (closeToken) {
+          type.closeToken = std::move(*closeToken);
+          break;
+        }
+        type.types.push_back(parseType(stream));
+        auto comma = stream.optional(Tok::TComma);
+        if (!comma) {
+          type.closeToken = stream.require(Tok::TParClose, ") or , expected");
+          break;
+        }
+        type.commas.push_back(std::move(*comma));
+      }
+      type.span.hi = tokEnd(type.closeToken);
+      return std::make_unique<TupleType>(std::move(type));      
+    }
+    NamedType type;
+    type.raw = parseIdent(stream.require(Tok::TIdent, "Type name, #( or _ expected"));
+    type.span.lo = type.raw.ident.loc;
+    auto ltToken = stream.optional(Tok::TLt);
+    if (ltToken) {
+      NamedType::TypeParameters params;
+      params.openToken = std::move(*ltToken);
+      while (true) {
+        auto closeToken = stream.optional(Tok::TGt);
+        if (closeToken) {
+          params.closeToken = std::move(*closeToken);
+          break;
+        }
+        params.types.push_back(parseType(stream));
+        auto comma = stream.optional(Tok::TComma);
+        if (!comma) {
+          params.closeToken = stream.require(Tok::TGt, "> or , expected");
+          break;
+        }
+        params.commas.push_back(std::move(*comma));
+      }
+      type.span.hi = tokEnd(params.closeToken);
+      type.parameters = std::move(params);
+    } else {
+      type.span.hi = tokEnd(type.raw.ident);
+    }
+    return std::make_unique<NamedType>(std::move(type));
   }
 
   std::optional<TypeHint> parseTypeHint(ParserStream &stream) {

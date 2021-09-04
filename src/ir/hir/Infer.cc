@@ -1,6 +1,8 @@
 #include "Infer.h"
 
 #include "../../type/TypePrint.h"
+#include "Builtins.h"
+#include "Hir.h"
 #include <sstream>
 
 #include <algorithm>
@@ -18,29 +20,9 @@
 #include <vector>
 
 namespace hir::infer {
-  enum BuiltinTraits {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Rem,
-    BitOr,
-    BitAnd,
-    Cmp,
-    Neg,
-  };
-
-  enum BuiltinTypes {    
-    BOOL,
-    I8, I16, I32, I64,
-    U8, U16, U32, U64,
-    F16, F32, F64,
-    FN,
-    TUPLE,
-  };
+  using DefType = Definition::DefType;
 
   struct Constraints {
-    Idx start, end;
     arena::Arena<std::map<Tp, Tp>> instantiations;
     std::map<Tp, std::set<TraitBound *>> traitBounds;
     std::vector<std::pair<Tp, Tp>> unions;
@@ -76,6 +58,8 @@ namespace hir::infer {
     std::map<DefIdx, ADT*> adts;
     std::map<DefIdx, Tp> definedTys;
 
+    std::map<Tp, err::Location> typeSources;
+
     err::ErrorContext ecx;
 
     std::map<Expr *, Tp> exprTypes;
@@ -108,7 +92,7 @@ namespace hir::infer {
         Tp i = tcx.intern(Ty::Int{is});
         Tp u = tcx.intern(Ty::UInt{is});
         for (Tp ty : {i, u}) {
-          for (BuiltinTraits bt : {Add, Sub, Mul, Div, Rem, BitOr, BitAnd}) {
+          for (Builtins bt : {Add, Sub, Mul, Div, Rem, BitOr, BitAnd}) {
             implBinOp(ty, bt);
           }
           implNegCmp(ty);
@@ -118,7 +102,7 @@ namespace hir::infer {
            fs <= type::FloatSize::f64;
            ++(std::underlying_type<type::FloatSize>::type&)fs) {
         Tp ty = tcx.intern(Ty::Float{fs});
-        for (BuiltinTraits bt : {Add, Sub, Mul, Div, Rem}) {
+        for (Builtins bt : {Add, Sub, Mul, Div, Rem}) {
           implBinOp(ty, bt);
         }
         implNegCmp(ty);
@@ -144,7 +128,7 @@ namespace hir::infer {
         AbstractTraitImpl &ati = *aticx.add();
         Idx startC = paramC;
         for (DefIdx param : ti.params) {
-          definedTys[param] = freshType();
+          definedTys[param] = freshType(maybeLoc(p.bindings.at(param).source, "from here"));
         }
         for (Block &m : ti.methods) {
           // assumed to be only one
@@ -157,9 +141,7 @@ namespace hir::infer {
         for (Type &ref : ti.types) {
           ati.refs.push_back(parseTy(ref));
         }
-        ati.constraints.start = startC;
-        ati.constraints.end = paramC;
-        adtTraits[{FN, std::get<Ty::ADT>(ati.ty->v).i}] = &ati;
+        adtTraits[{Fn, std::get<Ty::ADT>(ati.ty->v).i}] = &ati;
       }
 
       Constraints mainConstraints = visitRootBlock(p.topLevel);
@@ -174,6 +156,9 @@ namespace hir::infer {
             TypeReplacer replacer = [&](Tp ty) -> Tp {
               if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
                 Ty::TraitRef &trf = std::get<Ty::TraitRef>(ty->v);
+                if (!isComplete(trf.ty) || !isComplete(trf.trait)) {
+                  return tcx.intern(Ty::Err{});
+                }
                 auto &idces = traitImplTypes.at({trf.ty, trf.trait});
                 if (trf.ref >= idces.size()) {
                   // propagated
@@ -215,6 +200,29 @@ namespace hir::infer {
       return nullptr;
     }
 
+    std::optional<err::Location> maybeLoc(std::optional<loc::Span> maybeSpan,
+                                          const std::string &msg) {
+      if (maybeSpan) {
+        return std::move(err::Location().span(*maybeSpan, msg));
+      } else {
+        return std::nullopt;
+      }
+    }
+
+    void mergeSources(Tp target, Tp from) {
+      auto foundSource = typeSources.find(from);
+      if (foundSource != typeSources.end()) {
+        err::Location *loc;
+        if (typeSources.count(target)) {
+          loc = &typeSources[target];
+          loc->msg("which is the same as");
+        } else {
+          loc = &typeSources[target];
+        }
+        loc->chain(foundSource->second);
+      }
+    }
+
     std::vector<Tp> parseTyParams(std::vector<Type> params) {
       std::vector<Tp> ret;
       ret.reserve(params.size());
@@ -224,45 +232,87 @@ namespace hir::infer {
       return ret;
     }
 
+    Tp getDefinedType(DefIdx id) {
+      auto found = definedTys.find(id);
+      if (found != definedTys.end()) {
+        return found->second;
+      }
+      auto &def = program->bindings.at(id);
+      if (!std::holds_alternative<DefType::Type>(def.defType.v)) {
+        throw std::runtime_error("Not a type");
+      }
+      return definedTys[id] = freshType(maybeLoc(def.source, "here"));
+    }
+
+    std::optional<Tp> maybeParseTy(Type &ty) {
+      DefIdx idx = *ty.base;
+
+      auto foundAdt = adts.find(idx);
+      if (foundAdt != adts.end()) {
+        ADT &adt = *foundAdt->second;
+        type::Variants variants;
+        for (Idx i = 0; i < adt.variants.size(); ++i) {
+          variants.insert(i);
+        }
+        return tcx.intern(Ty::ADT{adt.id, variants, parseTyParams(ty.params)});
+      }
+
+      // builtins
+      switch (idx) {
+      case BOOL:
+        return boolType();
+      case I8: case I16: case I32: case I64:
+        return tcx.intern(Ty::Int{(type::IntSize) (idx - U8)});
+      case U8: case U16: case U32: case U64:
+        return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
+      case F16: case F32: case F64:
+        return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
+        // no FN,
+      case TUPLE:
+        return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
+      }
+
+      auto &def = program->bindings.at(idx);
+      if (std::holds_alternative<DefType::Type>(def.defType.v)) {
+        return getDefinedType(idx);
+      }
+
+      return std::nullopt;
+    }
+
+    void parseTypeHint(Tp target, Type &hint) {
+      if (!hint.base) {
+        return; // explicit placeholder hint
+      }
+
+      auto type = maybeParseTy(hint);
+      if (type) {
+        constrainUnite(target, *type);
+        return;
+      }
+
+      auto found = program->bindings.find(*hint.base);
+      if (found != program->bindings.end() &&
+          std::holds_alternative<DefType::Trait>(found->second.defType.v)) {
+        constrainTrait(target, parseTb(hint));
+      } else {
+        throw std::runtime_error("ICE: index is not a type or trait");
+      }
+    }
+
     Tp parseTy(Type &ty) {
       if (ty.base) {
-        auto foundAdt = adts.find(*ty.base);
-        if (foundAdt != adts.end()) {
-          ADT &adt = *foundAdt->second;
-          type::Variants variants;
-          for (Idx i = 0; i < adt.variants.size(); ++i) {
-            variants.insert(i);
-          }
-          return tcx.intern(Ty::ADT{adt.id, variants, parseTyParams(ty.params)});
+        auto type = maybeParseTy(ty);
+        if (type) {
+          return *type;
         }
-        switch (*ty.base) {
-        case BOOL:
-          return boolType();
-        case I8: case I16: case I32: case I64:
-          return tcx.intern(Ty::Int{(type::IntSize) (*ty.base - U8)});
-        case U8: case U16: case U32: case U64:
-          return tcx.intern(Ty::UInt{(type::IntSize) (*ty.base - U8)});
-        case F16: case F32: case F64:
-          return tcx.intern(Ty::Float{(type::FloatSize) (*ty.base - F16)});
-          // no FN,
-        case TUPLE:
-          return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
-        }
-        auto foundConcrete = definedTys.find(*ty.base);
-        if (foundConcrete != definedTys.end()) {
-          return foundConcrete->second;
-        }
-        ecx.err().span(ty.source, "Undefined type");
+        ecx.err().maybeSpan(ty.source, "Undefined type");
       }
-      return freshType();
+      return freshType(maybeLoc(ty.source, "here"));
     }
 
     TraitBound *parseTb(Type &ty) {
-      if (ty.base && *ty.base == FN /* spoiler: it is */) {
-        return tbcx.intern(TraitBound{FN, parseTyParams(ty.params)});
-      }
-      ecx.err().span(ty.source, "Trait parsing not yet implemented");
-      return nullptr;
+      return tbcx.intern(TraitBound{ty.base.value(), parseTyParams(ty.params)});
     }
 
     Tp uncycle(Tp ty) {
@@ -278,10 +328,11 @@ namespace hir::infer {
             }
             return rt;
           },
-          [&](Tp ty, auto) {
+          [&](Tp ty, PreWalk) {
             if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
               ++depth;
             }
+            return ty;
           },
         };
         return replaceTy(std::get<Ty::Cyclic>(ty->v).ty, uncycler);
@@ -289,13 +340,22 @@ namespace hir::infer {
       return ty;
     }
 
-    bool isComplete(Tp ty) {
+    template <typename T>
+    bool isComplete(T ty) {
       bool isComplete = true;
-      auto checker = [&](Tp ty) -> Tp {
-        if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
-          isComplete = false;
-        }
-        return ty;
+      auto checker = overloaded {
+        [&](Tp ty) -> Tp {
+          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+        [&](Tp ty, PostWalk) -> Tp {
+          if (std::holds_alternative<Ty::Err>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
       };
       replaceTy(ty, checker);
       return isComplete;
@@ -319,9 +379,24 @@ namespace hir::infer {
 
       auto &topInsts = *cnstr.instantiations.add();
       allInsts.push_back(&topInsts);
-      for (Idx i = cnstr.start; i < cnstr.end; ++i) {
-        Tp param = tcx.intern(Ty::Placeholder{i});
-        topInsts[param] = param;
+      auto visitCnstr = [this](Constraints &cnstr, auto &f) {
+        for (auto &tb : cnstr.traitBounds) {
+          replaceTy(tb.first, f);
+          replaceTy(tb.second, f);
+        }
+        for (auto &u : cnstr.unions) {
+          replaceTy(u.first, f);
+          replaceTy(u.second, f);
+        }
+      };
+      {
+        auto freeChecker = [&](Tp ty) -> Tp {
+          if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
+            topInsts[ty] = ty;
+          }
+          return ty;
+        };
+        visitCnstr(cnstr, freeChecker);
       }
 
       Idx tParamC = paramC;
@@ -342,26 +417,32 @@ namespace hir::infer {
 
       std::map<Tp, Tp> replacements;
       auto applyReplacements = [&](auto ty) {
-        TypeReplacer replacer = [&](Tp ty) -> Tp {
-          if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
-            Ty::TraitRef &trf = std::get<Ty::TraitRef>(ty->v);
-            auto found = implementedTraitBounds.find({trf.ty, trf.trait});
-            if (found != implementedTraitBounds.end()) {
-              auto &idces = found->second;
-              if (trf.ref >= idces.size()) {
-                // propagated
-                return tcx.intern(Ty::Err{});
+        TypeReplacer recurse;
+        auto replacer = overloaded {
+          [&](Tp ty) -> Tp {
+            if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
+              Ty::TraitRef &trf = std::get<Ty::TraitRef>(ty->v);
+              auto found = implementedTraitBounds.find({trf.ty, trf.trait});
+              if (found != implementedTraitBounds.end()) {
+                auto &idces = found->second;
+                if (trf.ref >= idces.size()) {
+                  // propagated
+                  return tcx.intern(Ty::Err{});
+                }
+                auto &refd = idces[trf.ref];
+                return refd = replaceTy(refd, recurse);
               }
-              auto &refd = idces[trf.ref];
-              return refd = replaceTy(refd, replacer);
+            } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
+              auto found = replacements.find(ty);
+              if (found != replacements.end()) {
+                return found->second = replaceTy(found->second, recurse);
+              }
             }
-          } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-            auto found = replacements.find(ty);
-            if (found != replacements.end()) {
-              return found->second = replaceTy(found->second, replacer);
-            }
-          }
-          return ty;
+            return ty;
+          },
+        };        
+        recurse = [&](Tp ty) -> Tp {
+          return replacer(ty);
         };
         return replaceTy(ty, replacer);
       };
@@ -395,10 +476,11 @@ namespace hir::infer {
             }
             return ty;
           },
-          [&](Tp ty, auto) {
+          [&](Tp ty, PreWalk) {
             if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
               ++depth;
             }
+            return ty;
           },
         };
         Tp setTy = replaceTy(ty, checkFree);
@@ -406,6 +488,7 @@ namespace hir::infer {
           setTy = tcx.intern(Ty::Cyclic{setTy});
         }
         replacements[ph] = setTy;
+        mergeSources(setTy, ph);
         // std::cerr << ph << " set to " << setTy << std::endl;
       };
 
@@ -497,12 +580,13 @@ namespace hir::infer {
             if (ati) {
               std::map<Tp, Tp> &atiSubs = *ati->constraints.instantiations.add();
               allInsts.push_back(&atiSubs);
-              for (Idx i = ati->constraints.start; i < ati->constraints.end; ++i) {
-                atiSubs[tcx.intern(Ty::Placeholder{i})] = newFreshTy();
-              }
               auto atiReplacer = [&](Tp ty) -> Tp {
                 if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-                  return atiSubs.at(ty);
+                  auto found =  atiSubs.find(ty);
+                  if (found == atiSubs.end()) {
+                    found = atiSubs.insert({ty, newFreshTy()}).first;
+                  }
+                  return found->second;
                 }
                 return ty;
               };
@@ -552,7 +636,14 @@ namespace hir::infer {
         for (auto &kv : *map) {
           Tp replaced = applyReplacements(kv.second);
           if (!isComplete(replaced)) {
-            ecx.err().msg("Not enough information to infer type");
+            auto &err = ecx.err()
+              .msg("Not enough information to infer type");
+            auto foundSource = typeSources.find(replaced);
+            if (foundSource == typeSources.end()) {
+              err.msg("of unknown source");
+            } else {
+              err.chain(foundSource->second);
+            }
             replaced = tcx.intern(Ty::Err{});
           }
           kv.second = replaced;
@@ -566,12 +657,10 @@ namespace hir::infer {
     Block *currentBlock = nullptr;
     Constraints visitRootBlock(Block &block, Tp *ret = nullptr) {
       Constraints data;
-      data.start = paramC;
       cnstr = &data;
       currentBlock = &block;
       Tp ty = visitBlock(block);
       if (ret) *ret = ty;
-      data.end = paramC;
       return data;
     }
 
@@ -580,38 +669,45 @@ namespace hir::infer {
       return tbcx.intern(TraitBound{tb->i, replaceTy(tb->s, tr)});
     }
 
-    struct ReplaceTag {};
+    struct PreWalk {};
+    struct PostWalk {};
 
     template <typename TR>
     Tp replaceTy(Tp ty, TR &tr) {
-      if constexpr (std::is_invocable<TR, Tp, ReplaceTag>::value) {
-        tr(ty, ReplaceTag{});
+      if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
+        ty = tr(ty, PreWalk{});
       }
+      Tp ret;
       switch (ty->v.index()) {
       case 5: // Placeholder
       case 12: // CyclicRef
-        return tr(ty);
+        ret = tr(ty); break;
       case 9: { // TraitRef
         auto &trf = std::get<9>(ty->v);
-        return tr(tcx.intern(Ty::TraitRef{replaceTy(trf.ty, tr),
-                                          replaceTy(trf.trait, tr),
-                                          trf.ref}));
+        ret = tr(tcx.intern(Ty::TraitRef{replaceTy(trf.ty, tr),
+                                         replaceTy(trf.trait, tr),
+                                         trf.ref}));
+        break;
       }
       case 6: { // ADT
         auto &adt = std::get<6>(ty->v);
-        return tcx.intern(Ty::ADT{adt.i, adt.v, replaceTy(adt.s, tr)});
+        ret = tcx.intern(Ty::ADT{adt.i, adt.v, replaceTy(adt.s, tr)});
+        break;
       }
       case 7: { // Dyn
         auto &dyn = std::get<7>(ty->v);
-        return tcx.intern(Ty::Dyn{replaceTy(dyn.t, tr)});
+        ret = tcx.intern(Ty::Dyn{replaceTy(dyn.t, tr)});
+        break;
       }
       case 8: { // Tuple
         auto &tup = std::get<8>(ty->v);
-        return tcx.intern(Ty::Tuple{replaceTy(tup.t, tr)});
+        ret = tcx.intern(Ty::Tuple{replaceTy(tup.t, tr)});
+        break;
       }
       case 11: { // Cyclic
         auto &clc = std::get<11>(ty->v);
-        return tcx.intern(Ty::Cyclic{replaceTy(clc.ty, tr)});
+        ret = tcx.intern(Ty::Cyclic{replaceTy(clc.ty, tr)});
+        break;
       }
       case 0: // Err
       case 1: // Bool
@@ -620,9 +716,12 @@ namespace hir::infer {
       case 4: // Float
       case 10: // String
       default:
-        break;
+        ret = ty;
       }
-      return ty;
+      if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
+        ty = tr(ty, PostWalk{});
+      }      
+      return ret;
     }
 
     template <typename T, typename TR>
@@ -639,13 +738,12 @@ namespace hir::infer {
     }
 
     Tp visitBlock(Block &block) {
-      for (auto &b : block.typeBindings) {
-        definedTys[b] = freshType();
-      }
       for (auto &b : block.bindings) {
-        Tp ty = varTypes[b] = freshType();
-        for (auto &hint : program->bindings.at(b).type) {
-          constrainUnite(ty, parseTy(hint));
+        Tp ty = varTypes[b] =
+          freshType(maybeLoc(program->bindings.at(b).source, "type of this"));
+        for (auto &hint :
+               std::get<DefType::Variable>(program->bindings.at(b).defType.v).hints) {
+          parseTypeHint(ty, hint);
         }
       }
       Tp last = unitType();
@@ -656,7 +754,13 @@ namespace hir::infer {
     }
 
     Idx paramC = 0;
-    Tp freshType() { return tcx.intern(Ty::Placeholder{paramC++}); }
+    Tp freshType(std::optional<err::Location> source = std::nullopt) {
+      Tp ty = tcx.intern(Ty::Placeholder{paramC++});
+      if (source) {
+        typeSources[ty] = *source;
+      }
+      return ty;
+    }
     Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
     Tp boolType() { return tcx.intern(Ty::Bool{}); }
 
@@ -672,7 +776,7 @@ namespace hir::infer {
       blockExprs[currentBlock].insert(&it);
       Tp ty = exprTypes[&it] = ExprVisitor::visitExpr(it);
       for (auto &hint : it.type) {
-        constrainUnite(ty, parseTy(hint));
+        parseTypeHint(ty, hint);
       }
       return ty;
     }
@@ -689,7 +793,7 @@ namespace hir::infer {
       Tp elseT = visitExpr(*it.elseE);
       constrainUnite(boolType(), predT);
       if (it.pos == Pos::Expr) {
-        Tp retT = freshType();
+        Tp retT = freshType(maybeLoc(it.span, "here"));
         constrainUnite(retT, thenT);
         constrainUnite(retT, elseT);
         return retT;
@@ -716,15 +820,15 @@ namespace hir::infer {
     Tp visitBinExpr(BinExpr &it) {
       Tp lhsType = visitExpr(*it.lhs);
       Tp rhsType = visitExpr(*it.rhs);
-      BuiltinTraits trait;
+      Idx trait;
       switch (it.op) {
-      case BinExpr::BitOr: trait = BuiltinTraits::BitOr; break;
-      case BinExpr::BitAnd: trait = BuiltinTraits::BitAnd; break;
-      case BinExpr::Add: trait = BuiltinTraits::Add; break;
-      case BinExpr::Sub: trait = BuiltinTraits::Sub; break;
-      case BinExpr::Mul: trait = BuiltinTraits::Mul; break;
-      case BinExpr::Div: trait = BuiltinTraits::Div; break;
-      case BinExpr::Rem: trait = BuiltinTraits::Rem; break;
+      case BinExpr::BitOr: trait = BitOr; break;
+      case BinExpr::BitAnd: trait = BitAnd; break;
+      case BinExpr::Add: trait = Add; break;
+      case BinExpr::Sub: trait = Sub; break;
+      case BinExpr::Mul: trait = Mul; break;
+      case BinExpr::Div: trait = Div; break;
+      case BinExpr::Rem: trait = Rem; break;
       }
       TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsType}});
       constrainTrait(lhsType, traitBound);
@@ -733,26 +837,26 @@ namespace hir::infer {
     Tp visitCmpExpr(CmpExpr &it) {
       Tp lhsType = visitExpr(*it.lhs);
       Tp rhsType = visitExpr(*it.rhs);
-      TraitBound *traitBound = tbcx.intern(TraitBound{BuiltinTraits::Cmp, {rhsType}});
+      TraitBound *traitBound = tbcx.intern(TraitBound{Cmp, {rhsType}});
       constrainTrait(lhsType, traitBound);
       return boolType();
     }
     Tp visitNegExpr(NegExpr &it) {
       Tp exprType = visitExpr(*it.value);
-      TraitBound *traitBound = tbcx.intern(TraitBound{BuiltinTraits::Neg});
+      TraitBound *traitBound = tbcx.intern(TraitBound{Neg});
       constrainTrait(exprType, traitBound);
       return tcx.intern(Ty::TraitRef{exprType, traitBound, 0});
     }
     Tp visitCallExpr(CallExpr &it) {
       Tp funcTy = visitExpr(*it.func);
-      Tp retTy = freshType();
+      Tp retTy = freshType(maybeLoc(it.span, "type of this"));
       std::vector<Tp> argTys;
       argTys.reserve(it.args.size());
       for (Eptr &e : it.args) {
         argTys.push_back(visitExpr(*e));
       }
       Tp argsTy = tcx.intern(Ty::Tuple{argTys});
-      TraitBound *traitBound = tbcx.intern(TraitBound{FN, {argsTy, retTy}});
+      TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy, retTy}});
 
       constrainTrait(funcTy, traitBound);
       return retTy;
@@ -782,7 +886,7 @@ namespace hir::infer {
       return retTy;
     }
     Tp visitForeignExpr(ForeignExpr &it) {
-      return freshType();
+      return freshType(maybeLoc(it.span, "this value"));
     }
     Tp visitDummyExpr(DummyExpr &it) {
       // suppressed
