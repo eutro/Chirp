@@ -1,6 +1,1 @@
-/**
- * recursive type:
- * a = a -> b
- * cannot be unified
- */
-\x.x(x)
+fn foo(x) = foo(\.x)

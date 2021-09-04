@@ -2,9 +2,6 @@
 #include "Type.h"
 #include <variant>
 
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
-
 using namespace type;
 
 std::ostream &operator<<(std::ostream &os, const IntSize s) {
@@ -58,35 +55,41 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           os << "adt[" << t.i << "]";
           os << "{";
           for (auto &v : t.v) {
-            os << v << ", ";
+            os << v << ",";
           }
           os << "}";
           os << "<";
           for (auto &s : t.s) {
-            os << s << ", ";
+            os << s << ",";
           }
           os << ">";
         },
         [&](Ty::Dyn &t) {
           os << "dyn{";
           for (auto &tb : t.t) {
-            os << tb << ", ";
+            os << tb << ",";
           }
           os << "}";
         },
         [&](Ty::Tuple &t) {
           os << "(";
           for (auto &t : t.t) {
-            os << t << ", ";
+            os << t << ",";
           }
           os << ")";
         },
         [&](Ty::TraitRef &t) {
           os << "<" << t.ty << " as " << t.trait << ">";
-          os << "::{" << t.ref << "}";
+          os << "::" << t.ref;
         },
         [&](Ty::String &s) {
           os << "str";
+        },
+        [&](Ty::Cyclic &c) {
+          os << "#{" << c.ty << "}";
+        },
+        [&](Ty::CyclicRef &r) {
+          os << "#" << r.depth;
         },
     }, t->v);
   return os;
@@ -96,8 +99,14 @@ std::ostream &operator<<(std::ostream &os, type::TraitBound *tb) {
   os << "trait[" << tb->i << "]";
   os << "<";
   for (auto &s : tb->s) {
-    os << s << ", ";
+    os << s << ",";
   }
   os << ">";
   return os;
 }
+
+namespace type::print {
+  void printTy(type::Ty *t) {
+    std::cerr << t << std::endl;
+  }
+};

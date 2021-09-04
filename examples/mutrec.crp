@@ -1,0 +1,4 @@
+defn isOdd(x) = x != 0 && isEven(x - 1)
+defn isEven(x) = x == 0 || isOdd(x - 1)
+
+isOdd(10)

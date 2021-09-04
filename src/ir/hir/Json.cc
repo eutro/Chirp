@@ -165,11 +165,12 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT::Variant, values)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ADT, id, variants)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Import, moduleIdx, name, defIdx)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TraitImpl, type, trait, types, methods, params, source)
 
 #define inline // remove inline from the next one, it has to be emitted
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Program,
                                      valueImports, typeImports,
                                      bindings, typeBindings,
-                                     types, fnImpls, topLevel)
+                                     types, traitImpls, topLevel)
 #undef inline
 }

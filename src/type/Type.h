@@ -10,6 +10,9 @@
 #include <variant>
 #include <vector>
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 namespace type {
   using Idx = std::uint32_t;
 
@@ -94,6 +97,14 @@ namespace type {
     struct String {
       bool operator<(const String &o) const { return false; }
     };
+    struct Cyclic {
+      Ty *ty;
+      bool operator<(const Cyclic &o) const { return ty < o.ty; }
+    };
+    struct CyclicRef {
+      Idx depth;
+      bool operator<(const CyclicRef &o) const { return depth < o.depth; }
+    };
     std::variant<
       Err,
       Bool,
@@ -105,7 +116,9 @@ namespace type {
       Dyn,
       Tuple,
       TraitRef,
-      String> v;
+      String,
+      Cyclic,
+      CyclicRef> v;
 
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}

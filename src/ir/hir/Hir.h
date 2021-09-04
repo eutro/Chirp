@@ -27,7 +27,7 @@ namespace hir {
   public:
     std::string name;
     loc::Span source;
-    Type type;
+    std::vector<Type> type;
   };
 
   class TypeBinding {
@@ -63,7 +63,7 @@ namespace hir {
   public:
     loc::Span span;
     Pos pos = Pos::Expr;
-    Type type;
+    std::vector<Type> type;
 
     virtual ~Expr();
 
@@ -86,6 +86,15 @@ namespace hir {
     DefIdx defIdx;
   };
 
+  class TraitImpl {
+  public:
+    std::vector<DefIdx> params;
+    Type type, trait;
+    loc::Span source;
+    std::vector<Type> types;
+    std::vector<Block> methods;
+  };
+
   class Program {
   public:
     std::vector<Import> valueImports;
@@ -94,7 +103,7 @@ namespace hir {
     std::map<DefIdx, TypeBinding> typeBindings;
 
     std::vector<ADT> types;
-    std::vector<Block> fnImpls;
+    std::vector<TraitImpl> traitImpls;
     Block topLevel;
   };
 

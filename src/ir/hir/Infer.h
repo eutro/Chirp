@@ -8,8 +8,12 @@ namespace hir::infer {
   using Tp = Ty *;
 
   struct InferResult {
-    err::ErrorContext ecx;
-    std::map<Expr*, Tp> exprTypes;
+    arena::InternArena<Ty> tcx;
+    err::ErrorContext errors;
+    struct BlockInstantiation {
+      std::set<std::map<Expr *, Tp>> exprTypes;
+    };
+    std::map<Block *, BlockInstantiation> insts;
   };
 
   std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor();

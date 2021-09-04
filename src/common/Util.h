@@ -1,27 +1,39 @@
 #pragma once
 
+#include <algorithm>
 #include <optional>
+#include <set>
+#include <tuple>
+#include <variant>
 
 namespace util {
-  template <typename T>
-  class Range {
-  public:
-    std::optional<T> min /*inclusive*/, max /*exclusive*/;
-    bool includes(const T &x) {
-      if (min && x < min) return false;
-      if (max && x >= max) return false;
-      return true;
-    }
-  };
+  template <typename Data = std::monostate>
+  struct DSU {
+    DSU *parent = this;
+    size_t size = 0;
+    Data data;
 
-  template <typename T>
-  class LinearFunc {
-  public:
-    T gradient, intercept;
-    LinearFunc(T &&gradient, T &&intercept):
-      gradient(gradient),
-      intercept(intercept) {}
-    T operator()(const T &x) { return gradient * x + intercept; }
+    template <typename... Arg>
+    DSU(Arg... arg): data(std::forward<Arg>(arg)...) {}
+
+    DSU *find() {
+      if (parent != this) {
+        parent = parent->find();
+      }
+      return parent;
+    }
+
+    void unite(DSU *o) {
+      DSU *tRoot = find();
+      DSU *oRoot = o->find();
+      if (tRoot == oRoot) return;
+      DSU *minRoot, *maxRoot;
+      std::tie(minRoot, maxRoot) = std::minmax(minRoot, maxRoot, [](DSU *a, DSU *b) {
+        return a->size < b->size;
+      });
+      minRoot->parent = maxRoot;
+      maxRoot->size += minRoot->size;
+    }
   };
 
   template <typename Compare = std::less<>>

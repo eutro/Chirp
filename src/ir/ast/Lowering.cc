@@ -86,7 +86,10 @@ namespace ast::lower {
     Bindings typeBindings;
     hir::DefIdx defNo = 0;
 
-    void builtinType(const std::string &name) {
+    hir::DefIdx fnTrait;
+    hir::DefIdx tupleType;
+
+    hir::DefIdx builtinType(const std::string &name) {
       auto tyIdx = defNo++;
       auto &newTy = program.typeBindings[tyIdx];
       newTy.name = name;
@@ -95,6 +98,7 @@ namespace ast::lower {
       import.name = name;
       import.defIdx = tyIdx;
       typeBindings.introduce(newTy.name, tyIdx);
+      return tyIdx;
     }
 
     LoweringVisitor() {
@@ -114,7 +118,8 @@ namespace ast::lower {
       builtinType("f32");
       builtinType("f64");
 
-      builtinType("fn");
+      fnTrait = builtinType("fn");
+      tupleType = builtinType("tuple");
 
       typeBindings.push();
     }
@@ -136,7 +141,7 @@ namespace ast::lower {
       hir::Binding &b = program.bindings[idx];
       b.name = it.name.ident.value;
       b.source = it.name.ident.span();
-      b.type = it.arguments ? hir::Type() : visitHint(it.typeHint);
+      if (!it.arguments) b.type.push_back(visitHint(it.typeHint));
       return bindings.introduce(b.name, idx);
     }
 
@@ -207,32 +212,28 @@ namespace ast::lower {
         }
       }
 
+      hir::Idx arity = params.size();
+
       for (auto &p : params) {
         auto idx = defNo++;
         auto &b = program.bindings[idx];
         b.name = p.name.ident.value;
         b.source = p.name.ident.span();
-        b.type = visitHint(p.typeHint);
+        b.type.push_back(visitHint(p.typeHint));
         bindings.introduce(b.name, idx);
       }
 
       auto blockE = withSpan<hir::BlockExpr>(source);
-      // FIXME this actually gets dropped
-      if (retHint) blockE->type = visitType(*retHint->type);
 
       hir::Block &block = blockE->block;
       addBindingsToBlock(block);
-      block.body.push_back(visitExpr(body, hir::Pos::Expr));
+      auto bodyE = visitExpr(body, hir::Pos::Expr);
+      if (retHint) {
+        bodyE->type.push_back(visitType(*retHint->type));
+      }
+      block.body.push_back(std::move(bodyE));
       bindings.pop();
       typeBindings.pop();
-
-      auto thisIdx = defNo++;
-      {
-        auto &thisB = program.bindings[thisIdx];
-        thisB.name = "this";
-        thisB.source = source;
-        block.bindings.push_back(thisIdx);
-      }
 
       hir::Idx typeIdx = defNo++;
       hir::ADT &closure = program.types.emplace_back();
@@ -248,6 +249,40 @@ namespace ast::lower {
         field.source = data.source;
       }
 
+      hir::TraitImpl fnImpl;
+      fnImpl.source = source;
+      fnImpl.params.reserve(closed.size() + arity);
+
+      hir::Type &adtType = fnImpl.type;
+      adtType.base = typeIdx;
+      adtType.params.reserve(closed.size());
+      for (auto &_cv : closed) {
+        hir::Idx paramIdx = defNo++;
+        adtType.params.emplace_back().base = paramIdx;
+        fnImpl.params.push_back(paramIdx);
+      }
+
+      hir::Type fnArgsTy;
+      fnArgsTy.base = tupleType;
+      fnArgsTy.params.reserve(params.size());
+      {
+        hir::Idx i = 0;
+        for (auto &_p : params) {
+          hir::Idx paramIdx = defNo++;
+          fnArgsTy.params.emplace_back().base = paramIdx;
+          program.bindings.at(block.bindings[i++]).type.emplace_back().base = paramIdx;
+          fnImpl.params.push_back(paramIdx);
+        }
+      }
+      hir::Type &fnType = fnImpl.trait;
+      fnType.base = fnTrait;
+      hir::Idx retIdx = defNo++;
+      fnImpl.params.push_back(retIdx);
+      block.body.back()->type.emplace_back().base = retIdx;
+      hir::Type retTy;
+      retTy.base = retIdx;
+      fnType.params = {fnArgsTy, retTy};
+
       auto expr = withSpan<hir::NewExpr>(source);
       expr->adt = typeIdx;
       expr->variant = 0;
@@ -262,6 +297,15 @@ namespace ast::lower {
       hir::Idx closedIdx = 0;
       for (auto &cv : closed) {
         mapping[cv] = closedIdx++;
+      }
+
+      auto thisIdx = defNo++;
+      {
+        auto &thisB = program.bindings[thisIdx];
+        thisB.name = "this";
+        thisB.source = source;
+        thisB.type.push_back(adtType);
+        block.bindings.push_back(thisIdx);
       }
 
       hir::rebind::rebindVisitor([&mapping, typeIdx, thisIdx]
@@ -281,7 +325,9 @@ namespace ast::lower {
         return nullptr;
       })->visitExpr(*blockE, nullptr);
 
-      program.fnImpls.push_back(std::move(block));
+      fnImpl.methods.push_back(std::move(block));
+
+      program.traitImpls.push_back(std::move(fnImpl));
 
       return expr;
     }
@@ -480,8 +526,8 @@ namespace ast::lower {
     }
 
     Eptr visitLiteralExpr(LiteralExpr &it, hir::Pos pos) override {
-      if (it.value.type != Tok::TTrue &&
-          it.value.type != Tok::TFalse) {
+      if (it.value.type == Tok::TTrue ||
+          it.value.type == Tok::TFalse) {
         auto expr = withSpan<hir::BoolExpr>(it.span);
         expr->value = it.value.type == Tok::TTrue;
         return expr;
@@ -530,60 +576,81 @@ namespace ast::lower {
       case Tok::TGt: {
         auto blockE = withSpan<hir::BlockExpr>(it.span);
         blockE->block.bindings.reserve(it.terms.size() + 1);
-        auto addTemp = [&blockE, this](Expr &expr) {
+
+        auto addTemp = [&blockE, this](hir::BlockExpr &bE, Expr &expr) {
           auto tmpIdx = defNo++;
           program.bindings[tmpIdx].source = expr.span;
           blockE->block.bindings.push_back(tmpIdx);
           auto defE = withSpan<hir::DefineExpr>(expr.span);
           defE->idx = tmpIdx;
           defE->value = visitExpr(expr, hir::Pos::Expr);
+          bE.block.body.push_back(std::move(defE));
           return tmpIdx;
         };
-        hir::DefIdx lastVar = addTemp(*it.lhs);
+
         loc::Span lhsSpan = it.lhs->span;
         loc::SrcLoc end = it.terms.back().expr->span.hi;
-        for (auto &term : it.terms) {
-          hir::DefIdx thisVar = addTemp(*term.expr);
-          auto condE = withSpan<hir::CondExpr>(loc::Span(lhsSpan.lo, end));
-          auto falseE = withSpan<hir::BoolExpr>(term.operatorToken.span());
-          falseE->value = false;
-          condE->elseE = std::move(falseE);
-          hir::CmpExpr::Op cmp;
-          switch (term.operatorToken.type) {
-          case Tok::TEq:
-          case Tok::TEq2:
-            cmp = hir::CmpExpr::Op::Eq;
-            break;
-          case Tok::TNe:
-            cmp = hir::CmpExpr::Op::Ne;
-            break;
-          case Tok::TGe:
-            cmp = hir::CmpExpr::Op::Ge;
-            break;
-          case Tok::TLt:
-            cmp = hir::CmpExpr::Op::Lt;
-            break;
-          case Tok::TLe:
-            cmp = hir::CmpExpr::Op::Le;
-            break;
-          case Tok::TGt:
-            cmp = hir::CmpExpr::Op::Gt;
-            break;
-          default:
-            break; // unreachable
-          }
-          auto predE = withSpan<hir::CmpExpr>(loc::Span(lhsSpan.lo, term.expr->span.hi));
-          auto lhsE = withSpan<hir::VarExpr>(lhsSpan);
-          lhsE->ref = lastVar;
-          predE->lhs = std::move(lhsE);
-          auto rhsE = withSpan<hir::VarExpr>(term.expr->span);
-          rhsE->ref = thisVar;
-          predE->rhs = std::move(rhsE);
-          predE->op = cmp;
-          lastVar = thisVar;
-        }
+
+        std::function<Eptr(hir::Idx, hir::DefIdx)> addRhs =
+          [&](hir::Idx i, hir::DefIdx lastVar) -> Eptr {
+            auto &term = it.terms.at(i);
+            hir::CmpExpr::Op cmp;
+            switch (term.operatorToken.type) {
+            case Tok::TEq:
+            case Tok::TEq2:
+              cmp = hir::CmpExpr::Op::Eq;
+              break;
+            case Tok::TNe:
+              cmp = hir::CmpExpr::Op::Ne;
+              break;
+            case Tok::TGe:
+              cmp = hir::CmpExpr::Op::Ge;
+              break;
+            case Tok::TLt:
+              cmp = hir::CmpExpr::Op::Lt;
+              break;
+            case Tok::TLe:
+              cmp = hir::CmpExpr::Op::Le;
+              break;
+            case Tok::TGt:
+              cmp = hir::CmpExpr::Op::Gt;
+              break;
+            default:
+              break; // unreachable
+            }
+
+            auto predE = withSpan<hir::BlockExpr>(loc::Span(lhsSpan.lo, term.expr->span.hi));
+            hir::DefIdx thisVar = addTemp(*predE, *term.expr);
+            {
+              auto cmpE = withSpan<hir::CmpExpr>(predE->span);
+              {
+                auto lhsE = withSpan<hir::VarExpr>(lhsSpan);
+                lhsE->ref = lastVar;
+                cmpE->lhs = std::move(lhsE);
+                auto rhsE = withSpan<hir::VarExpr>(term.expr->span);
+                rhsE->ref = thisVar;
+                cmpE->rhs = std::move(rhsE);
+                cmpE->op = cmp;
+              }
+              predE->block.body.push_back(std::move(cmpE));
+            }
+            if (i + 1 >= it.terms.size()) {
+              return predE;
+            } else {
+              auto condE = withSpan<hir::CondExpr>(loc::Span(lhsSpan.lo, end));
+              auto falseE = withSpan<hir::BoolExpr>(term.operatorToken.span());
+              falseE->value = false;
+              condE->predE = std::move(predE);
+              condE->elseE = addRhs(i + 1, thisVar);
+              condE->elseE = std::move(falseE);
+              return condE;
+            }
+          };
+        hir::DefIdx lhsVar = addTemp(*blockE, *it.lhs);
+        blockE->block.body.push_back(addRhs(0, lhsVar));
         return blockE;
       }
+
       case Tok::TAnd2:
       case Tok::TOr2: {
         std::unique_ptr<hir::Expr> retExpr = visitExpr(*it.lhs, hir::Pos::Expr);
@@ -611,6 +678,7 @@ namespace ast::lower {
       default:
         break;
       }
+
       // all our operators are left-associative
       std::unique_ptr<hir::Expr> retExpr = visitExpr(*it.lhs, hir::Pos::Expr);
       for (auto &term : it.terms) {
@@ -671,7 +739,7 @@ namespace ast::lower {
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
       auto expr = visitExpr(*it.expr, pos);
-      expr->type = visitType(*it.hint.type);
+      expr->type.push_back(visitType(*it.hint.type));
       return expr;
     }
   };
