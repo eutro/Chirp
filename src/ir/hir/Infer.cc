@@ -346,7 +346,7 @@ namespace hir::infer {
           return ty;
         },
       };
-      replaceTy(ty, checker);
+      replaceTy<true>(ty, checker);
       return isComplete;
     }
 
@@ -359,7 +359,7 @@ namespace hir::infer {
         }
         return ty;
       };
-      replaceTy(ty, checker);
+      replaceTy<true>(ty, checker);
       return isReasonable;
     }
 
@@ -370,12 +370,12 @@ namespace hir::infer {
       allInsts.push_back(&topInsts);
       auto visitCnstr = [this](Constraints &cnstr, auto &f) {
         for (auto &tb : cnstr.traitBounds) {
-          replaceTy(tb.first, f);
-          replaceTy(tb.second, f);
+          replaceTy<true>(tb.first, f);
+          replaceTy<true>(tb.second, f);
         }
         for (auto &u : cnstr.unions) {
-          replaceTy(u.first, f);
-          replaceTy(u.second, f);
+          replaceTy<true>(u.first, f);
+          replaceTy<true>(u.second, f);
         }
       };
       {
@@ -447,8 +447,13 @@ namespace hir::infer {
         [&](std::map<TyTB, std::vector<Tp>> &set) {
           std::map<TyTB, std::vector<Tp>> newSet;
           for (auto &tb : set) {
-            newSet.insert({{applyReplacements(tb.first.ty), replaceTy(tb.first.tb, applyReplacements)},
-                replaceTy(tb.second, applyReplacements)});
+            newSet.insert({
+                {
+                  applyReplacements(tb.first.ty),
+                  replaceTy(tb.first.tb, applyReplacements)
+                },
+                replaceTy(tb.second, applyReplacements)
+              });
           }
           std::swap(newSet, set);
         },
@@ -653,15 +658,19 @@ namespace hir::infer {
       return data;
     }
 
-    template <typename TR>
-    TraitBound *replaceTy(TraitBound *tb, TR &tr) {
-      return tbcx.intern(TraitBound{tb->i, replaceTy(tb->s, tr)});
-    }
-
     struct PreWalk {};
     struct PostWalk {};
 
-    template <typename TR>
+    template <bool IGNORED = false, typename TR>
+    TraitBound *replaceTy(TraitBound *tb, TR &tr) {
+      if constexpr (IGNORED) {
+        replaceTy<IGNORED>(tb->s, tr);
+        return tb;
+      }
+      return tbcx.intern(TraitBound{tb->i, replaceTy(tb->s, tr)});
+    }
+
+    template <bool IGNORED = false, typename TR>
     Tp replaceTy(Tp ty, TR &tr) {
       if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
         ty = tr(ty, PreWalk{});
@@ -670,32 +679,38 @@ namespace hir::infer {
       switch (ty->v.index()) {
       case 5: // Placeholder
       case 12: // CyclicRef
-        ret = tr(ty); break;
+        ret = tr(ty);
+        break;
       case 9: { // TraitRef
         auto &trf = std::get<9>(ty->v);
-        ret = tr(tcx.intern(Ty::TraitRef{replaceTy(trf.ty, tr),
-                                         replaceTy(trf.trait, tr),
-                                         trf.ref}));
+        auto uret = Ty::TraitRef{replaceTy<IGNORED>(trf.ty, tr),
+                                 replaceTy<IGNORED>(trf.trait, tr),
+                                 trf.ref};
+        if constexpr (!IGNORED) ret = tr(tcx.intern(std::move(uret)));
         break;
       }
       case 6: { // ADT
         auto &adt = std::get<6>(ty->v);
-        ret = tcx.intern(Ty::ADT{adt.i, adt.v, replaceTy(adt.s, tr)});
+        auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(adt.s, tr)};
+        if constexpr (!IGNORED) ret = tcx.intern(uret);
         break;
       }
       case 7: { // Dyn
         auto &dyn = std::get<7>(ty->v);
-        ret = tcx.intern(Ty::Dyn{replaceTy(dyn.t, tr)});
+        auto uret = Ty::Dyn{replaceTy<IGNORED>(dyn.t, tr)};
+        if constexpr (!IGNORED) ret = tcx.intern(uret);
         break;
       }
       case 8: { // Tuple
         auto &tup = std::get<8>(ty->v);
-        ret = tcx.intern(Ty::Tuple{replaceTy(tup.t, tr)});
+        auto uret = Ty::Tuple{replaceTy<IGNORED>(tup.t, tr)};
+        if constexpr (!IGNORED) ret = tcx.intern(uret);
         break;
       }
       case 11: { // Cyclic
         auto &clc = std::get<11>(ty->v);
-        ret = tcx.intern(Ty::Cyclic{replaceTy(clc.ty, tr)});
+        auto uret = Ty::Cyclic{replaceTy<IGNORED>(clc.ty, tr)};
+        if constexpr (!IGNORED) ret = tcx.intern(uret);
         break;
       }
       case 0: // Err
@@ -713,14 +728,23 @@ namespace hir::infer {
       return ret;
     }
 
-    template <typename T, typename TR>
-    std::vector<T> replaceTy(std::vector<T> tys, TR &tr) {
-      for (auto &s : tys) s = replaceTy(s, tr);
-      return tys;
+    template <bool IGNORED = false, typename T, typename TR>
+    std::vector<T> replaceTy(const std::vector<T> &tys, TR &tr) {
+      if constexpr (IGNORED) {
+        for (auto &s : tys) replaceTy<true>(s, tr);
+        return {};
+      }
+      auto ret = tys;
+      for (auto &s : ret) s = replaceTy(s, tr);
+      return ret;
     }
 
-    template <typename T, typename TR>
-    std::set<T> replaceTy(std::set<T> &tys, TR &tr) {
+    template <bool IGNORED = false, typename T, typename TR>
+    std::set<T> replaceTy(const std::set<T> &tys, TR &tr) {
+      if constexpr (IGNORED) {
+        for (auto &s : tys) replaceTy<true>(s, tr);
+        return {};
+      }
       std::set<T> set;
       for (auto &s : tys) set.insert(replaceTy(s, tr));
       return set;
