@@ -23,13 +23,12 @@ int main() {
   err::maybeAbort(epc, infer.errors);
 
   for (auto &block : infer.insts) {
-    hir::Idx i = 0;
-    for (auto &inst : block.second.exprTypes) {
-      std::cerr << "Instantiation #" << i++ << std::endl;
-      for (auto &e : inst) {
+    for (hir::Idx i = 0; i < block.second.types.size(); ++i) {
+      std::cerr << "Instantiation #" << (i + 1) << std::endl;
+      for (auto &e : block.second.exprTypes) {
         if (!e.first->span) continue;
         std::stringstream ss;
-        ss << "has type: " << e.second;
+        ss << "has type: " << block.second.types.at(i).at(e.second);
         epc << err::Location().span(*e.first->span, ss.str());
       }
     }

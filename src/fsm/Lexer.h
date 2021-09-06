@@ -140,6 +140,7 @@ namespace lexer {
             }
           }
           tok.loc = loc;
+          tok.value.shrink_to_fit();
           loc.add(tok.value);
           state = dfa.initial;
           return tok;

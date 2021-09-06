@@ -3,8 +3,8 @@
 #include "../../type/TypePrint.h"
 #include "Builtins.h"
 #include "Hir.h"
-#include <sstream>
 
+#include <sstream>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -51,15 +51,17 @@ namespace hir::infer {
     HashInternArena<type::TraitBound> tbcx;
     arena::Arena<AbstractTraitImpl> aticx;
 
-    std::map<DefIdx, Tp> varTypes;
     std::map<DefIdx, Tp> definedTys;
 
     std::map<Tp, err::Location> typeSources;
 
     err::ErrorContext ecx;
 
+    std::map<DefIdx, Tp> varTypes;
     std::map<Expr *, Tp> exprTypes;
+    std::map<Expr *, TraitBound *> traitBoundTypes;
     std::map<Block *, std::set<Expr *>> blockExprs;
+    std::map<Block *, std::set<Idx>> blockVars;
 
     std::map<std::pair<Idx/*trait*/, Tp/*ty*/>, AbstractTraitImpl*> directTraits;
     std::map<std::pair<Idx/*trait*/, DefIdx/*adt*/>, AbstractTraitImpl*> adtTraits;
@@ -141,30 +143,91 @@ namespace hir::infer {
 
       InferResult res;
       auto completeBlock = [&](Block &block, Constraints &constraints) {
-        auto &instTypes = res.insts[&block];
-        for (auto &complete : constraints.instantiations.ptrs) {
-          std::map<Expr *, Tp> thisInst;
-          for (Expr *e : blockExprs[&block]) {
-            TypeReplacer replacer = [&](Tp ty) -> Tp {
-              if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
-                Ty::TraitRef &trf = std::get<Ty::TraitRef>(ty->v);
-                if (!isComplete(trf.ty) || !isComplete(trf.trait)) {
-                  return tcx.intern(Ty::Err{});
-                }
-                auto &idces = traitImplTypes.at({trf.ty, trf.trait});
-                if (trf.ref >= idces.size()) {
-                  // propagated
-                  return tcx.intern(Ty::Err{});
-                }
-                return idces[trf.ref];;
-              } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-                return complete->at(ty);
-              }
-              return ty;
-            };
-            thisInst[e] = replaceTy(exprTypes[e], replacer);
+        if (constraints.instantiations.ptrs.empty()) {
+          return;
+        }
+
+        auto &blockInsts = res.insts[&block];
+
+        std::map<Tp, Idx> typeIdx;
+        std::map<TraitBound *, Idx> traitIdx;
+        Idx typeCount = 0;
+        Idx traitCount = 0;
+        {
+          auto getIdx = [](auto &map, auto &ty, Idx &count) -> Idx {
+            auto found = map.find(ty);
+            if (found == map.end()) {
+              found = map.insert({ty, count++}).first;
+            }
+            return found->second;
+          };
+          for (auto &e : blockExprs.at(&block)) {
+            blockInsts.exprTypes[e] = getIdx(typeIdx, exprTypes[e], typeCount);
+            if (traitBoundTypes.count(e)) {
+              blockInsts.traitTypes[e] = getIdx(traitIdx, traitBoundTypes[e], traitCount);
+            }
           }
-          instTypes.exprTypes.insert(std::move(thisInst));
+          for (auto &v : blockVars.at(&block)) {
+            blockInsts.varTypes[v] = getIdx(typeIdx, varTypes[v], typeCount);
+          }
+        }
+
+        struct Insts {
+          std::vector<Tp> tys;
+          std::vector<TraitBound *> tbs;
+          bool operator<(const Insts &o) const {
+            return std::make_pair(tys, tbs) < std::make_pair(o.tys, o.tbs);
+          }
+        };
+
+        std::set<Insts> instSet;
+        for (auto &complete : constraints.instantiations.ptrs) {
+          TypeReplacer replacer = [&](Tp ty) -> Tp {
+            if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
+              Ty::TraitRef &trf = std::get<Ty::TraitRef>(ty->v);
+              if (!isComplete(trf.ty) || !isComplete(trf.trait)) {
+                return tcx.intern(Ty::Err{});
+              }
+              auto &idces = traitImplTypes.at({trf.ty, trf.trait});
+              if (trf.ref >= idces.size()) {
+                // propagated
+                return tcx.intern(Ty::Err{});
+              }
+              return idces[trf.ref];;
+            } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
+              return complete->at(ty);
+            }
+            return ty;
+          };
+
+          Insts thisInst = Insts {
+            .tys = std::vector<Tp>(typeCount, nullptr),
+            .tbs = std::vector<TraitBound *>(traitCount, nullptr),
+          };
+          auto putIdx = [&](auto &instTypes, auto &genericTypes,
+                            auto &thisInst,
+                            auto &v) {
+            Idx i = instTypes.at(v);
+            auto &thisTy = thisInst.at(i);
+            if (!thisTy) {
+              thisTy = replaceTy(genericTypes[v], replacer);
+            }
+          };
+          for (Expr *e : blockExprs[&block]) {
+            putIdx(blockInsts.exprTypes, exprTypes, thisInst.tys, e);
+            if (traitBoundTypes.count(e)) {
+              putIdx(blockInsts.traitTypes, traitBoundTypes, thisInst.tbs, e);
+            }
+          }
+          for (Idx v : blockVars[&block]) {
+            putIdx(blockInsts.varTypes, varTypes, thisInst.tys, v);
+          }
+          instSet.insert(std::move(thisInst));
+        }
+        blockInsts.types.reserve(instSet.size());
+        for (auto &inst : instSet) {
+          blockInsts.types.push_back(inst.tys);
+          blockInsts.traitBounds.push_back(inst.tbs);
         }
       };
       completeBlock(p.topLevel, mainConstraints);
@@ -655,6 +718,7 @@ namespace hir::infer {
       currentBlock = &block;
       Tp ty = visitBlock(block);
       if (ret) *ret = ty;
+      blockVars[currentBlock]; // ensure init
       return data;
     }
 
@@ -752,6 +816,7 @@ namespace hir::infer {
 
     Tp visitBlock(Block &block) {
       for (auto &b : block.bindings) {
+        blockVars[currentBlock].insert(b);
         Tp ty = varTypes[b] =
           freshType(maybeLoc(program->bindings.at(b).source, "type of this"));
         for (auto &hint :
@@ -845,18 +910,21 @@ namespace hir::infer {
       }
       TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsType}});
       constrainTrait(lhsType, traitBound);
+      traitBoundTypes[&it] = traitBound;
       return tcx.intern(Ty::TraitRef{lhsType, traitBound, 0});
     }
     Tp visitCmpExpr(CmpExpr &it) {
       Tp lhsType = visitExpr(*it.lhs);
       Tp rhsType = visitExpr(*it.rhs);
       TraitBound *traitBound = tbcx.intern(TraitBound{Cmp, {rhsType}});
+      traitBoundTypes[&it] = traitBound;
       constrainTrait(lhsType, traitBound);
       return boolType();
     }
     Tp visitNegExpr(NegExpr &it) {
       Tp exprType = visitExpr(*it.value);
       TraitBound *traitBound = tbcx.intern(TraitBound{Neg});
+      traitBoundTypes[&it] = traitBound;
       constrainTrait(exprType, traitBound);
       return tcx.intern(Ty::TraitRef{exprType, traitBound, 0});
     }
@@ -870,7 +938,7 @@ namespace hir::infer {
       }
       Tp argsTy = tcx.intern(Ty::Tuple{argTys});
       TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy, retTy}});
-
+      traitBoundTypes[&it] = traitBound;
       constrainTrait(funcTy, traitBound);
       return retTy;
     }

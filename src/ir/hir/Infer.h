@@ -20,9 +20,15 @@ namespace hir::infer {
 
   struct InferResult {
     HashInternArena<Ty> tcx;
+    HashInternArena<TraitBound> tbcx;
     err::ErrorContext errors;
     struct BlockInstantiation {
-      std::set<std::map<Expr *, Tp>> exprTypes;
+      std::vector<std::vector<Tp>> types;
+      std::map<Expr *, Idx> exprTypes;
+      std::map<DefIdx, Idx> varTypes;
+
+      std::vector<std::vector<TraitBound *>> traitBounds;
+      std::map<Expr *, Idx> traitTypes;
     };
     std::map<Block *, BlockInstantiation> insts;
   };
