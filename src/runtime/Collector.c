@@ -2,8 +2,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct FrameMap {
   int32_t numRoots; // Number of roots in stack frame.

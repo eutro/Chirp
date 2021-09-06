@@ -1,16 +1,9 @@
 #include "Lowering.h"
-#include "Ast.h"
 #include "../hir/Rebind.h"
 #include "../hir/Builtins.h"
 #include "../../common/Util.h"
 
-#include <functional>
-#include <map>
-#include <memory>
-#include <optional>
 #include <sstream>
-#include <string>
-#include <variant>
 
 namespace ast::lower {
   using DefType = hir::DefType;
@@ -43,7 +36,7 @@ namespace ast::lower {
       return sets.back().defs;
     }
 
-    hir::Idx introduce(const std::string &name, hir::DefIdx idx) {
+    Idx introduce(const std::string &name, hir::DefIdx idx) {
       auto &ss = sets.back();
       ss.bound[&name] = idx;
       ss.defs.push_back(idx);
@@ -81,7 +74,7 @@ namespace ast::lower {
     public ProgramVisitor<LowerResult>,
     public TypeVisitor<hir::Type>,
     public ExprVisitor<Eptr, hir::Pos>,
-    public StatementVisitor<Eptr, std::optional<hir::Idx>> {
+    public StatementVisitor<Eptr, std::optional<Idx>> {
   public:
     err::ErrorContext errs;
     hir::Program program;
@@ -160,17 +153,17 @@ namespace ast::lower {
     }
 
     class BindingVisitor :
-      public StatementVisitor<std::optional<hir::Idx>> {
+      public StatementVisitor<std::optional<Idx>> {
     private:
       LoweringVisitor &lv;
     public:
       BindingVisitor(LoweringVisitor &lv): lv(lv) {}
 
-      std::optional<hir::Idx> visitDefn(Defn &it) override {
+      std::optional<Idx> visitDefn(Defn &it) override {
         return lv.introduceBinding(it.binding);
       }
 
-      std::optional<hir::Idx> visitExpr(Expr &it) override {
+      std::optional<Idx> visitExpr(Expr &it) override {
         return std::nullopt;
       }
     };
@@ -236,7 +229,7 @@ namespace ast::lower {
         }
       }
 
-      hir::Idx arity = params.size();
+      Idx arity = params.size();
 
       for (auto &p : params) {
         introduceDef(bindings, hir::Definition{
@@ -258,7 +251,7 @@ namespace ast::lower {
       bindings.pop();
       typeBindings.pop();
 
-      hir::Idx typeIdx = introduceDef(hir::Definition{
+      Idx typeIdx = introduceDef(hir::Definition{
           "",
           source,
             DefType::ADT{},
@@ -284,7 +277,7 @@ namespace ast::lower {
       adtType.base = typeIdx;
       adtType.params.reserve(closed.size());
       for (auto &cv : closed) {
-        hir::Idx paramIdx = introduceDef(hir::Definition{
+        Idx paramIdx = introduceDef(hir::Definition{
             "",
               program.bindings.at(cv).source,
               DefType::Type{}
@@ -297,9 +290,9 @@ namespace ast::lower {
       fnArgsTy.base = hir::TUPLE;
       fnArgsTy.params.reserve(params.size());
       {
-        hir::Idx i = 0;
+        Idx i = 0;
         for (Param &param : params) {
-          hir::Idx paramIdx = introduceDef(hir::Definition{
+          Idx paramIdx = introduceDef(hir::Definition{
               "",
                 param.name.ident.span(),
                 DefType::Type{},
@@ -312,7 +305,7 @@ namespace ast::lower {
       }
       hir::Type &fnType = fnImpl.trait;
       fnType.base = hir::Fn;
-      hir::Idx retIdx = introduceDef(hir::Definition{
+      Idx retIdx = introduceDef(hir::Definition{
           "",
             body.span,
             DefType::Type{}
@@ -333,8 +326,8 @@ namespace ast::lower {
         expr->values.push_back(std::move(varE));
       }
 
-      std::map<hir::DefIdx, hir::Idx> mapping;
-      hir::Idx closedIdx = 0;
+      std::map<hir::DefIdx, Idx> mapping;
+      Idx closedIdx = 0;
       for (auto &cv : closed) {
         mapping[cv] = closedIdx++;
       }
@@ -399,7 +392,7 @@ namespace ast::lower {
       return expr;
     }
 
-    Eptr visitBindingExpr(Binding &it, hir::Idx idx, std::optional<loc::Span> span) {
+    Eptr visitBindingExpr(Binding &it, Idx idx, std::optional<loc::Span> span) {
       auto retExpr = withSpan<hir::DefineExpr>(span);
       retExpr->idx = idx;
       if (it.foreignToken) {
@@ -437,7 +430,7 @@ namespace ast::lower {
     }
 
     LowerResult visitProgram(Program &it) override {
-      std::vector<std::optional<hir::Idx>> indeces;
+      std::vector<std::optional<Idx>> indeces;
       indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
         indeces.push_back(BindingVisitor(*this).visitStatement(*stmt));
@@ -455,11 +448,11 @@ namespace ast::lower {
       return res;
     }
 
-    Eptr visitDefn(Defn &it, std::optional<hir::Idx> idx) override {
+    Eptr visitDefn(Defn &it, std::optional<Idx> idx) override {
       return visitBindingExpr(it.binding, *idx, it.span);
     }
 
-    Eptr visitExpr(Expr &it, std::optional<hir::Idx>) override {
+    Eptr visitExpr(Expr &it, std::optional<Idx>) override {
       return ExprVisitor::visitExpr(it, hir::Pos::Stmt);
     }
 
@@ -502,7 +495,7 @@ namespace ast::lower {
       auto &block = blockE->block;
       addBindingsToBlock(block);
 
-      hir::Idx idx = 0;
+      Idx idx = 0;
       for (auto &b : it.bindings) {
         block.body.push_back(visitBindingExpr(b, idx++, std::nullopt));
       }
@@ -550,7 +543,7 @@ namespace ast::lower {
       bindings.push();
       typeBindings.push();
 
-      std::vector<std::optional<hir::Idx>> indeces;
+      std::vector<std::optional<Idx>> indeces;
       indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
         indeces.push_back(BindingVisitor(*this).visitStatement(*stmt.statement));
@@ -597,8 +590,7 @@ namespace ast::lower {
       case Tok::TStr:
         expr->type = hir::LiteralExpr::Type::String;
         break;
-      default:
-        break;
+      default: throw 0;
       }
       return expr;
     }
@@ -647,8 +639,8 @@ namespace ast::lower {
 
         loc::Span lhsSpan = it.lhs->span;
 
-        std::function<Eptr(hir::Idx, hir::DefIdx)> addRhs =
-          [&](hir::Idx i, hir::DefIdx lastVar) -> Eptr {
+        std::function<Eptr(Idx, hir::DefIdx)> addRhs =
+          [&](Idx i, hir::DefIdx lastVar) -> Eptr {
             auto &term = it.terms.at(i);
             hir::CmpExpr::Op cmp;
             switch (term.operatorToken.type) {
@@ -671,8 +663,7 @@ namespace ast::lower {
             case Tok::TGt:
               cmp = hir::CmpExpr::Op::Gt;
               break;
-            default:
-              break; // unreachable
+            default: throw 0;
             }
 
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);

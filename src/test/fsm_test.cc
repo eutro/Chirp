@@ -1,10 +1,6 @@
 #include "../fsm/NFA.h"
 #include "../fsm/RegEx.h"
 
-#include <cstdlib>
-#include <iostream>
-#include <string>
-
 template<typename NFA, typename F>
 void assertMatches(const std::string &regex,
                    NFA &nfa,

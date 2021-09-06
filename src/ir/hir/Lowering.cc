@@ -1,19 +1,17 @@
-#include "Builtins.h"
+#include "Lowering.h"
 #include "Hir.h"
 #include "Infer.h"
-#include "../lir/Lir.h"
-#include <cstdint>
-#include <string>
-#include <variant>
 
 namespace hir::lower {
   using namespace lir;
 
-  class LoweringVisitor :
 #define RET_T Insn *
-#define ARGS , BlockList &l, Idx *bb, bool tail
+#define ARGS(TYPE) (TYPE &e, BlockList &l, Idx *bb, bool tail)
+  class LoweringVisitor :
+    public AbstractLoweringVisitor,
     public ExprVisitor<Insn *,
-                       BlockList, Idx*, bool> {
+                       BlockList&, Idx*, bool> {
+  public:
     infer::InferResult &res;
 
     std::map<DefIdx, Insn *> vars;
@@ -22,57 +20,62 @@ namespace hir::lower {
 
     Block *rootBlock = nullptr;
 
-    BlockList visitRootBlock(Block &block) {
+    BlockList visitRootBlock(Block &block) override {
       rootBlock = &block;
       auto &insnts = res.insts.at(&block);
       BlockList l;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true);
-      return l;
+      return std::move(l);
     }
 
-    Insn *voidValue(BlockList l, Idx *bb) {
+    Insn *voidValue(BlockList &l, Idx *bb) {
       return l[*bb].emplace_back(Insn::NewTuple{{}});
     }
 
-    RET_T visitExpr(Expr &e ARGS) {
-      Idx ty = res.insts[rootBlock].exprTypes.at(&e);
+    void setTy(Expr &e, Insn *insn) {
+      insn->ty = res.insts[rootBlock].exprTypes.at(&e);
+    }
+    
+    RET_T visitExpr ARGS(Expr) override {
       RET_T ret = ExprVisitor::visitExpr(e, l, bb, tail);
-      ret->ty = ty;
+      setTy(e, ret);
       return ret;
     }
 
-    RET_T visitBlock(Block &block ARGS) {
-      for (auto &binding : block.bindings) {
-        Idx ty = res.insts[rootBlock].varTypes.at(binding);
-        vars[binding] = l[*bb].emplace_back(Insn::DeclareVar{});
+    RET_T visitBlock ARGS(Block) {
+      for (auto &binding : e.bindings) {
+        Insn *declare = l[*bb].emplace_back(Insn::DeclareVar{});
+        declare->ty = res.insts[rootBlock].varTypes.at(binding);
+        vars[binding] = declare;
       }
-      for (auto &e : block.body) {
-        auto define = dynamic_cast<DefineExpr*>(e.get());
+      for (auto &expr : e.body) {
+        auto define = dynamic_cast<DefineExpr*>(expr.get());
         if (define) {
           if (dynamic_cast<NewExpr*>(define->value.get())) {
             auto halloc = l[*bb].emplace_back(Insn::HeapAlloc{});
-            l[*bb].emplace_back(Insn::SetVar{{}, halloc});
+            setTy(*define->value, halloc);
+            l[*bb].emplace_back(Insn::SetVar{vars.at(define->idx), halloc});
           }
         }
       }
       RET_T last;
-      for (auto it = block.body.begin();;) {
-        Expr &e = **it;
-        bool isLast = ++it == block.body.end();
-        last = visitExpr(e, l, bb, tail && isLast);
+      for (auto it = e.body.begin();;) {
+        Expr &expr = **it;
+        bool isLast = ++it == e.body.end();
+        last = visitExpr(expr, l, bb, tail && isLast);
         if (isLast) break;
       }
       return last;
     }
 
-    RET_T visitBlockExpr(BlockExpr &e ARGS) {
+    RET_T visitBlockExpr ARGS(BlockExpr) override {
       return visitBlock(e.block, l, bb, tail);
     }
-    RET_T visitVarExpr(VarExpr &e ARGS) {
+    RET_T visitVarExpr ARGS(VarExpr) override {
       return l[*bb].emplace_back(Insn::GetVar{vars.at(e.ref)});
     }
-    RET_T visitCondExpr(CondExpr &e ARGS) {
+    RET_T visitCondExpr ARGS(CondExpr) override {
       Insn *pred = visitExpr(*e.predE, l, bb, false);
       Idx thenB = l.push();
       Idx elseB = l.push();
@@ -94,10 +97,10 @@ namespace hir::lower {
         }
       }
     }
-    RET_T visitVoidExpr(VoidExpr &e ARGS) {
+    RET_T visitVoidExpr ARGS(VoidExpr) override {
       return voidValue(l, bb);
     }
-    RET_T visitLiteralExpr(LiteralExpr &e ARGS) {
+    RET_T visitLiteralExpr ARGS(LiteralExpr) override {
       switch (e.type) {
       case LiteralExpr::Int: {
         return l[*bb].emplace_back(Insn::LiteralInt{std::stoull(e.value)});
@@ -117,39 +120,40 @@ namespace hir::lower {
         value.shrink_to_fit();
         return l[*bb].emplace_back(Insn::LiteralString{std::move(value)});
       }
+      default: throw 0;
       }
     }
-    RET_T visitBoolExpr(BoolExpr &e ARGS) {
+    RET_T visitBoolExpr ARGS(BoolExpr) override {
       return l[*bb].emplace_back(Insn::LiteralBool{e.value});
     }
-    RET_T visitBinExpr(BinExpr &e ARGS) {
+    RET_T visitBinExpr ARGS(BinExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
       Idx trait = res.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
-    RET_T visitCmpExpr(CmpExpr &e ARGS) {
+    RET_T visitCmpExpr ARGS(CmpExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
       Idx trait = res.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 1 + (Idx)e.op});
     }
-    RET_T visitNegExpr(NegExpr &e ARGS) {
+    RET_T visitNegExpr ARGS(NegExpr) override {
       auto receiver = visitExpr(*e.value, l, bb, false);
       Idx trait = res.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, {}, trait, 0});
     }
-    RET_T visitCallExpr(CallExpr &e ARGS) {
+    RET_T visitCallExpr ARGS(CallExpr) override {
       auto receiver = visitExpr(*e.func, l, bb, false);
       std::vector<Insn *> args;
       args.reserve(e.args.size());
-      for (auto &e : e.args) {
-        args.push_back(visitExpr(*e, l, bb, false));
+      for (auto &expr : e.args) {
+        args.push_back(visitExpr(*expr, l, bb, false));
       }
       Idx trait = res.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
-    RET_T visitDefineExpr(DefineExpr &e ARGS) {
+    RET_T visitDefineExpr ARGS(DefineExpr) override {
       NewExpr *newE = dynamic_cast<NewExpr *>(e.value.get());
       if (newE) {
         Idx i = 0;
@@ -164,18 +168,28 @@ namespace hir::lower {
       }
       return voidValue(l, bb);
     }
-    RET_T visitNewExpr(NewExpr &e ARGS) {
-      throw std::runtime_error("New must be in a define");
+    RET_T visitNewExpr ARGS(NewExpr) override {
+      Idx i = 0;
+      auto obj = l[*bb].emplace_back(Insn::HeapAlloc{}); // type will be added
+      for (auto &v : e.values) {
+        auto value = visitExpr(*v, l, bb, false);
+        l[*bb].emplace_back(Insn::SetField{obj, e.variant, i++, value});
+      }
+      return obj;
     }
-    RET_T visitGetExpr(GetExpr &e ARGS) {
+    RET_T visitGetExpr ARGS(GetExpr) override {
       auto obj = visitExpr(*e.value, l, bb, false);
-      return l[*bb].emplace_back(Insn::GetField{obj}, e.variant, e.field);
+      return l[*bb].emplace_back(Insn::GetField{obj, e.variant, e.field});
     }
-    RET_T visitForeignExpr(ForeignExpr &e ARGS) {
+    RET_T visitForeignExpr ARGS(ForeignExpr) override {
       return l[*bb].emplace_back(Insn::ForeignRef{e.name});
     }
-    RET_T visitDummyExpr(DummyExpr &e ARGS) {
+    RET_T visitDummyExpr ARGS(DummyExpr) override {
       throw std::runtime_error("Dummy expression");
     }
   };
+
+  std::unique_ptr<AbstractLoweringVisitor> loweringVisitor(infer::InferResult &inferResult) {
+    return std::make_unique<LoweringVisitor>(inferResult);
+  }
 }

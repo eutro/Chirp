@@ -2,7 +2,7 @@
 #include "../ir/tok/Parser.h"
 #include "../ir/ast/Lowering.h"
 #include "../ir/hir/Infer.h"
-#include <iostream>
+
 #include <sstream>
 
 int main() {
@@ -23,7 +23,7 @@ int main() {
   err::maybeAbort(epc, infer.errors);
 
   for (auto &block : infer.insts) {
-    for (hir::Idx i = 0; i < block.second.types.size(); ++i) {
+    for (Idx i = 0; i < block.second.types.size(); ++i) {
       std::cerr << "Instantiation #" << (i + 1) << std::endl;
       for (auto &e : block.second.exprTypes) {
         if (!e.first->span) continue;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../common/Idx.h"
+
 #include <cmath>
 #include <cstdint>
 #include <variant>
@@ -7,18 +9,12 @@
 #include <memory>
 
 namespace lir {
-  using Idx = std::uint32_t;
-
   struct BasicBlock;
 
   class Insn {
   public:
-    struct DeclareVar {
-      Idx ty;
-    };
-    struct HeapAlloc {
-      Insn *var;
-    };
+    struct DeclareVar {};
+    struct HeapAlloc {};
     struct SetVar {
       Insn *var;
       Insn *value;
@@ -69,7 +65,7 @@ namespace lir {
     Idx ty;
     std::variant<DeclareVar, HeapAlloc, SetVar, GetVar, SetField, GetField,
                  CallTrait, PhiNode, NewTuple,
-                 ForeignRef, LiteralString, LiteralInt, LiteralFloat>
+                 ForeignRef, LiteralString, LiteralInt, LiteralFloat, LiteralBool>
         v;
     template <typename... Arg>
     Insn(Arg &&...arg): v(std::forward<Arg>(arg)...) {}
@@ -95,6 +91,8 @@ namespace lir {
   struct BasicBlock {
     std::vector<std::unique_ptr<Insn>> insns;
     Jump end;
+    BasicBlock() {}
+    BasicBlock(const BasicBlock &) = delete;
     template <typename... Arg>
     Insn *emplace_back(Arg &&...arg) {
       Insn *ret = insns.emplace_back(std::make_unique<Insn>(std::forward<Arg>(arg)...)).get();
@@ -105,6 +103,9 @@ namespace lir {
 
   struct BlockList {
     std::vector<std::unique_ptr<BasicBlock>> blocks;
+    BlockList() {}
+    BlockList(BlockList &&) = default;
+    BlockList(const BlockList &) = delete;
     BasicBlock &operator[](Idx i) {
       return *blocks.at(i).get();
     }

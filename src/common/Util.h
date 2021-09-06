@@ -28,7 +28,7 @@ namespace util {
       DSU *oRoot = o->find();
       if (tRoot == oRoot) return;
       DSU *minRoot, *maxRoot;
-      std::tie(minRoot, maxRoot) = std::minmax(minRoot, maxRoot, [](DSU *a, DSU *b) {
+      std::tie(minRoot, maxRoot) = std::minmax(tRoot, oRoot, [](DSU *a, DSU *b) {
         return a->size < b->size;
       });
       minRoot->parent = maxRoot;

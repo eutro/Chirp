@@ -1,12 +1,4 @@
 #include "Json.h"
-#include "Hir.h"
-#include "nlohmann/json.hpp"
-
-#include <memory>
-#include <optional>
-#include <type_traits>
-#include <utility>
-#include <variant>
 
 namespace loc {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(SrcLoc, line, col);

@@ -58,6 +58,7 @@ namespace lexer {
     const fsm::DFA<char, TokenType> &dfa;
     std::istream &in;
     bool yieldLines = false;
+    size_t state = dfa.initial;
 
   public:
     std::vector<std::string> lines;
@@ -76,7 +77,6 @@ namespace lexer {
     /**
      * The state of the DFA.
      */
-    size_t state = dfa.initial;
 
     std::string raw;
     size_t pos = 0;

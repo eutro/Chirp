@@ -1,7 +1,5 @@
 #include "Rebind.h"
 
-#include <functional>
-
 namespace hir::rebind {
   class RebindVisitorImpl : public RebindVisitor {
     Rebinder rb;

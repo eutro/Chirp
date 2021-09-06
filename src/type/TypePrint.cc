@@ -1,6 +1,4 @@
 #include "TypePrint.h"
-#include "Type.h"
-#include <variant>
 
 using namespace type;
 
@@ -49,7 +47,6 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
             if (i <= 25) return;
             i /= 26;
           }
-          os << "";
         },
         [&](Ty::ADT &t) {
           os << "adt[" << t.i << "]";

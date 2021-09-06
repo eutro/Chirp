@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../common/Idx.h"
 #include "../common/Err.h"
 #include "../common/Util.h"
 
@@ -14,8 +15,6 @@ template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace type {
-  using Idx = std::uint32_t;
-
   enum class IntSize {
     i8,
     i16,
@@ -132,7 +131,7 @@ namespace type {
 
 ITER_HASH(type::Substs);
 ITER_HASH(type::TraitBounds);
-ITER_HASH(std::set<type::Idx>)
+ITER_HASH(std::set<Idx>)
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
   namespace std { template <> struct hash<type::TYPE> {          \

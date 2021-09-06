@@ -1,23 +1,10 @@
 #include "Infer.h"
 
-#include "../../type/TypePrint.h"
 #include "Builtins.h"
-#include "Hir.h"
 
 #include <sstream>
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <deque>
-#include <functional>
-#include <iostream>
-#include <iterator>
-#include <memory>
-#include <stdexcept>
-#include <string>
-#include <type_traits>
-#include <variant>
-#include <vector>
 
 namespace hir::infer {
   struct Constraints {
@@ -193,7 +180,7 @@ namespace hir::infer {
                 // propagated
                 return tcx.intern(Ty::Err{});
               }
-              return idces[trf.ref];;
+              return idces[trf.ref];
             } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
               return complete->at(ty);
             }
@@ -294,7 +281,7 @@ namespace hir::infer {
       }
       auto &def = program->bindings.at(id);
       if (!std::holds_alternative<DefType::Type>(def.defType.v)) {
-        throw std::runtime_error("Not a type");
+        throw std::runtime_error("ICE: Not a type");
       }
       return definedTys[id] = freshType(maybeLoc(def.source, "here"));
     }
@@ -710,15 +697,16 @@ namespace hir::infer {
       return implementedTraitBounds;
     }
 
-    Constraints *cnstr = nullptr;
-    Block *currentBlock = nullptr;
+    Constraints *cCnstr = nullptr;
+    Block *rootBlock = nullptr;
     Constraints visitRootBlock(Block &block, Tp *ret = nullptr) {
       Constraints data;
-      cnstr = &data;
-      currentBlock = &block;
+      cCnstr = &data;
+      rootBlock = &block;
       Tp ty = visitBlock(block);
       if (ret) *ret = ty;
-      blockVars[currentBlock]; // ensure init
+      blockVars[rootBlock]; // ensure init
+      cCnstr = nullptr;
       return data;
     }
 
@@ -739,42 +727,41 @@ namespace hir::infer {
       if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
         ty = tr(ty, PreWalk{});
       }
-      Tp ret;
       switch (ty->v.index()) {
       case 5: // Placeholder
       case 12: // CyclicRef
-        ret = tr(ty);
+        ty = tr(ty);
         break;
       case 9: { // TraitRef
         auto &trf = std::get<9>(ty->v);
         auto uret = Ty::TraitRef{replaceTy<IGNORED>(trf.ty, tr),
                                  replaceTy<IGNORED>(trf.trait, tr),
                                  trf.ref};
-        if constexpr (!IGNORED) ret = tr(tcx.intern(std::move(uret)));
+        if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
         break;
       }
       case 6: { // ADT
         auto &adt = std::get<6>(ty->v);
         auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(adt.s, tr)};
-        if constexpr (!IGNORED) ret = tcx.intern(uret);
+        if constexpr (!IGNORED) ty = tcx.intern(uret);
         break;
       }
       case 7: { // Dyn
         auto &dyn = std::get<7>(ty->v);
         auto uret = Ty::Dyn{replaceTy<IGNORED>(dyn.t, tr)};
-        if constexpr (!IGNORED) ret = tcx.intern(uret);
+        if constexpr (!IGNORED) ty = tcx.intern(uret);
         break;
       }
       case 8: { // Tuple
         auto &tup = std::get<8>(ty->v);
         auto uret = Ty::Tuple{replaceTy<IGNORED>(tup.t, tr)};
-        if constexpr (!IGNORED) ret = tcx.intern(uret);
+        if constexpr (!IGNORED) ty = tcx.intern(uret);
         break;
       }
       case 11: { // Cyclic
         auto &clc = std::get<11>(ty->v);
         auto uret = Ty::Cyclic{replaceTy<IGNORED>(clc.ty, tr)};
-        if constexpr (!IGNORED) ret = tcx.intern(uret);
+        if constexpr (!IGNORED) ty = tcx.intern(uret);
         break;
       }
       case 0: // Err
@@ -784,12 +771,12 @@ namespace hir::infer {
       case 4: // Float
       case 10: // String
       default:
-        ret = ty;
+        break; // noop
       }
       if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
         ty = tr(ty, PostWalk{});
       }      
-      return ret;
+      return ty;
     }
 
     template <bool IGNORED = false, typename T, typename TR>
@@ -816,7 +803,7 @@ namespace hir::infer {
 
     Tp visitBlock(Block &block) {
       for (auto &b : block.bindings) {
-        blockVars[currentBlock].insert(b);
+        blockVars[rootBlock].insert(b);
         Tp ty = varTypes[b] =
           freshType(maybeLoc(program->bindings.at(b).source, "type of this"));
         for (auto &hint :
@@ -843,15 +830,15 @@ namespace hir::infer {
     Tp boolType() { return tcx.intern(Ty::Bool{}); }
 
     void constrainTrait(Tp param, TraitBound *bound) {
-      cnstr->traitBounds[param].insert(bound);
+      cCnstr->traitBounds[param].insert(bound);
     }
 
     void constrainUnite(Tp type, Tp other) {
-      cnstr->unions.emplace_back(type, other);
+      cCnstr->unions.emplace_back(type, other);
     }
 
     Tp visitExpr(Expr &it) {
-      blockExprs[currentBlock].insert(&it);
+      blockExprs[rootBlock].insert(&it);
       Tp ty = exprTypes[&it] = ExprVisitor::visitExpr(it);
       for (auto &hint : it.type) {
         parseTypeHint(ty, hint);
@@ -890,6 +877,7 @@ namespace hir::infer {
         return tcx.intern(Ty::Float{type::FloatSize::f64});
       case LiteralExpr::String:
         return tcx.intern(Ty::String{});
+      default: throw 0;
       }
     }
     Tp visitBoolExpr(BoolExpr &it) {
@@ -907,6 +895,7 @@ namespace hir::infer {
       case BinExpr::Mul: trait = Mul; break;
       case BinExpr::Div: trait = Div; break;
       case BinExpr::Rem: trait = Rem; break;
+      default: throw 0;
       }
       TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsType}});
       constrainTrait(lhsType, traitBound);

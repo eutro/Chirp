@@ -1,7 +1,9 @@
 #pragma once
 
+
 #include "../Visitor.h"
 #include "../../common/Loc.h"
+#include "../../common/Idx.h"
 
 #include <functional>
 #include <map>
@@ -11,10 +13,10 @@
 #include <cstdint>
 #include <vector>
 #include <memory>
+#include <optional>
 
 namespace hir {
-  typedef std::uint32_t Idx;
-  typedef Idx DefIdx;
+  using DefIdx = Idx;
 
   class Type {
   public:

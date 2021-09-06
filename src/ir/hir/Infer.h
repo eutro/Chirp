@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Hir.h"
 #include "../../type/Type.h"
 #include "../../common/Arena.h"

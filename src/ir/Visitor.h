@@ -47,9 +47,9 @@ namespace visitor {
 #define _EvisitVirtual(TYPE) virtual _Evisit(TYPE) = 0;
 #define _EvisitImpl(TYPE) _Evisit(TYPE) override {                      \
     return std::apply                                                   \
-      ([this, &it](Arg &&... arg) { return visit##TYPE(it, std::forward<Arg>(arg)...); }, \
-       visitor::any_cast<std::tuple<Arg...>>(std::forward<visitor::MovingAny>(args))); }
+      ([this, &it](std::remove_reference_t<Arg> *...arg) { return visit##TYPE(it, *arg...); }, \
+       visitor::any_cast<std::tuple<std::remove_reference_t<Arg> *...>>(std::forward<visitor::MovingAny>(args))); }
 
 #define _typedVisit(TYPE) Ret visit##TYPE(TYPE &it, Arg... args)
 #define _typedRoot(TYPE) _typedVisit(TYPE) {                            \
-    return visitor::any_cast<Ret>(it.accept##TYPE(*this, std::make_tuple(args...))); }
+    return visitor::any_cast<Ret>(it.accept##TYPE(*this, std::make_tuple(&args...))); }

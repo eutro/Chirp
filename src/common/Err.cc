@@ -1,7 +1,6 @@
 #include "Err.h"
 
 #include <algorithm>
-#include <cstdlib>
 #include <iomanip>
 #include <iterator>
 #include <valarray>
