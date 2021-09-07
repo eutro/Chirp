@@ -2,6 +2,7 @@
 #include "../ir/ast/Lowering.h"
 #include "../ir/hir/Infer.h"
 #include "../ir/hir/Lowering.h"
+#include "../ir/lir/Disas.h"
 
 #include <iostream>
 
@@ -15,4 +16,5 @@ int main() {
   auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
   err::maybeAbort(epc, types.errors);
   auto lir = hir::lower::loweringVisitor(types)->visitProgram(hir.program);
+  lir::disas::disassemble(lir.module, std::cerr);
 }

@@ -4,4 +4,4 @@ defn car(pair) = pair(\x,y.x)
 
 defn cdr(pair) = pair(\x,y.y)
 
-cdr(car(cons(cons(1, 1.0), \x.x)))
+cdr(car(cons(cons(1, 1.0), cons(\x.x, false))))

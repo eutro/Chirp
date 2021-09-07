@@ -442,6 +442,7 @@ namespace ast::lower {
       for (auto &stmt : it.statements) {
         body.push_back(visitStatement(*stmt, *iter++));
       }
+      body.push_back(withSpan<hir::VoidExpr>(std::nullopt));
       LowerResult res;
       res.program = std::move(program);
       res.errors = std::move(errs);
@@ -688,7 +689,7 @@ namespace ast::lower {
               auto falseE = withSpan<hir::BoolExpr>(std::nullopt);
               falseE->value = false;
               condE->predE = std::move(predE);
-              condE->elseE = addRhs(i + 1, thisVar);
+              condE->thenE = addRhs(i + 1, thisVar);
               condE->elseE = std::move(falseE);
               return condE;
             }

@@ -567,6 +567,7 @@ namespace hir::infer {
           if (std::holds_alternative<Ty::TraitRef>(lhs->v) ||
               std::holds_alternative<Ty::TraitRef>(rhs->v)) {
             unresolved.emplace_back(lhs, rhs);
+            continue;
           }
           if (lhs == rhs || seen.count({lhs, rhs})) {
             continue;

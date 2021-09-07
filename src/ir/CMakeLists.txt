@@ -23,3 +23,5 @@ target_link_libraries(hirinfer hir err type)
 
 add_library(hirlower hir/Lowering.cc)
 target_link_libraries(hirlower hir err type)
+
+add_library(lirdisas lir/Disas.cc)

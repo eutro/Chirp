@@ -64,10 +64,13 @@ namespace lir {
     struct LiteralBool {
       bool value;
     };
+    struct BlockStart {};
+    struct BlockEnd {};
     Idx ty;
     std::variant<DeclareVar, HeapAlloc, SetVar, GetVar, SetField, GetField,
-                 CallTrait, PhiNode, NewTuple,
-                 ForeignRef, LiteralString, LiteralInt, LiteralFloat, LiteralBool>
+                 CallTrait, PhiNode, NewTuple, ForeignRef,
+                 LiteralString, LiteralInt, LiteralFloat, LiteralBool,
+                 BlockStart, BlockEnd>
         v;
     template <typename... Arg>
     Insn(Arg &&...arg): v(std::forward<Arg>(arg)...) {}
@@ -95,10 +98,10 @@ namespace lir {
     Jump end;
     BasicBlock() {}
     BasicBlock(const BasicBlock &) = delete;
-    template <typename... Arg>
+    template <bool JUMP = true, typename... Arg>
     Insn *emplace_back(Arg &&...arg) {
       Insn *ret = insns.emplace_back(std::make_unique<Insn>(std::forward<Arg>(arg)...)).get();
-      end = Jump::Ret{ret};
+      if constexpr (JUMP) end = Jump::Ret{ret};
       return ret;
     }
   };
@@ -108,6 +111,7 @@ namespace lir {
     BlockList() {}
     BlockList(BlockList &&) = default;
     BlockList(const BlockList &) = delete;
+    BlockList &operator=(BlockList &&o) = default;
     BasicBlock &operator[](Idx i) {
       return *blocks.at(i).get();
     }
@@ -126,7 +130,7 @@ namespace lir {
     struct For {
       type::Ty *ty;
       type::TraitBound *tb;
-      bool operator<(const For &o) {
+      bool operator<(const For &o) const {
         return std::make_pair(ty, tb) < std::make_pair(o.ty, o.tb);
       }
     };
