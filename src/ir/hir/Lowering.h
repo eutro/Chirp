@@ -4,10 +4,11 @@
 #include "../lir/Lir.h"
 
 namespace hir::lower {
-  class AbstractLoweringVisitor {
-  public:
-    virtual lir::BlockList visitRootBlock(Block &block) = 0;
-    virtual ~AbstractLoweringVisitor() = default;
+  struct LowerResult {
+    lir::Module module;
+  };
+
+  class AbstractLoweringVisitor : public ProgramVisitor<LowerResult> {
   };
 
   std::unique_ptr<AbstractLoweringVisitor> loweringVisitor(infer::InferResult &inferResult);

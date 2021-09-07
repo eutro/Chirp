@@ -101,6 +101,7 @@ namespace hir::infer {
     InferResult visitProgram(Program &p) {
       program = &p;
 
+      std::map<Block *, AbstractTraitImpl *> atiBlocks;
       std::vector<std::pair<Block *, Constraints *>> traitConstraints;
 
       for (TraitImpl &ti : p.traitImpls) {
@@ -112,8 +113,8 @@ namespace hir::infer {
           definedTys[param] = freshType(maybeLoc(p.bindings.at(param).source, "from here"));
         }
         for (Block &m : ti.methods) {
-          // assumed to be only one
-          ati.constraints = visitRootBlock(m);
+          atiBlocks[&m] = &ati;
+          visitRootBlock(ati.constraints, m);
           traitConstraints.push_back({&m, &ati.constraints});
         }
         ati.ty = parseTy(ti.type);
@@ -125,7 +126,8 @@ namespace hir::infer {
         adtTraits[{Fn, std::get<Ty::ADT>(ati.ty->v).i}] = &ati;
       }
 
-      Constraints mainConstraints = visitRootBlock(p.topLevel);
+      Constraints mainConstraints;
+      visitRootBlock(mainConstraints, p.topLevel);
       auto traitImplTypes = inferTypes(mainConstraints);
 
       InferResult res;
@@ -148,6 +150,11 @@ namespace hir::infer {
             }
             return found->second;
           };
+          auto found = atiBlocks.find(&block);
+          if (found != atiBlocks.end()) {
+            typeIdx[found->second->ty] = typeCount++;
+            traitIdx[found->second->bound] = traitCount++;
+          }
           for (auto &e : blockExprs.at(&block)) {
             blockInsts.exprTypes[e] = getIdx(typeIdx, exprTypes[e], typeCount);
             if (traitBoundTypes.count(e)) {
@@ -200,6 +207,11 @@ namespace hir::infer {
               thisTy = replaceTy(genericTypes[v], replacer);
             }
           };
+          auto found = atiBlocks.find(&block);
+          if (found != atiBlocks.end()) {
+            thisInst.tys[0] = replaceTy(found->second->ty, replacer);
+            thisInst.tbs[0] = replaceTy(found->second->bound, replacer);
+          }
           for (Expr *e : blockExprs[&block]) {
             putIdx(blockInsts.exprTypes, exprTypes, thisInst.tys, e);
             if (traitBoundTypes.count(e)) {
@@ -699,15 +711,13 @@ namespace hir::infer {
 
     Constraints *cCnstr = nullptr;
     Block *rootBlock = nullptr;
-    Constraints visitRootBlock(Block &block, Tp *ret = nullptr) {
-      Constraints data;
-      cCnstr = &data;
+    void visitRootBlock(Constraints &cnstr, Block &block, Tp *ret = nullptr) {
+      cCnstr = &cnstr;
       rootBlock = &block;
       Tp ty = visitBlock(block);
       if (ret) *ret = ty;
       blockVars[rootBlock]; // ensure init
       cCnstr = nullptr;
-      return data;
     }
 
     struct PreWalk {};

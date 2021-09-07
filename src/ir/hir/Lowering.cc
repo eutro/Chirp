@@ -12,17 +12,23 @@ namespace hir::lower {
     public ExprVisitor<Insn *,
                        BlockList&, Idx*, bool> {
   public:
-    infer::InferResult &res;
+    infer::InferResult &infer;
 
     std::map<DefIdx, Insn *> vars;
 
-    LoweringVisitor(infer::InferResult &res): res(res) {}
+    LoweringVisitor(infer::InferResult &res) : infer(res) {}
 
     Block *rootBlock = nullptr;
 
-    BlockList visitRootBlock(Block &block) override {
+    LowerResult visitProgram(Program &p) override {
+      LowerResult ret;
+      // TODO visit blocks
+      return ret;
+    }
+
+    BlockList visitRootBlock(Block &block) {
       rootBlock = &block;
-      auto &insnts = res.insts.at(&block);
+      auto &insnts = infer.insts.at(&block);
       BlockList l;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true);
@@ -34,7 +40,7 @@ namespace hir::lower {
     }
 
     void setTy(Expr &e, Insn *insn) {
-      insn->ty = res.insts[rootBlock].exprTypes.at(&e);
+      insn->ty = infer.insts[rootBlock].exprTypes.at(&e);
     }
     
     RET_T visitExpr ARGS(Expr) override {
@@ -46,7 +52,7 @@ namespace hir::lower {
     RET_T visitBlock ARGS(Block) {
       for (auto &binding : e.bindings) {
         Insn *declare = l[*bb].emplace_back(Insn::DeclareVar{});
-        declare->ty = res.insts[rootBlock].varTypes.at(binding);
+        declare->ty = infer.insts[rootBlock].varTypes.at(binding);
         vars[binding] = declare;
       }
       for (auto &expr : e.body) {
@@ -129,18 +135,18 @@ namespace hir::lower {
     RET_T visitBinExpr ARGS(BinExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
-      Idx trait = res.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
-      Idx trait = res.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 1 + (Idx)e.op});
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
       auto receiver = visitExpr(*e.value, l, bb, false);
-      Idx trait = res.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, {}, trait, 0});
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
@@ -150,7 +156,7 @@ namespace hir::lower {
       for (auto &expr : e.args) {
         args.push_back(visitExpr(*expr, l, bb, false));
       }
-      Idx trait = res.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {

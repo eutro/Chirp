@@ -14,11 +14,5 @@ int main() {
   err::maybeAbort(epc, hir.errors);
   auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
   err::maybeAbort(epc, types.errors);
-
-  auto visitor = hir::lower::loweringVisitor(types);
-  std::vector<lir::BlockList> blocks;
-  for (auto &b : types.insts) {
-    blocks.push_back(visitor->visitRootBlock(*b.first));
-  }
-  blocks.size();
+  auto lir = hir::lower::loweringVisitor(types)->visitProgram(hir.program);
 }

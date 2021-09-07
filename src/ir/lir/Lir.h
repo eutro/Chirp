@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../../common/Idx.h"
+#include "../../type/Type.h"
 
+#include <map>
 #include <cmath>
 #include <cstdint>
 #include <variant>
@@ -113,5 +115,28 @@ namespace lir {
       blocks.emplace_back(std::make_unique<BasicBlock>());
       return blocks.size() - 1;
     }
+  };
+
+  struct Instantiation {
+    std::vector<type::TraitBound *> traits;
+    std::vector<type::Ty *> types;
+  };
+
+  struct TraitImpl {
+    struct For {
+      type::Ty *ty;
+      type::TraitBound *tb;
+      bool operator<(const For &o) {
+        return std::make_pair(ty, tb) < std::make_pair(o.ty, o.tb);
+      }
+    };
+    std::map<For, Instantiation> instantiations;
+    std::vector<BlockList> methods;
+  };
+
+  struct Module {
+    std::vector<TraitImpl> traitImpls;
+    Instantiation instantiation;
+    BlockList topLevel;
   };
 }
