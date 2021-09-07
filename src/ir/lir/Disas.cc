@@ -77,5 +77,11 @@ namespace lir::disas {
   void disassemble(const Module &mod, std::ostream &os) {
     os << "Top:\n";
     disassemble(mod.topLevel, os);
+    for (auto &ti : mod.traitImpls) {
+      os << "Trait:\n";
+      for (auto &m : ti.methods) {
+        disassemble(m, os);
+      }
+    }
   }
 }
