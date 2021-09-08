@@ -15,6 +15,7 @@ namespace lir {
 
   class Insn {
   public:
+    struct DeclareParam {};
     struct DeclareVar {};
     struct HeapAlloc {};
     struct SetVar {
@@ -67,7 +68,7 @@ namespace lir {
     struct BlockStart {};
     struct BlockEnd {};
     Idx ty;
-    std::variant<DeclareVar, HeapAlloc, SetVar, GetVar, SetField, GetField,
+    std::variant<DeclareParam, DeclareVar, HeapAlloc, SetVar, GetVar, SetField, GetField,
                  CallTrait, PhiNode, NewTuple, ForeignRef,
                  LiteralString, LiteralInt, LiteralFloat, LiteralBool,
                  BlockStart, BlockEnd>

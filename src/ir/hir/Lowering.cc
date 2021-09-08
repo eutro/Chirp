@@ -23,11 +23,11 @@ namespace hir::lower {
     LowerResult visitProgram(Program &p) override {
       LowerResult ret;
       ret.module.instantiation = instFromIdx(infer.insts.at(&p.topLevel), 0);
-      ret.module.topLevel = visitRootBlock(p.topLevel);
+      ret.module.topLevel = visitRootBlock(p.topLevel, false);
       for (auto &pair : infer.insts) {
         Block *b = pair.first;
         lir::TraitImpl &trait = ret.module.traitImpls.emplace_back();
-        trait.methods.emplace_back(visitRootBlock(*b));
+        trait.methods.emplace_back(visitRootBlock(*b, true));
         auto &bi = pair.second;
         size_t instCount = bi.types.size();
         for (size_t i = 0; i < instCount; ++i) {
@@ -47,12 +47,12 @@ namespace hir::lower {
       return inst;
     }
 
-    BlockList visitRootBlock(Block &block) {
+    BlockList visitRootBlock(Block &block, bool func) {
       rootBlock = &block;
       auto &insnts = infer.insts.at(&block);
       BlockList l;
       Idx bb = l.push();
-      visitBlock(block, l, &bb, true);
+      visitBlock(block, l, &bb, true, func);
       return std::move(l);
     }
 
@@ -70,10 +70,12 @@ namespace hir::lower {
       return ret;
     }
 
-    RET_T visitBlock ARGS(Block) {
+    RET_T visitBlock(Block &e, BlockList &l, Idx *bb, bool tail, bool root) {
       l[*bb].emplace_back(Insn::BlockStart{});
       for (auto &binding : e.bindings) {
-        Insn *declare = l[*bb].emplace_back(Insn::DeclareVar{});
+        Insn *declare = root ?
+          l[*bb].emplace_back(Insn::DeclareParam{}) :
+          l[*bb].emplace_back(Insn::DeclareVar{});
         declare->ty = infer.insts[rootBlock].varTypes.at(binding);
         vars[binding] = declare;
       }
@@ -99,7 +101,7 @@ namespace hir::lower {
     }
 
     RET_T visitBlockExpr ARGS(BlockExpr) override {
-      return visitBlock(e.block, l, bb, tail);
+      return visitBlock(e.block, l, bb, tail, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
       return l[*bb].emplace_back(Insn::GetVar{vars.at(e.ref)});

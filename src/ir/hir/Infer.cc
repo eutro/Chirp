@@ -60,15 +60,16 @@ namespace hir::infer {
         ati.refs = {ty};
         ati.bound = tbcx.intern(TraitBound{trait, {ty}});
       };
-      auto implNegCmp = [this](Tp ty) {
-        auto &cmp = *(directTraits[{Cmp, ty}] = aticx.add());
-        cmp.ty = ty;
-        cmp.bound = tbcx.intern(TraitBound{Cmp, {ty}});
-
+      auto implNeg = [this](Tp ty) {
         auto &neg = *(directTraits[{Neg, ty}] = aticx.add());
         neg.ty = ty;
         neg.refs = {ty};
         neg.bound = tbcx.intern(TraitBound{Neg});
+      }
+      auto implCmp = [this](Tp ty) {
+        auto &cmp = *(directTraits[{Cmp, ty}] = aticx.add());
+        cmp.ty = ty;
+        cmp.bound = tbcx.intern(TraitBound{Cmp, {ty}});
       };
 
       for (type::IntSize is = type::IntSize::i8;
@@ -80,8 +81,9 @@ namespace hir::infer {
           for (Builtins bt : {Add, Sub, Mul, Div, Rem, BitOr, BitAnd}) {
             implBinOp(ty, bt);
           }
-          implNegCmp(ty);
+          implCmp(ty);
         }
+        implNeg(i);
       }
       for (type::FloatSize fs = type::FloatSize::f16;
            fs <= type::FloatSize::f64;
@@ -90,7 +92,8 @@ namespace hir::infer {
         for (Builtins bt : {Add, Sub, Mul, Div, Rem}) {
           implBinOp(ty, bt);
         }
-        implNegCmp(ty);
+        implNeg(ty);
+        implCmp(ty);
       }
       implBinOp(boolType(), BitAnd);
       implBinOp(boolType(), BitOr);

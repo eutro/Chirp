@@ -29,6 +29,7 @@ namespace lir::disas {
         os << std::string(indent + 2, ' ') << "$" << ii << " = ";
         std::visit(overloaded {
           [&](Insn::DeclareVar &){os << "DeclareVar";},
+          [&](Insn::DeclareParam &){os << "DeclareParam";},
           [&](Insn::HeapAlloc &){os << "HeapAlloc";},
           [&](Insn::SetVar &x){os << "SetVar $" << insns.at(x.var) << " $" << insns.at(x.value);},
           [&](Insn::GetVar &x){os << "GetVar $" << insns.at(x.var);},
