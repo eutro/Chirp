@@ -10,10 +10,10 @@
 namespace lir::codegen {
   struct CodegenResult {
     std::unique_ptr<llvm::Module> mod;
+    std::unique_ptr<llvm::LLVMContext> ctx;
   };
 
   CodegenResult generate(arena::InternArena<type::Ty> &tcx,
                          arena::InternArena<type::TraitBound> &tbcx,
-                         const Module &mod,
-                         llvm::LLVMContext &ctx);
+                         Module &mod);
 }

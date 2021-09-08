@@ -3,22 +3,12 @@
 using namespace type;
 
 std::ostream &operator<<(std::ostream &os, const IntSize s) {
-  switch (s) {
-  case IntSize::i8: os << "8"; break;
-  case IntSize::i16: os << "16"; break;
-  case IntSize::i32: os << "32"; break;
-  case IntSize::i64: os << "64"; break;
-  case IntSize::i128: os << "128"; break;
-  }
+  os << bitCount(s);
   return os;
 }
 
 std::ostream &operator<<(std::ostream &os, const FloatSize s) {
-  switch (s) {
-  case FloatSize::f16: os << "16"; break;
-  case FloatSize::f32: os << "32"; break;
-  case FloatSize::f64: os << "64"; break;
-  }
+  os << bitCount(s);
   return os;
 }
 

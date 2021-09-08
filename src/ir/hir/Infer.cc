@@ -65,7 +65,7 @@ namespace hir::infer {
         neg.ty = ty;
         neg.refs = {ty};
         neg.bound = tbcx.intern(TraitBound{Neg});
-      }
+      };
       auto implCmp = [this](Tp ty) {
         auto &cmp = *(directTraits[{Cmp, ty}] = aticx.add());
         cmp.ty = ty;
@@ -97,6 +97,11 @@ namespace hir::infer {
       }
       implBinOp(boolType(), BitAnd);
       implBinOp(boolType(), BitOr);
+    }
+
+    template <bool IGNORE = false, typename... Args>
+    auto replaceTy(Args &&...args) {
+      return type::replaceTy<IGNORE>(tcx, tbcx, std::forward<Args>(args)...);
     }
 
     Program *program = nullptr;
@@ -370,28 +375,7 @@ namespace hir::infer {
     }
 
     Tp uncycle(Tp ty) {
-      if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-        Idx depth = 0;
-        auto uncycler = overloaded {
-          [&](Tp rt) {
-            if (std::holds_alternative<Ty::CyclicRef>(rt->v)) {
-              Ty::CyclicRef &ref = std::get<Ty::CyclicRef>(rt->v);
-              if (ref.depth == depth) {
-                return ty;
-              }
-            }
-            return rt;
-          },
-          [&](Tp ty, PreWalk) {
-            if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-              ++depth;
-            }
-            return ty;
-          },
-        };
-        return replaceTy(std::get<Ty::Cyclic>(ty->v).ty, uncycler);
-      }
-      return ty;
+      return type::uncycle(tcx, tbcx, ty);
     }
 
     template <typename T>
@@ -404,7 +388,7 @@ namespace hir::infer {
           }
           return ty;
         },
-        [&](Tp ty, PostWalk) -> Tp {
+        [&](Tp ty, type::PostWalk) -> Tp {
           if (std::holds_alternative<Ty::Err>(ty->v)) {
             isComplete = false;
           }
@@ -535,7 +519,7 @@ namespace hir::infer {
             }
             return ty;
           },
-          [&](Tp ty, PreWalk) {
+          [&](Tp ty, type::PreWalk) {
             if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
               ++depth;
             }
@@ -722,97 +706,6 @@ namespace hir::infer {
       if (ret) *ret = ty;
       blockVars[rootBlock]; // ensure init
       cCnstr = nullptr;
-    }
-
-    struct PreWalk {};
-    struct PostWalk {};
-
-    template <bool IGNORED = false, typename TR>
-    TraitBound *replaceTy(TraitBound *tb, TR &tr) {
-      if constexpr (IGNORED) {
-        replaceTy<IGNORED>(tb->s, tr);
-        return tb;
-      }
-      return tbcx.intern(TraitBound{tb->i, replaceTy(tb->s, tr)});
-    }
-
-    template <bool IGNORED = false, typename TR>
-    Tp replaceTy(Tp ty, TR &tr) {
-      if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
-        ty = tr(ty, PreWalk{});
-      }
-      switch (ty->v.index()) {
-      case 5: // Placeholder
-      case 12: // CyclicRef
-        ty = tr(ty);
-        break;
-      case 9: { // TraitRef
-        auto &trf = std::get<9>(ty->v);
-        auto uret = Ty::TraitRef{replaceTy<IGNORED>(trf.ty, tr),
-                                 replaceTy<IGNORED>(trf.trait, tr),
-                                 trf.ref};
-        if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
-        break;
-      }
-      case 6: { // ADT
-        auto &adt = std::get<6>(ty->v);
-        auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(adt.s, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        break;
-      }
-      case 7: { // Dyn
-        auto &dyn = std::get<7>(ty->v);
-        auto uret = Ty::Dyn{replaceTy<IGNORED>(dyn.t, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        break;
-      }
-      case 8: { // Tuple
-        auto &tup = std::get<8>(ty->v);
-        auto uret = Ty::Tuple{replaceTy<IGNORED>(tup.t, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        break;
-      }
-      case 11: { // Cyclic
-        auto &clc = std::get<11>(ty->v);
-        auto uret = Ty::Cyclic{replaceTy<IGNORED>(clc.ty, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        break;
-      }
-      case 0: // Err
-      case 1: // Bool
-      case 2: // Int
-      case 3: // UInt
-      case 4: // Float
-      case 10: // String
-      default:
-        break; // noop
-      }
-      if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
-        ty = tr(ty, PostWalk{});
-      }      
-      return ty;
-    }
-
-    template <bool IGNORED = false, typename T, typename TR>
-    std::vector<T> replaceTy(const std::vector<T> &tys, TR &tr) {
-      if constexpr (IGNORED) {
-        for (auto &s : tys) replaceTy<true>(s, tr);
-        return {};
-      }
-      auto ret = tys;
-      for (auto &s : ret) s = replaceTy(s, tr);
-      return ret;
-    }
-
-    template <bool IGNORED = false, typename T, typename TR>
-    std::set<T> replaceTy(const std::set<T> &tys, TR &tr) {
-      if constexpr (IGNORED) {
-        for (auto &s : tys) replaceTy<true>(s, tr);
-        return {};
-      }
-      std::set<T> set;
-      for (auto &s : tys) set.insert(replaceTy(s, tr));
-      return set;
     }
 
     Tp visitBlock(Block &block) {

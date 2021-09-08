@@ -85,7 +85,7 @@ namespace hir::lower {
           if (dynamic_cast<NewExpr*>(define->value.get())) {
             auto halloc = l[*bb].emplace_back(Insn::HeapAlloc{});
             setTy(*define->value, halloc);
-            l[*bb].emplace_back(Insn::SetVar{vars.at(define->idx), halloc});
+            l[*bb].emplace_back<false>(Insn::SetVar{vars.at(define->idx), halloc});
           }
         }
       }
@@ -191,11 +191,11 @@ namespace hir::lower {
         for (auto &v : newE->values) {
           auto value = visitExpr(*v, l, bb, false);
           auto getVar = l[*bb].emplace_back(Insn::GetVar{vars.at(e.idx)});
-          l[*bb].emplace_back(Insn::SetField{getVar, newE->variant, i++, value});
+          l[*bb].emplace_back<false>(Insn::SetField{getVar, newE->variant, i++, value});
         }
       } else {
         auto value = visitExpr(*e.value, l, bb, false);
-        l[*bb].emplace_back(Insn::SetVar{vars.at(e.idx), value});
+        l[*bb].emplace_back<false>(Insn::SetVar{vars.at(e.idx), value});
       }
       return voidValue(l, bb);
     }
@@ -204,8 +204,9 @@ namespace hir::lower {
       auto obj = l[*bb].emplace_back(Insn::HeapAlloc{}); // type will be added
       for (auto &v : e.values) {
         auto value = visitExpr(*v, l, bb, false);
-        l[*bb].emplace_back(Insn::SetField{obj, e.variant, i++, value});
+        l[*bb].emplace_back<false>(Insn::SetField{obj, e.variant, i++, value});
       }
+      l[*bb].end.v = Jump::Ret{obj};
       return obj;
     }
     RET_T visitGetExpr ARGS(GetExpr) override {

@@ -1,1 +1,1 @@
-add_library(type TypePrint.cc TypeImpl.cc)
+add_library(type TypePrint.cc Type.cc)

@@ -4,10 +4,10 @@
 
 #include <array>
 #include <functional>
-#include <llvm-10/llvm/IR/Constant.h>
-#include <llvm-10/llvm/IR/Constants.h>
-#include <llvm-10/llvm/IR/Instructions.h>
-#include <llvm-10/llvm/IR/Type.h>
+#include <llvm/IR/Constant.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Type.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Value.h>
@@ -23,7 +23,7 @@ namespace lir::codegen {
   using type::Ty;
   using Tp = Ty *;
 
-  const std::string GC_METHOD = "shadow-stack";
+  const std::string GC_METHOD = "shadow-stack"; // TODO gc
 
   struct LocalCC;
   struct CC;
@@ -57,10 +57,61 @@ namespace lir::codegen {
       if (found->second) {
         return found->second;
       } else {
-        throw "Recursive flat type has infinite size";
+        throw std::runtime_error("Recursive flat type has infinite size");
       }
     }
-    return nullptr; // TODO
+    if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+      Ty *uncycled = type::uncycle(cc.tcx, cc.tbcx, ty);
+      llvm::Type *llvmTy = getTy(cc, uncycled);
+      cc.tyCache[ty] = llvmTy;
+      return llvmTy;
+    } else {
+      cc.tyCache[ty] = nullptr;
+    }
+    llvm::Type *llvmTy = std::visit(overloaded {
+        [&](Ty::Bool &v) -> llvm::Type * { return llvm::Type::getInt1Ty(cc.ctx); },
+        [&](Ty::Int &v) -> llvm::Type * { return llvm::Type::getIntNTy(cc.ctx, type::bitCount(v.s)); },
+        [&](Ty::UInt &v) -> llvm::Type * { return llvm::Type::getIntNTy(cc.ctx, type::bitCount(v.s)); },
+        [&](Ty::Float &v) -> llvm::Type * {
+          switch (v.s) {
+            case type::FloatSize::f16: return llvm::Type::getHalfTy(cc.ctx);
+            case type::FloatSize::f32: return llvm::Type::getFloatTy(cc.ctx);
+            case type::FloatSize::f64: return llvm::Type::getDoubleTy(cc.ctx);
+            default: throw 0;
+          }
+        },
+        [&](Ty::ADT &v) -> llvm::Type * {
+          auto *sType = llvm::StructType::get(cc.ctx);
+          auto sPtr = sType->getPointerTo();
+          cc.tyCache[ty] = sPtr;
+          std::vector<llvm::Type *> fieldTys;
+          fieldTys.reserve(v.s.size()); // TODO variant support
+          for (Tp fieldTy : v.s) {
+            fieldTys.push_back(getTy(cc, fieldTy));
+          }
+          sType->setBody(fieldTys);
+          return sPtr;
+        },
+        [&](Ty::Tuple &v) -> llvm::Type * {
+          std::vector<llvm::Type *> fieldTys;
+          fieldTys.reserve(v.t.size());
+          for (Tp fieldTy : v.t) {
+            fieldTys.push_back(getTy(cc, fieldTy));
+          }
+          return llvm::StructType::get(cc.ctx, fieldTys);
+        },
+        [&](Ty::String &v) -> llvm::Type * {
+          return llvm::StructType::get(cc.ctx, {
+            llvm::Type::getInt64Ty(cc.ctx), // len
+            llvm::Type::getInt8PtrTy(cc.ctx), // bytes_utf8
+          });
+        },
+        [](auto) -> llvm::Type * {
+          throw std::runtime_error("Type cannot exist after inference");
+        }
+    }, ty->v);
+    cc.tyCache[ty] = llvmTy;
+    return llvmTy;
   }
 
   llvm::Type *getTy(LocalCC &lcc, Idx i) {
@@ -111,7 +162,7 @@ namespace lir::codegen {
         },
         [&](Insn::CallTrait &i) -> llvm::Value * {
           TraitImpl::For tFor {
-            .ty = lcc.inst.types.at(i.obj->ty),
+            .ty = type::uncycle(cc.tcx, cc.tbcx, lcc.inst.types.at(i.obj->ty)),
             .tb = lcc.inst.traits.at(i.trait),
           };
           return cc.emitCall.at(tFor)(insn, i, cc, lcc);
@@ -155,7 +206,18 @@ namespace lir::codegen {
           return cc.mod.getOrInsertGlobal(i.symbol, getTy(lcc, insn.ty));
         },
         [&](Insn::LiteralString &i) -> llvm::Value * {
-          return nullptr; // TODO
+          size_t len = i.value.size();
+          llvm::ArrayType *charArrayTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(cc.ctx), len);
+          std::vector<llvm::Constant *> constantChars;
+          constantChars.reserve(len);
+          for (auto c : i.value) {
+            constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, c)));
+          }
+          llvm::Constant *charsConstant = llvm::ConstantArray::get(charArrayTy, constantChars);
+          return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(getTy(lcc, insn.ty)), {
+              llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len)),
+              new llvm::GlobalVariable(cc.mod, charArrayTy, true, llvm::GlobalValue::PrivateLinkage, charsConstant),
+          });
         },
         [&](Insn::LiteralInt &i) -> llvm::Value * {
           return llvm::ConstantInt::get(getTy(lcc, insn.ty), i.value);
@@ -198,14 +260,29 @@ namespace lir::codegen {
     for (auto &bb : bl.blocks) {
       lcc.bbs[bb.get()] = llvm::BasicBlock::Create(cc.ctx, "", lcc.func);
     }
+    llvm::IRBuilder<> ib(cc.ctx);
     for (auto &bb : bl.blocks) {
       lcc.ib.SetInsertPoint(lcc.bbs.at(bb.get()));
       emitBB(*bb, cc, lcc);
     }
   }
+  
+  llvm::FunctionType *getBbType(const BlockList &bl, const Instantiation &inst, CC &cc) {
+    std::vector<llvm::Type *> argTys;
+    for (auto &insn : bl.blocks.front()->insns) {
+      if (!std::holds_alternative<Insn::DeclareParam>(insn->v)) {
+        break;
+      }
+      argTys.push_back(getTy(cc, inst.types.at(insn->ty)));
+    }
+    argTys.push_back(getTy(cc, inst.types.front()));
+    Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
+    llvm::Type *retTy = getTy(cc, inst.types.at(retIdx));
+    return llvm::FunctionType::get(retTy, argTys, false);
+  }
 
-  template <typename T, std::size_t... Idx, typename... Args>
-  auto implTraitFn(T llvm::IRBuilder<>::*fn,
+  template <typename T, std::size_t... Idx, typename C, typename... Args>
+  auto implTraitFn(T C::*fn,
                    std::index_sequence<Idx...>,
                    Args&&... args) {
     return [=](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
@@ -222,12 +299,12 @@ namespace lir::codegen {
     cc.emitCall[{ty, tb}] = fn;
   }
 
-  template <std::size_t Arity, typename T, typename... Args>
+  template <std::size_t Arity, typename T, typename C, typename... Args>
   void implTrait(CC &cc,
                  Tp ty,
                  Idx trait,
                  std::vector<Tp> &&params,
-                 T llvm::IRBuilder<>::*fn,
+                 T C::*fn,
                  Args&&... args) {
     implTrait(cc, ty, trait, std::forward<std::vector<Tp>>(params),
               implTraitFn(fn, std::make_index_sequence<Arity>{},
@@ -279,20 +356,83 @@ namespace lir::codegen {
 
   CodegenResult generate(arena::InternArena<type::Ty> &tcx,
                          arena::InternArena<type::TraitBound> &tbcx,
-                         const Module &mod,
-                         llvm::LLVMContext &ctx) {
-    auto llvmMod = std::make_unique<llvm::Module>("module", ctx);
-    CC cc { tcx, tbcx, *llvmMod, ctx };
+                         Module &mod) {
+    auto llvmCtx = std::make_unique<llvm::LLVMContext>();
+    auto llvmMod = std::make_unique<llvm::Module>("module", *llvmCtx);
+    CC cc { tcx, tbcx, *llvmMod, *llvmCtx };
 
     addIntrinsics(cc);
 
+    std::vector<std::unique_ptr<std::vector<llvm::Function *>>> traitMethods;
+
+    for (auto &trait : mod.traitImpls) {
+      for (auto &entry : trait.instantiations) {
+        std::vector<llvm::Function *> &funcs = *traitMethods.emplace_back(std::make_unique<std::vector<llvm::Function*>>());
+        funcs.reserve(trait.methods.size());
+        for (const BlockList &bl : trait.methods) {
+          llvm::FunctionType *funcTy = getBbType(bl, entry.second, cc);
+          funcs.push_back(llvm::Function::Create(funcTy, llvm::GlobalValue::PrivateLinkage, "", cc.mod));
+        }
+        cc.emitCall[entry.first] = [&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
+          auto func = funcs.at(ct.method);
+          std::vector<llvm::Value *> args;
+          args.reserve(ct.args.size() + 1 /* receiver */);
+          for (auto &i : ct.args) {
+            args.push_back(lcc.vals.at(i));
+          }
+          args.push_back(lcc.vals.at(ct.obj));
+          return lcc.ib.CreateCall(func->getFunctionType(), func, args);
+        };
+      }
+    }
+
+    llvm::IRBuilder<> ib(cc.ctx);
+    
     auto voidTy = llvm::Type::getVoidTy(cc.ctx);
     auto voidThunkTy = llvm::FunctionType::get(voidTy, false);
+    auto crpMainFunc = llvm::Function::Create(voidThunkTy, llvm::GlobalValue::PrivateLinkage,
+                                              "crpMain", cc.mod);
+    {
+      LocalCC lcc{
+          .cc = cc,
+          .ib = ib,
+          .func = crpMainFunc,
+          .inst = mod.instantiation,
+      };
+      emitBlockList(mod.topLevel, cc, lcc);
+    }
 
     auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
     auto mainTy = llvm::FunctionType::get(i32Ty, false);
+    auto mainFunc = llvm::Function::Create(mainTy, llvm::GlobalValue::ExternalLinkage, "main", cc.mod);
+    {
+      llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", mainFunc);
+      ib.SetInsertPoint(entry);
+      ib.CreateCall(voidThunkTy, crpMainFunc);
+      ib.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
+    }
+
+    {
+      auto tIt = traitMethods.begin();
+      for (auto &trait : mod.traitImpls) {
+        for (auto &entry : trait.instantiations) {
+          std::vector<llvm::Function *> &funcs = **tIt++;
+          auto fIt = funcs.begin();
+          for (BlockList &bl : trait.methods) {
+            LocalCC lcc{
+                .cc = cc,
+                .ib = ib,
+                .func = *fIt++,
+                .inst = entry.second,
+            };
+            emitBlockList(bl, cc, lcc);
+          }
+        }
+      }
+    }
 
     CodegenResult res;
+    res.ctx = std::move(llvmCtx);
     res.mod = std::move(llvmMod);
     return res;
   }
