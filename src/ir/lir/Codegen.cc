@@ -4,6 +4,7 @@
 
 #include <array>
 #include <functional>
+#include <llvm-10/llvm/IR/GlobalAlias.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
@@ -82,16 +83,8 @@ namespace lir::codegen {
           }
         },
         [&](Ty::ADT &v) -> llvm::Type * {
-          auto *sType = llvm::StructType::get(cc.ctx);
-          auto sPtr = sType->getPointerTo();
-          cc.tyCache[ty] = sPtr;
-          std::vector<llvm::Type *> fieldTys;
-          fieldTys.reserve(v.s.size()); // TODO variant support
-          for (Tp fieldTy : v.s) {
-            fieldTys.push_back(getTy(cc, fieldTy));
-          }
-          sType->setBody(fieldTys);
-          return sPtr;
+          auto sType = llvm::StructType::get(cc.ctx);
+          return llvm::PointerType::getUnqual(sType); // opaque
         },
         [&](Ty::Tuple &v) -> llvm::Type * {
           std::vector<llvm::Type *> fieldTys;
@@ -119,6 +112,15 @@ namespace lir::codegen {
     return getTy(lcc.cc, lcc.inst.types.at(i));
   }
 
+  llvm::Type *adtTy(CC &cc, type::Ty::ADT &v) {
+    std::vector<llvm::Type *> fieldTys;
+    fieldTys.reserve(v.s.size());
+    for (Tp fieldTy : v.s) {
+      fieldTys.push_back(getTy(cc, fieldTy));
+    }
+    return llvm::StructType::get(cc.ctx, fieldTys);
+  }
+
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     lcc.vals[&insn] = std::visit(overloaded {
         [&](Insn::DeclareParam &i) -> llvm::Value * {
@@ -132,7 +134,8 @@ namespace lir::codegen {
           auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
           auto gcAlloc = cc.mod.getOrInsertFunction("gcAlloc", i8PtrTy, i32Ty);
-          auto rawSize = llvm::ConstantExpr::getSizeOf(ty->getPointerElementType());
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(insn.ty)->v));
+          auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
           auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
           auto call = lcc.ib.CreateCall(gcAlloc, size);
           return lcc.ib.CreatePointerCast(call, ty);
@@ -145,12 +148,14 @@ namespace lir::codegen {
           if (std::holds_alternative<Insn::DeclareParam>(i.var->v)) {
             return lcc.vals.at(i.var);
           } else {
-            return lcc.ib.CreateLoad(lcc.vals.at(i.var));
+            return lcc.ib.CreateLoad(getTy(lcc, insn.ty), lcc.vals.at(i.var));
           }
         },
         [&](Insn::SetField &i) -> llvm::Value * {
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
-          auto gep = lcc.ib.CreateInBoundsGEP(lcc.vals.at(i.obj), {
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(i.obj->ty)->v));
+          auto castPtr = lcc.ib.CreatePointerCast(lcc.vals.at(i.obj), structTy->getPointerTo());
+          auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {
               llvm::ConstantInt::get(i32Ty, 0),
               llvm::ConstantInt::get(i32Ty, i.field)
             });
@@ -159,11 +164,13 @@ namespace lir::codegen {
         },
         [&](Insn::GetField &i) -> llvm::Value * {
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
-          auto gep = lcc.ib.CreateInBoundsGEP(lcc.vals.at(i.obj), {
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(i.obj->ty)->v));
+          auto castPtr = lcc.ib.CreatePointerCast(lcc.vals.at(i.obj), structTy->getPointerTo());
+          auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {
               llvm::ConstantInt::get(i32Ty, 0),
               llvm::ConstantInt::get(i32Ty, i.field)
             });
-          return lcc.ib.CreateLoad(gep);
+          return lcc.ib.CreateLoad(getTy(lcc, insn.ty), gep);
         },
         [&](Insn::CallTrait &i) -> llvm::Value * {
           TraitImpl::For tFor {
@@ -194,7 +201,8 @@ namespace lir::codegen {
             auto ty = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
             return llvm::ConstantStruct::get(ty, vs);
           } notconst: {
-            auto alloca = lcc.ib.CreateAlloca(getTy(lcc, insn.ty));
+            auto ty = getTy(lcc, insn.ty);
+            auto alloca = lcc.ib.CreateAlloca(ty);
             Idx idx = 0;
             auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
             for (auto &v : i.values) {
@@ -204,7 +212,7 @@ namespace lir::codegen {
                 });
               lcc.ib.CreateStore(lcc.vals.at(v), gep);
             }
-            return lcc.ib.CreateLoad(alloca);
+            return lcc.ib.CreateLoad(ty, alloca);
           }
         },
         [&](Insn::ForeignRef &i) -> llvm::Value * {

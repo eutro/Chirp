@@ -36,7 +36,9 @@ add_subdirectory(common)
 add_subdirectory(fsm)
 add_subdirectory(type)
 add_subdirectory(ir)
-add_subdirectory(runtime)
+
+add_library(crp runtime/Collector.c runtime/Runtime.c)
+
 add_subdirectory(bin)
 
 enable_testing()
