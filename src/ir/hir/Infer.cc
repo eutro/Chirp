@@ -7,8 +7,14 @@
 #include <deque>
 
 namespace hir::infer {
+  struct Inst {
+    Tp receiver;
+    TraitBound *trait;
+    std::map<Tp, Tp> tys;
+  };
+
   struct Constraints {
-    arena::Arena<std::map<Tp, Tp>> instantiations;
+    arena::Arena<Inst> instantiations;
     std::map<Tp, std::set<TraitBound *>> traitBounds;
     std::vector<std::pair<Tp, Tp>> unions;
   };
@@ -34,8 +40,8 @@ namespace hir::infer {
     public ExprVisitor<Tp>,
     public ProgramVisitor<InferResult> {
   public:
-    HashInternArena<Ty> tcx;
-    HashInternArena<type::TraitBound> tbcx;
+    type::Tcx tcx;
+    type::Tbcx tbcx;
     arena::Arena<AbstractTraitImpl> aticx;
 
     std::map<DefIdx, Tp> definedTys;
@@ -109,7 +115,6 @@ namespace hir::infer {
     InferResult visitProgram(Program &p) {
       program = &p;
 
-      std::map<Block *, AbstractTraitImpl *> atiBlocks;
       std::vector<std::pair<Block *, Constraints *>> traitConstraints;
 
       for (TraitImpl &ti : p.traitImpls) {
@@ -121,7 +126,6 @@ namespace hir::infer {
           definedTys[param] = freshType(maybeLoc(p.bindings.at(param).source, "from here"));
         }
         for (Block &m : ti.methods) {
-          atiBlocks[&m] = &ati;
           visitRootBlock(ati.constraints, m);
           traitConstraints.push_back({&m, &ati.constraints});
         }
@@ -158,10 +162,9 @@ namespace hir::infer {
             }
             return found->second;
           };
-          auto found = atiBlocks.find(&block);
-          if (found != atiBlocks.end()) {
-            typeIdx[found->second->ty] = typeCount++;
-            traitIdx[found->second->bound] = traitCount++;
+          if (constraints.instantiations.ptrs.front()->receiver) {
+            typeCount++;
+            traitCount++;
           }
           for (auto &e : blockExprs.at(&block)) {
             blockInsts.exprTypes[e] = getIdx(typeIdx, exprTypes[e], typeCount);
@@ -198,7 +201,7 @@ namespace hir::infer {
               }
               return idces[trf.ref];
             } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-              return complete->at(ty);
+              return complete->tys.at(ty);
             }
             return ty;
           };
@@ -216,10 +219,9 @@ namespace hir::infer {
               thisTy = replaceTy(genericTypes[v], replacer);
             }
           };
-          auto found = atiBlocks.find(&block);
-          if (found != atiBlocks.end()) {
-            thisInst.tys[0] = replaceTy(found->second->ty, replacer);
-            thisInst.tbs[0] = replaceTy(found->second->bound, replacer);
+          if (complete->receiver) {
+            thisInst.tys[0] = replaceTy(complete->receiver, replacer);
+            thisInst.tbs[0] = replaceTy(complete->trait, replacer);
           }
           for (Expr *e : blockExprs[&block]) {
             putIdx(blockInsts.exprTypes, exprTypes, thisInst.tys, e);
@@ -244,6 +246,7 @@ namespace hir::infer {
       }
       res.errors = std::move(ecx);
       res.tcx = std::move(tcx);
+      res.tbcx = std::move(tbcx);
       return res;
     }
 
@@ -414,7 +417,7 @@ namespace hir::infer {
     }
 
     std::map<TyTB, std::vector<Tp>> inferTypes(Constraints &cnstr) {
-      std::vector<std::map<Tp, Tp>*> allInsts;
+      std::vector<Inst*> allInsts;
 
       auto &topInsts = *cnstr.instantiations.add();
       allInsts.push_back(&topInsts);
@@ -431,11 +434,13 @@ namespace hir::infer {
       {
         auto freeChecker = [&](Tp ty) -> Tp {
           if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-            topInsts[ty] = ty;
+            topInsts.tys[ty] = ty;
           }
           return ty;
         };
         visitCnstr(cnstr, freeChecker);
+        topInsts.receiver = nullptr;
+        topInsts.trait = nullptr;
       }
 
       Idx tParamC = paramC;
@@ -623,8 +628,11 @@ namespace hir::infer {
             // std::cerr << "YES" << std::endl;
             AbstractTraitImpl *ati = lookupAti(it->tb->i, it->ty);
             if (ati) {
-              std::map<Tp, Tp> &atiSubs = *ati->constraints.instantiations.add();
-              allInsts.push_back(&atiSubs);
+              Inst &inst = *ati->constraints.instantiations.add();
+              inst.receiver = it->ty;
+              inst.trait = it->tb;
+              std::map<Tp, Tp> &atiSubs = inst.tys;
+              allInsts.push_back(&inst);
               auto atiReplacer = [&](Tp ty) -> Tp {
                 if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
                   auto found =  atiSubs.find(ty);
@@ -677,21 +685,29 @@ namespace hir::infer {
 
       refreshTyBSet(implementedTraitBounds);
 
-      for (auto map : allInsts) {
-        for (auto &kv : *map) {
-          Tp replaced = applyReplacements(kv.second);
-          if (!isComplete(replaced)) {
-            auto &err = ecx.err()
+      auto tryReplace = [&](Tp &ty) {
+        Tp replaced = applyReplacements(ty);
+        if (!isComplete(replaced)) {
+          auto &err = ecx.err()
               .msg("Not enough information to infer type");
-            auto foundSource = typeSources.find(replaced);
-            if (foundSource == typeSources.end()) {
-              err.msg("of unknown source");
-            } else {
-              err.chain(foundSource->second);
-            }
-            replaced = tcx.intern(Ty::Err{});
+          auto foundSource = typeSources.find(replaced);
+          if (foundSource == typeSources.end()) {
+            err.msg("of unknown source");
+          } else {
+            err.chain(foundSource->second);
           }
-          kv.second = replaced;
+          replaced = tcx.intern(Ty::Err{});
+        }
+        ty = replaced;
+      };
+
+      for (auto inst : allInsts) {
+        for (auto &kv : inst->tys) {
+          tryReplace(kv.second);
+        }
+        if (inst->receiver) {
+          tryReplace(inst->receiver);
+          inst->trait = applyReplacements(inst->trait);
         }
       }
 

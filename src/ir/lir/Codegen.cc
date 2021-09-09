@@ -4,7 +4,6 @@
 
 #include <array>
 #include <functional>
-#include <llvm-10/llvm/IR/GlobalAlias.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
@@ -174,7 +173,7 @@ namespace lir::codegen {
         },
         [&](Insn::CallTrait &i) -> llvm::Value * {
           TraitImpl::For tFor {
-            .ty = type::uncycle(cc.tcx, cc.tbcx, lcc.inst.types.at(i.obj->ty)),
+            .ty = lcc.inst.types.at(i.obj->ty),
             .tb = lcc.inst.traits.at(i.trait),
           };
           return cc.emitCall.at(tFor)(insn, i, cc, lcc);
@@ -365,8 +364,8 @@ namespace lir::codegen {
     // TODO floats
   }
 
-  CodegenResult generate(arena::InternArena<type::Ty> &tcx,
-                         arena::InternArena<type::TraitBound> &tbcx,
+  CodegenResult generate(type::Tcx &tcx,
+                         type::Tbcx &tbcx,
                          Module &mod) {
     auto llvmCtx = std::make_unique<llvm::LLVMContext>();
     auto llvmMod = std::make_unique<llvm::Module>("module", *llvmCtx);

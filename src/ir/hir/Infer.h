@@ -10,19 +10,10 @@ namespace hir::infer {
   using type::Ty;
   using type::TraitBound;
   using Tp = Ty *;
-  template <typename T>
-  using HashInternArena = arena::InternArena<
-    T//, it's still significantly quicker to compare
-    // std::unordered_set<
-    //   std::unique_ptr<T>,
-    //   util::DerefHash<std::unique_ptr<T>>,
-    //   util::DerefCmp<std::equal_to<>>
-    //   >
-    >;
 
   struct InferResult {
-    HashInternArena<Ty> tcx;
-    HashInternArena<TraitBound> tbcx;
+    type::Tcx tcx;
+    type::Tbcx tbcx;
     err::ErrorContext errors;
     struct BlockInstantiation {
       std::vector<std::vector<Tp>> types;
