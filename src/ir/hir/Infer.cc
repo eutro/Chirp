@@ -318,7 +318,7 @@ namespace hir::infer {
       case BOOL:
         return boolType();
       case I8: case I16: case I32: case I64:
-        return tcx.intern(Ty::Int{(type::IntSize) (idx - U8)});
+        return tcx.intern(Ty::Int{(type::IntSize) (idx - I8)});
       case U8: case U16: case U32: case U64:
         return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
       case F16: case F32: case F64:

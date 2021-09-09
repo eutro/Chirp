@@ -9,7 +9,7 @@ namespace ast::lower {
   using DefType = hir::DefType;
 
   class Bindings {
-    using Ridge = std::function<void(const hir::DefIdx &)>;
+    using Ridge = std::function<void(hir::DefIdx)>;
 
     struct ScopeSet {
       std::vector<hir::DefIdx> defs;
@@ -215,7 +215,7 @@ namespace ast::lower {
                 const loc::Span &source,
                 Expr &body) {
       std::set<hir::DefIdx> closed;
-      bindings.push([&closed](const hir::DefIdx &vr) {
+      bindings.push([&closed](hir::DefIdx vr) {
         closed.insert(vr);
       });
       typeBindings.push();
@@ -414,12 +414,12 @@ namespace ast::lower {
         */
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
-        retExpr->value = recFnExpr(it.name,
-                                   maybePtr(it.arguments->typeArguments),
-                                   maybePtr(it.typeHint),
-                                   it.arguments->bindings,
-                                   it.span,
-                                   *it.value);
+        // not recFnExpr because it's already captured
+        retExpr->value = fnExpr(maybePtr(it.arguments->typeArguments),
+                                maybePtr(it.typeHint),
+                                it.arguments->bindings,
+                                it.span,
+                                *it.value);
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
         if (it.typeHint) {
@@ -488,8 +488,9 @@ namespace ast::lower {
     Eptr visitLetExpr(LetExpr &it, hir::Pos pos) override {
       bindings.push();
       typeBindings.push();
+      std::vector<hir::DefIdx> ids;
       for (auto &b : it.bindings) {
-        introduceBinding(b);
+        ids.push_back(introduceBinding(b));
       }
 
       auto blockE = withSpan<hir::BlockExpr>(it.span);
@@ -498,7 +499,7 @@ namespace ast::lower {
 
       Idx idx = 0;
       for (auto &b : it.bindings) {
-        block.body.push_back(visitBindingExpr(b, idx++, std::nullopt));
+        block.body.push_back(visitBindingExpr(b, ids[idx++], std::nullopt));
       }
 
       if (it.name) {
@@ -511,9 +512,12 @@ namespace ast::lower {
           var->ref = *refs++;
           call->args.push_back(std::move(var));
         }
+        block.body.push_back(std::move(call));
       } else {
         block.body.push_back(visitExpr(*it.body, pos));
       }
+      bindings.pop();
+      typeBindings.pop();
       return blockE;
     }
 
@@ -638,8 +642,6 @@ namespace ast::lower {
           return tmpIdx;
         };
 
-        loc::Span lhsSpan = it.lhs->span;
-
         std::function<Eptr(Idx, hir::DefIdx)> addRhs =
           [&](Idx i, hir::DefIdx lastVar) -> Eptr {
             auto &term = it.terms.at(i);
@@ -670,12 +672,12 @@ namespace ast::lower {
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);
             hir::DefIdx thisVar = addTemp(*predE, *term.expr);
             {
-              auto cmpE = withSpan<hir::CmpExpr>(loc::Span(lhsSpan.lo, term.expr->span.hi));
+              auto cmpE = withSpan<hir::CmpExpr>(std::nullopt);
               {
-                auto lhsE = withSpan<hir::VarExpr>(lhsSpan);
+                auto lhsE = withSpan<hir::VarExpr>(std::nullopt);
                 lhsE->ref = lastVar;
                 cmpE->lhs = std::move(lhsE);
-                auto rhsE = withSpan<hir::VarExpr>(term.expr->span);
+                auto rhsE = withSpan<hir::VarExpr>(std::nullopt);
                 rhsE->ref = thisVar;
                 cmpE->rhs = std::move(rhsE);
                 cmpE->op = cmp;
