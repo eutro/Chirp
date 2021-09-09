@@ -168,7 +168,7 @@ namespace hir::lower {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
       Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
-      return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 1 + (Idx)e.op});
+      return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, (Idx)e.op});
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
       auto receiver = visitExpr(*e.value, l, bb, false);
@@ -189,9 +189,10 @@ namespace hir::lower {
       NewExpr *newE = dynamic_cast<NewExpr *>(e.value.get());
       if (newE) {
         Idx i = 0;
+        auto getVar = l[*bb].emplace_back(Insn::GetVar{vars.at(e.idx)});
+        setTy(*e.value, getVar);
         for (auto &v : newE->values) {
           auto value = visitExpr(*v, l, bb, false);
-          auto getVar = l[*bb].emplace_back(Insn::GetVar{vars.at(e.idx)});
           l[*bb].emplace_back<false>(Insn::SetField{getVar, newE->variant, i++, value});
         }
       } else {

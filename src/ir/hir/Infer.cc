@@ -46,7 +46,7 @@ namespace hir::infer {
 
     std::map<DefIdx, Tp> varTypes;
     std::map<Expr *, Tp> exprTypes;
-    std::map<Expr *, TraitBound *> traitBoundTypes;
+    std::map<Expr *, TraitBound *> exprTraits;
     std::map<Block *, std::set<Expr *>> blockExprs;
     std::map<Block *, std::set<Idx>> blockVars;
 
@@ -165,8 +165,9 @@ namespace hir::infer {
           }
           for (auto &e : blockExprs.at(&block)) {
             blockInsts.exprTypes[e] = getIdx(typeIdx, exprTypes[e], typeCount);
-            if (traitBoundTypes.count(e)) {
-              blockInsts.traitTypes[e] = getIdx(traitIdx, traitBoundTypes[e], traitCount);
+            if (exprTraits.count(e)) {
+              blockInsts.traitTypes[e] =
+                  getIdx(traitIdx, exprTraits[e], traitCount);
             }
           }
           for (auto &v : blockVars.at(&block)) {
@@ -222,8 +223,8 @@ namespace hir::infer {
           }
           for (Expr *e : blockExprs[&block]) {
             putIdx(blockInsts.exprTypes, exprTypes, thisInst.tys, e);
-            if (traitBoundTypes.count(e)) {
-              putIdx(blockInsts.traitTypes, traitBoundTypes, thisInst.tbs, e);
+            if (exprTraits.count(e)) {
+              putIdx(blockInsts.traitTypes, exprTraits, thisInst.tbs, e);
             }
           }
           for (Idx v : blockVars[&block]) {
@@ -806,21 +807,21 @@ namespace hir::infer {
       }
       TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsType}});
       constrainTrait(lhsType, traitBound);
-      traitBoundTypes[&it] = traitBound;
+      exprTraits[&it] = traitBound;
       return tcx.intern(Ty::TraitRef{lhsType, traitBound, 0});
     }
     Tp visitCmpExpr(CmpExpr &it) {
       Tp lhsType = visitExpr(*it.lhs);
       Tp rhsType = visitExpr(*it.rhs);
       TraitBound *traitBound = tbcx.intern(TraitBound{Cmp, {rhsType}});
-      traitBoundTypes[&it] = traitBound;
+      exprTraits[&it] = traitBound;
       constrainTrait(lhsType, traitBound);
       return boolType();
     }
     Tp visitNegExpr(NegExpr &it) {
       Tp exprType = visitExpr(*it.value);
       TraitBound *traitBound = tbcx.intern(TraitBound{Neg});
-      traitBoundTypes[&it] = traitBound;
+      exprTraits[&it] = traitBound;
       constrainTrait(exprType, traitBound);
       return tcx.intern(Ty::TraitRef{exprType, traitBound, 0});
     }
@@ -834,7 +835,7 @@ namespace hir::infer {
       }
       Tp argsTy = tcx.intern(Ty::Tuple{argTys});
       TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy, retTy}});
-      traitBoundTypes[&it] = traitBound;
+      exprTraits[&it] = traitBound;
       constrainTrait(funcTy, traitBound);
       return retTy;
     }
