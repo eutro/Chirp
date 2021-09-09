@@ -4,6 +4,8 @@
 #include "../ir/hir/Lowering.h"
 #include "../ir/lir/Codegen.h"
 
+#include <llvm/Support/raw_ostream.h>
+
 #include <iostream>
 
 int main() {

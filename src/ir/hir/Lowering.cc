@@ -26,6 +26,7 @@ namespace hir::lower {
       ret.module.topLevel = visitRootBlock(p.topLevel, false);
       for (auto &pair : infer.insts) {
         Block *b = pair.first;
+        if (b == &p.topLevel) continue;
         lir::TraitImpl &trait = ret.module.traitImpls.emplace_back();
         trait.methods.emplace_back(visitRootBlock(*b, true));
         auto &bi = pair.second;
@@ -142,7 +143,7 @@ namespace hir::lower {
       case LiteralExpr::String: {
         std::string value;
         value.reserve(e.value.size());
-        for (auto it = e.value.begin(); it != e.value.end(); ++it) {
+        for (auto it = e.value.begin() + 1; it != e.value.end() - 1; ++it) {
           if (*it == '\\') {
             ++it;
           }

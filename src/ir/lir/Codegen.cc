@@ -15,6 +15,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
+#include <string>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -141,7 +142,11 @@ namespace lir::codegen {
           return nullptr; // ignored
         },
         [&](Insn::GetVar &i) -> llvm::Value * {
-          return lcc.ib.CreateLoad(lcc.vals.at(i.var));
+          if (std::holds_alternative<Insn::DeclareParam>(i.var->v)) {
+            return lcc.vals.at(i.var);
+          } else {
+            return lcc.ib.CreateLoad(lcc.vals.at(i.var));
+          }
         },
         [&](Insn::SetField &i) -> llvm::Value * {
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
@@ -270,12 +275,10 @@ namespace lir::codegen {
   llvm::FunctionType *getBbType(const BlockList &bl, const Instantiation &inst, CC &cc) {
     std::vector<llvm::Type *> argTys;
     for (auto &insn : bl.blocks.front()->insns) {
-      if (!std::holds_alternative<Insn::DeclareParam>(insn->v)) {
-        break;
+      if (std::holds_alternative<Insn::DeclareParam>(insn->v)) {
+        argTys.push_back(getTy(cc, inst.types.at(insn->ty)));
       }
-      argTys.push_back(getTy(cc, inst.types.at(insn->ty)));
     }
-    argTys.push_back(getTy(cc, inst.types.front()));
     Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
     llvm::Type *retTy = getTy(cc, inst.types.at(retIdx));
     return llvm::FunctionType::get(retTy, argTys, false);
@@ -387,11 +390,11 @@ namespace lir::codegen {
     }
 
     llvm::IRBuilder<> ib(cc.ctx);
-    
-    auto voidTy = llvm::Type::getVoidTy(cc.ctx);
-    auto voidThunkTy = llvm::FunctionType::get(voidTy, false);
-    auto crpMainFunc = llvm::Function::Create(voidThunkTy, llvm::GlobalValue::PrivateLinkage,
-                                              "crpMain", cc.mod);
+
+    auto unitTy = getTy(cc, tcx.intern(Ty::Tuple{{}}));
+    auto unitThunkTy = llvm::FunctionType::get(unitTy, false);
+    auto crpMainFunc = llvm::Function::Create(
+        unitThunkTy, llvm::GlobalValue::PrivateLinkage, "crpMain", cc.mod);
     {
       LocalCC lcc{
           .cc = cc,
@@ -408,7 +411,7 @@ namespace lir::codegen {
     {
       llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", mainFunc);
       ib.SetInsertPoint(entry);
-      ib.CreateCall(voidThunkTy, crpMainFunc);
+      ib.CreateCall(unitThunkTy, crpMainFunc);
       ib.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
     }
 

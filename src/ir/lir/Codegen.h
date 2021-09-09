@@ -9,8 +9,8 @@
 
 namespace lir::codegen {
   struct CodegenResult {
-    std::unique_ptr<llvm::Module> mod;
     std::unique_ptr<llvm::LLVMContext> ctx;
+    std::unique_ptr<llvm::Module> mod;
   };
 
   CodegenResult generate(arena::InternArena<type::Ty> &tcx,
