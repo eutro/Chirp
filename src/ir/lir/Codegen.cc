@@ -419,6 +419,8 @@ namespace lir::codegen {
       llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", mainFunc);
       ib.SetInsertPoint(entry);
       ib.CreateCall(unitThunkTy, crpMainFunc);
+      auto gcShutdown = cc.mod.getOrInsertFunction("gcShutdown", llvm::Type::getVoidTy(cc.ctx));
+      ib.CreateCall(gcShutdown);
       ib.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
     }
 
