@@ -16,6 +16,7 @@
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/DIBuilder.h>
 #include <string>
 #include <utility>
 #include <variant>
@@ -30,6 +31,7 @@ namespace lir::codegen {
   struct LocalCC;
   struct CC;
   using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
+  using TyPair = std::tuple<llvm::Type *, llvm::DIType *>;
 
   struct CC {
     arena::InternArena<Ty> &tcx;
@@ -37,8 +39,11 @@ namespace lir::codegen {
     llvm::Module &mod;
     llvm::LLVMContext &ctx;
 
+    llvm::DIBuilder &db;
+    llvm::DICompileUnit *cu;
+
     std::map<TraitImpl::For, EmitFn> emitCall;
-    std::map<type::Ty *, llvm::Type *> tyCache;
+    std::map<type::Ty *, TyPair> tyCache;
   };
 
   struct LocalCC {
@@ -51,24 +56,16 @@ namespace lir::codegen {
     std::map<Insn *, llvm::Value *> vals;
     std::map<BasicBlock *, llvm::BasicBlock *> bbs;
     Idx paramC = 0;
+
+    std::vector<llvm::DILocalScope *> scopes{func->getSubprogram()};
   };
 
-  llvm::Type *getTy(CC &cc, type::Ty *ty);
+  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
 
-  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v) {
-    auto &tup = std::get<Ty::Tuple>(v.args->v);
-    std::vector<llvm::Type *> argTys;
-    argTys.reserve(tup.t.size());
-    for (auto &t : tup.t) {
-      argTys.push_back(getTy(cc, t));
-    }
-    return llvm::FunctionType::get(getTy(cc, v.ret), argTys, false);
-  }
-
-  llvm::Type *getTy(CC &cc, type::Ty *ty) {
+  const TyPair &getTyPair(CC &cc, type::Ty *ty) {
     auto found = cc.tyCache.find(ty);
     if (found != cc.tyCache.end()) {
-      if (found->second) {
+      if (std::get<0>(found->second)) {
         return found->second;
       } else {
         throw std::runtime_error("Recursive flat type has infinite size");
@@ -76,55 +73,120 @@ namespace lir::codegen {
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Ty *uncycled = type::uncycle(cc.tcx, cc.tbcx, ty);
-      llvm::Type *llvmTy = getTy(cc, uncycled);
-      cc.tyCache[ty] = llvmTy;
-      return llvmTy;
+      auto &pair = getTyPair(cc, uncycled);
+      return cc.tyCache[ty] = pair;
     } else {
-      cc.tyCache[ty] = nullptr;
+      cc.tyCache[ty] = std::make_tuple(nullptr, nullptr);
     }
-    llvm::Type *llvmTy = std::visit(overloaded {
-        [&](Ty::Bool &v) -> llvm::Type * { return llvm::Type::getInt1Ty(cc.ctx); },
-        [&](Ty::Int &v) -> llvm::Type * { return llvm::Type::getIntNTy(cc.ctx, type::bitCount(v.s)); },
-        [&](Ty::UInt &v) -> llvm::Type * { return llvm::Type::getIntNTy(cc.ctx, type::bitCount(v.s)); },
-        [&](Ty::Float &v) -> llvm::Type * {
+    TyPair tPair = std::visit(overloaded {
+        [&](Ty::Bool &v) -> TyPair {
+          return std::make_tuple(
+              llvm::Type::getInt1Ty(cc.ctx),
+              cc.db.createBasicType("bool", 1, llvm::dwarf::DW_ATE_boolean)
+          );
+        },
+        [&](Ty::Int &v) -> TyPair {
+          Idx bitC = type::bitCount(v.s);
+          return std::make_tuple(
+              llvm::Type::getIntNTy(cc.ctx, bitC),
+              cc.db.createBasicType("i" + std::to_string(bitC), bitC, llvm::dwarf::DW_ATE_signed)
+          );
+        },
+        [&](Ty::UInt &v) -> TyPair {
+          Idx bitC = type::bitCount(v.s);
+          return std::make_tuple(
+              llvm::Type::getIntNTy(cc.ctx, bitC),
+              cc.db.createBasicType("u" + std::to_string(bitC), bitC, llvm::dwarf::DW_ATE_unsigned)
+          );
+        },
+        [&](Ty::Float &v) -> TyPair {
+          llvm::Type *lt;
           switch (v.s) {
-            case type::FloatSize::f16: return llvm::Type::getHalfTy(cc.ctx);
-            case type::FloatSize::f32: return llvm::Type::getFloatTy(cc.ctx);
-            case type::FloatSize::f64: return llvm::Type::getDoubleTy(cc.ctx);
+            case type::FloatSize::f16: lt = llvm::Type::getHalfTy(cc.ctx); break;
+            case type::FloatSize::f32: lt = llvm::Type::getFloatTy(cc.ctx); break;
+            case type::FloatSize::f64: lt = llvm::Type::getDoubleTy(cc.ctx); break;
             default: throw 0;
           }
+          Idx bitC = type::bitCount(v.s);
+          return std::make_tuple(
+              lt,
+              cc.db.createBasicType("f" + std::to_string(bitC), bitC, llvm::dwarf::DW_ATE_float)
+          );
         },
-        [&](Ty::ADT &v) -> llvm::Type * {
-          auto sType = llvm::StructType::get(cc.ctx);
-          return llvm::PointerType::getUnqual(sType); // opaque
+        [&](Ty::ADT &v) -> TyPair {
+          auto sType = llvm::StructType::get(cc.ctx); // opaque
+          llvm::PointerType *lt = llvm::PointerType::getUnqual(sType);
+          return std::make_tuple(
+              lt,
+              cc.db.createUnspecifiedType("adt")
+          );
         },
-        [&](Ty::Tuple &v) -> llvm::Type * {
+        [&](Ty::Tuple &v) -> TyPair {
           std::vector<llvm::Type *> fieldTys;
+          std::vector<llvm::Metadata *> fieldDiTys;
           fieldTys.reserve(v.t.size());
           for (Tp fieldTy : v.t) {
-            fieldTys.push_back(getTy(cc, fieldTy));
+            auto &pair = getTyPair(cc, fieldTy);
+            fieldTys.push_back(std::get<0>(pair));
+            fieldDiTys.push_back(std::get<1>(pair));
           }
-          return llvm::StructType::get(cc.ctx, fieldTys);
+          llvm::StructType *lt = llvm::StructType::get(cc.ctx, fieldTys);
+          return std::make_tuple(
+              lt,
+              cc.db.createStructType(
+                  cc.cu->getFile(), "tuple", cc.cu->getFile(), 1,
+                  0, 1, llvm::DINode::DIFlags::FlagPublic,
+                  nullptr, cc.db.getOrCreateArray(fieldDiTys)
+              )
+          );
         },
-        [&](Ty::String &v) -> llvm::Type * {
-          return llvm::StructType::get(cc.ctx, {
-            llvm::Type::getInt64Ty(cc.ctx), // len
-            llvm::Type::getInt8PtrTy(cc.ctx), // bytes_utf8
-          });
+        [&](Ty::String &v) -> TyPair {
+          return std::make_tuple(
+              llvm::StructType::get(cc.ctx, {
+                  llvm::Type::getInt64Ty(cc.ctx), // len
+                  llvm::Type::getInt8PtrTy(cc.ctx), // bytes_utf8
+              }),
+              cc.db.createStructType(
+                  cc.cu->getFile(), "string", cc.cu->getFile(), 1,
+                  128, 64, llvm::DINode::DIFlags::FlagPublic,
+                  nullptr, cc.db.getOrCreateArray({
+                          cc.db.createBasicType("u64", 64,llvm::dwarf::DW_ATE_signed_fixed),
+                          cc.db.createStringType("string", 64)
+                      })
+              )
+          );
         },
-        [&](Ty::FfiFn &v) -> llvm::Type * {
-          return ffiFnTy(cc, v)->getPointerTo();
+        [&](Ty::FfiFn &v) -> TyPair {
+          auto &tup = std::get<Ty::Tuple>(v.args->v);
+          std::vector<llvm::Metadata *> argTys;
+          argTys.reserve(tup.t.size() + 1);
+          argTys.push_back(std::get<1>(getTyPair(cc, v.ret)));
+          for (auto &t : tup.t) {
+            argTys.push_back(std::get<1>(getTyPair(cc, t)));
+          }
+          return std::make_pair(
+              ffiFnTy(cc, v)->getPointerTo(),
+              cc.db.createPointerType(
+                  cc.db.createSubroutineType(cc.db.getOrCreateTypeArray(argTys)),
+                  64
+              )
+          );
         },
-        [](auto&) -> llvm::Type * {
+        [](auto&) -> TyPair {
           throw std::runtime_error("Type cannot exist after inference");
         }
     }, ty->v);
-    cc.tyCache[ty] = llvmTy;
-    return llvmTy;
+    return cc.tyCache[ty] = tPair;
   }
 
-  llvm::Type *getTy(LocalCC &lcc, Idx i) {
-    return getTy(lcc.cc, lcc.inst.types.at(i));
+  template <typename T = llvm::Type *>
+  T getTy(CC &cc, type::Tp ty) {
+    return std::get<T>(getTyPair(cc, ty));
+  }
+
+  template <typename T = llvm::Type *>
+  T getTy(LocalCC &lcc, Idx i) {
+    return getTy<T>(lcc.cc, lcc.inst.types.at(i));
   }
 
   llvm::Type *adtTy(CC &cc, type::Ty::ADT &v) {
@@ -136,13 +198,61 @@ namespace lir::codegen {
     return llvm::StructType::get(cc.ctx, fieldTys);
   }
 
+  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v) {
+    auto &tup = std::get<Ty::Tuple>(v.args->v);
+    std::vector<llvm::Type *> argTys;
+    argTys.reserve(tup.t.size());
+    for (auto &t : tup.t) {
+      argTys.push_back(getTy(cc, t));
+    }
+    return llvm::FunctionType::get(getTy(cc, v.ret), argTys, false);
+  }
+
+  llvm::DILocation *locFromSpan(CC &cc, LocalCC &lcc, const loc::SrcLoc &loc) {
+    return llvm::DILocation::get(cc.ctx, loc.line, loc.col, lcc.scopes.back());
+  }
+
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
+    if (insn.span) {
+      auto &loc = insn.span->lo;
+      lcc.ib.SetCurrentDebugLocation(locFromSpan(cc, lcc, loc));
+    }
     lcc.vals[&insn] = std::visit(overloaded {
         [&](Insn::DeclareParam &i) -> llvm::Value * {
-          return lcc.func->getArg(lcc.paramC++);
+          Idx index = lcc.paramC++;
+          llvm::Argument *arg = lcc.func->getArg(index);
+          if (insn.span) {
+            llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(arg->getType());
+            cc.db.insertDeclare(
+                alloca,
+                cc.db.createParameterVariable(
+                    lcc.scopes.back(), i.name, index, cc.cu->getFile(),
+                    insn.span->lo.line, getTy<llvm::DIType *>(lcc, insn.ty)
+                ),
+                cc.db.createExpression(),
+                locFromSpan(cc, lcc, insn.span->lo),
+                lcc.ib.GetInsertBlock()
+            );
+            lcc.ib.CreateStore(arg, alloca);
+            return alloca;
+          }
+          return arg;
         },
         [&](Insn::DeclareVar &i) -> llvm::Value * {
-          return lcc.ib.CreateAlloca(getTy(lcc, insn.ty));
+          llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(getTy(lcc, insn.ty));
+          if (insn.span) {
+            cc.db.insertDeclare(
+                alloca,
+                cc.db.createAutoVariable(
+                    lcc.scopes.back(), i.name, cc.cu->getFile(),
+                    insn.span->lo.line, getTy<llvm::DIType *>(lcc, insn.ty)
+                ),
+                cc.db.createExpression(),
+                locFromSpan(cc, lcc, insn.span->lo),
+                lcc.ib.GetInsertBlock()
+            );
+          }
+          return alloca;
         },
         [&](Insn::HeapAlloc &i) -> llvm::Value * {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
@@ -160,10 +270,11 @@ namespace lir::codegen {
           return nullptr; // ignored
         },
         [&](Insn::GetVar &i) -> llvm::Value * {
-          if (std::holds_alternative<Insn::DeclareParam>(i.var->v)) {
-            return lcc.vals.at(i.var);
+          llvm::Value *value = lcc.vals.at(i.var);
+          if (llvm::isa<llvm::Argument>(value)) {
+            return value;
           } else {
-            return lcc.ib.CreateLoad(getTy(lcc, insn.ty), lcc.vals.at(i.var));
+            return lcc.ib.CreateLoad(getTy(lcc, insn.ty), value);
           }
         },
         [&](Insn::SetField &i) -> llvm::Value * {
@@ -285,9 +396,22 @@ namespace lir::codegen {
         [&](Insn::LiteralBool &i) -> llvm::Value * {
           return llvm::ConstantInt::get(getTy(lcc, insn.ty), i.value);
         },
-        [&](Insn::BlockStart &i) -> llvm::Value * {return nullptr;},
-        [&](Insn::BlockEnd &i) -> llvm::Value * {return nullptr;},
+        [&](Insn::BlockStart &i) -> llvm::Value * {
+          loc::SrcLoc &loc = insn.span->lo;
+          llvm::DILexicalBlock *block = cc.db.createLexicalBlock(
+              lcc.scopes.back(),
+              cc.cu->getFile(),
+              loc.line, loc.col
+          );
+          lcc.scopes.push_back(block);
+          return nullptr;
+        },
+        [&](Insn::BlockEnd &i) -> llvm::Value * {
+          lcc.scopes.pop_back();
+          return nullptr;
+        },
     }, insn.v);
+    lcc.ib.SetCurrentDebugLocation(nullptr);
   }
 
   void emitJump(Jump &j, CC &cc, LocalCC &lcc) {
@@ -317,23 +441,38 @@ namespace lir::codegen {
     for (auto &bb : bl.blocks) {
       lcc.bbs[bb.get()] = llvm::BasicBlock::Create(cc.ctx, "", lcc.func);
     }
-    llvm::IRBuilder<> ib(cc.ctx);
     for (auto &bb : bl.blocks) {
       lcc.ib.SetInsertPoint(lcc.bbs.at(bb.get()));
       emitBB(*bb, cc, lcc);
     }
   }
-  
-  llvm::FunctionType *getBbType(const BlockList &bl, const Instantiation &inst, CC &cc) {
+
+  llvm::Function *getBbFunc(const BlockList &bl, const Instantiation &inst, CC &cc) {
     std::vector<llvm::Type *> argTys;
+    std::vector<llvm::Metadata *> diTys;
+    const std::string *name;
+    const std::optional<loc::Span> *span;
+    Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
+    auto &retPair = getTyPair(cc, inst.types.at(retIdx));
+    diTys.push_back(std::get<1>(retPair));
     for (auto &insn : bl.blocks.front()->insns) {
       if (std::holds_alternative<Insn::DeclareParam>(insn->v)) {
-        argTys.push_back(getTy(cc, inst.types.at(insn->ty)));
+        auto argPair = getTyPair(cc, inst.types.at(insn->ty));
+        argTys.push_back(std::get<0>(argPair));
+        diTys.push_back(std::get<1>(argPair));
+        name = &std::get<Insn::DeclareParam>(insn->v).name;
+        span = &insn->span;
       }
     }
-    Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
-    llvm::Type *retTy = getTy(cc, inst.types.at(retIdx));
-    return llvm::FunctionType::get(retTy, argTys, false);
+    llvm::FunctionType *funcTy = llvm::FunctionType::get(std::get<0>(retPair), argTys, false);
+    llvm::Function *func = llvm::Function::Create(funcTy, llvm::GlobalValue::PrivateLinkage, *name, cc.mod);
+    uint32_t lineNo = *span ? (**span).lo.line : 0;
+    func->setSubprogram(cc.db.createFunction(
+        cc.cu->getFile(), *name, func->getName(), cc.cu->getFile(),
+        lineNo, cc.db.createSubroutineType(cc.db.getOrCreateTypeArray(diTys)),
+        lineNo, llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
+    ));
+    return func;
   }
 
   template <typename T, std::size_t... Idx, typename C, typename... Args>
@@ -411,10 +550,21 @@ namespace lir::codegen {
 
   CodegenResult generate(type::Tcx &tcx,
                          type::Tbcx &tbcx,
-                         Module &mod) {
+                         Module &mod,
+                         const std::string &fileName,
+                         const std::string &fileDir) {
     auto llvmCtx = std::make_unique<llvm::LLVMContext>();
-    auto llvmMod = std::make_unique<llvm::Module>("module", *llvmCtx);
-    CC cc { tcx, tbcx, *llvmMod, *llvmCtx };
+    auto llvmMod = std::make_unique<llvm::Module>(fileName, *llvmCtx);
+    llvm::DIBuilder db(*llvmMod);
+    auto cu = db.createCompileUnit(
+        llvm::dwarf::DW_LANG_C,
+        db.createFile(fileName, fileDir),
+        "Chirp Compiler",
+        false, "", 0
+    );
+    llvmMod->addModuleFlag(llvm::Module::Warning, "Debug Info Version", llvm::DEBUG_METADATA_VERSION);
+    llvmMod->addModuleFlag(llvm::Module::Warning, "Dwarf Version", llvm::dwarf::DWARF_VERSION);
+    CC cc { tcx, tbcx, *llvmMod, *llvmCtx, db, cu };
 
     addIntrinsics(cc);
 
@@ -425,8 +575,7 @@ namespace lir::codegen {
         std::vector<llvm::Function *> &funcs = *traitMethods.emplace_back(std::make_unique<std::vector<llvm::Function*>>());
         funcs.reserve(trait.methods.size());
         for (const BlockList &bl : trait.methods) {
-          llvm::FunctionType *funcTy = getBbType(bl, entry.second, cc);
-          funcs.push_back(llvm::Function::Create(funcTy, llvm::GlobalValue::PrivateLinkage, "", cc.mod));
+          funcs.push_back(getBbFunc(bl, entry.second, cc));
         }
         cc.emitCall[entry.first] = [&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
           auto func = funcs.at(ct.method);
@@ -443,11 +592,18 @@ namespace lir::codegen {
 
     llvm::IRBuilder<> ib(cc.ctx);
 
-    auto unitTy = getTy(cc, tcx.intern(Ty::Tuple{{}}));
-    auto unitThunkTy = llvm::FunctionType::get(unitTy, false);
+    auto unitTyPair = getTyPair(cc, tcx.intern(Ty::Tuple{{}}));
+    auto unitThunkTy = llvm::FunctionType::get(std::get<0>(unitTyPair), false);
     auto crpMainFunc = llvm::Function::Create(
         unitThunkTy, llvm::GlobalValue::PrivateLinkage, "crpMain", cc.mod);
     {
+      crpMainFunc->setSubprogram(cc.db.createFunction(
+          cc.cu->getFile(), "crpMain", "crpMain", cc.cu->getFile(),
+          1,
+          cc.db.createSubroutineType(cc.db.getOrCreateTypeArray({std::get<1>(unitTyPair)})),
+          1,
+          llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
+      ));
       LocalCC lcc{
           .cc = cc,
           .ib = ib,
@@ -487,6 +643,8 @@ namespace lir::codegen {
         }
       }
     }
+
+    db.finalize();
 
     CodegenResult res;
     res.ctx = std::move(llvmCtx);

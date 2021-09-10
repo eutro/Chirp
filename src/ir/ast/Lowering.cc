@@ -210,7 +210,8 @@ namespace ast::lower {
     }
 
     template <typename Param>
-    Eptr fnExpr(Binding::TypeArguments *typeParams,
+    Eptr fnExpr(const std::string &name,
+                Binding::TypeArguments *typeParams,
                 TypeHint *retHint,
                 std::vector<Param> &params,
                 const loc::Span &source,
@@ -243,6 +244,7 @@ namespace ast::lower {
       auto blockE = withSpan<hir::BlockExpr>(std::nullopt);
 
       hir::Block &block = blockE->block;
+      block.span = source;
       addBindingsToBlock(block);
       auto bodyE = visitExpr(body, hir::Pos::Expr);
       if (retHint) {
@@ -334,7 +336,7 @@ namespace ast::lower {
       }
 
       auto thisIdx = introduceDef(hir::Definition{
-          "this",
+          name,
           source,
           DefType::Variable{{adtType}},
         });
@@ -381,7 +383,7 @@ namespace ast::lower {
       expr->block.bindings.push_back(idx);
       auto defE = withSpan<hir::DefineExpr>(std::nullopt);
       defE->idx = idx;
-      defE->value = fnExpr(typeParams, retHint, params, source, body);
+      defE->value = fnExpr(name.ident.value, typeParams, retHint, params, source, body);
       expr->block.body.push_back(std::move(defE));
 
       auto varE = withSpan<hir::VarExpr>(std::nullopt);
@@ -414,7 +416,8 @@ namespace ast::lower {
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
         // not recFnExpr because it's already captured
-        retExpr->value = fnExpr(maybePtr(it.arguments->typeArguments),
+        retExpr->value = fnExpr(it.name.ident.value,
+                                maybePtr(it.arguments->typeArguments),
                                 maybePtr(it.typeHint),
                                 it.arguments->bindings,
                                 it.span,
@@ -528,7 +531,8 @@ namespace ast::lower {
                   it.arguments.bindings,
                   it.span,
                   *it.body) :
-        fnExpr(maybePtr(it.arguments.typeArguments),
+        fnExpr("fn",
+               maybePtr(it.arguments.typeArguments),
                maybePtr(it.typeHint),
                it.arguments.bindings,
                it.span,
@@ -536,7 +540,7 @@ namespace ast::lower {
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      return fnExpr(nullptr, nullptr, it.arguments, it.span, *it.body);
+      return fnExpr("lambda", nullptr, nullptr, it.arguments, it.span, *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {
@@ -554,6 +558,7 @@ namespace ast::lower {
       }
 
       auto expr = withSpan<hir::BlockExpr>(it.span);
+      expr->block.span = it.span;
       addBindingsToBlock(expr->block);
 
       auto &body = expr->block.body;

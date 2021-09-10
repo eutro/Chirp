@@ -15,5 +15,7 @@ namespace lir::codegen {
 
   CodegenResult generate(arena::InternArena<type::Ty> &tcx,
                          arena::InternArena<type::TraitBound> &tbcx,
-                         Module &mod);
+                         Module &mod,
+                         const std::string &fileName = "module.crp",
+                         const std::string &fileDir = ".");
 }

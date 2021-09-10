@@ -18,6 +18,10 @@ int main() {
   auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
   err::maybeAbort(epc, types.errors);
   auto lir = hir::lower::loweringVisitor(types)->visitProgram(hir.program);
-  auto llvmRes = lir::codegen::generate(types.tcx, types.tbcx, lir.module);
+  char *fileName = std::getenv("CRP_FILENAME");
+  char *fileDir = std::getenv("CRP_FILEDIR");
+  auto llvmRes = lir::codegen::generate(types.tcx, types.tbcx, lir.module,
+                                        fileName ? fileName : "module.crp",
+                                        fileDir ? fileDir : ".");
   llvmRes.mod->print(llvm::outs(), nullptr);
 }
