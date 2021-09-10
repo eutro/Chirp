@@ -398,7 +398,6 @@ namespace ast::lower {
       if (it.foreignToken) {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
-        /* TODO ffi
         if (it.arguments) {
           hir::Type &fType = fe->type.emplace_back();
           fType.base = hir::FFIFN;
@@ -411,7 +410,6 @@ namespace ast::lower {
           }
           fType.params.push_back(visitHint(it.typeHint));
         }
-        */
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
         // not recFnExpr because it's already captured

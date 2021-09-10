@@ -12,4 +12,4 @@ CRP_FILEDIR=$(readlink -f "$(dirname "$1")")
 
 llc "$BASE.ll"
 as -ad "$BASE.s" -o "$BASE.o"
-cc "$BASE.o" -L. -lcrp -o "$BASE"
+cc --static "$BASE.o" -L. -lcrp -o "$BASE"

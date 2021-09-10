@@ -78,6 +78,9 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
         [&](Ty::CyclicRef &r) {
           os << "#" << r.depth;
         },
+        [&](Ty::FfiFn &f) {
+          os << "ffifn<" << f.args << ", " << f.ret << ">";
+        },
     }, t->v);
   return os;
 }

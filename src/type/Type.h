@@ -113,6 +113,11 @@ namespace type {
       Idx depth;
       BIN_OPS(CyclicRef)
     };
+    struct FfiFn {
+      Tp args;
+      Tp ret;
+      BIN_OPS(FfiFn)
+    };
     std::variant<
       Err,
       Bool,
@@ -126,7 +131,8 @@ namespace type {
       TraitRef,
       String,
       Cyclic,
-      CyclicRef> v;
+      CyclicRef,
+      FfiFn> v;
 
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
@@ -212,14 +218,20 @@ namespace type {
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         break;
       }
+      case 13: { // FfiFn
+        auto &ffifn = std::get<13>(ty->v);
+        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, tbcx, ffifn.args, tr),
+                              replaceTy<IGNORED>(tcx, tbcx, ffifn.ret, tr)};
+        if constexpr (!IGNORED) ty = tcx.intern(uret);
+        break;
+      }
       case 0: // Err
       case 1: // Bool
       case 2: // Int
       case 3: // UInt
       case 4: // Float
       case 10: // String
-      default:
-        break; // noop
+      default: break; // noop
     }
     if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
       ty = tr(ty, PostWalk{});

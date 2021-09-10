@@ -4,6 +4,7 @@
 
 #include <array>
 #include <functional>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
@@ -52,6 +53,18 @@ namespace lir::codegen {
     Idx paramC = 0;
   };
 
+  llvm::Type *getTy(CC &cc, type::Ty *ty);
+
+  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v) {
+    auto &tup = std::get<Ty::Tuple>(v.args->v);
+    std::vector<llvm::Type *> argTys;
+    argTys.reserve(tup.t.size());
+    for (auto &t : tup.t) {
+      argTys.push_back(getTy(cc, t));
+    }
+    return llvm::FunctionType::get(getTy(cc, v.ret), argTys, false);
+  }
+
   llvm::Type *getTy(CC &cc, type::Ty *ty) {
     auto found = cc.tyCache.find(ty);
     if (found != cc.tyCache.end()) {
@@ -99,7 +112,10 @@ namespace lir::codegen {
             llvm::Type::getInt8PtrTy(cc.ctx), // bytes_utf8
           });
         },
-        [](auto) -> llvm::Type * {
+        [&](Ty::FfiFn &v) -> llvm::Type * {
+          return ffiFnTy(cc, v)->getPointerTo();
+        },
+        [](auto&) -> llvm::Type * {
           throw std::runtime_error("Type cannot exist after inference");
         }
     }, ty->v);
@@ -176,7 +192,18 @@ namespace lir::codegen {
             .ty = lcc.inst.types.at(i.obj->ty),
             .tb = lcc.inst.traits.at(i.trait),
           };
-          return cc.emitCall.at(tFor)(insn, i, cc, lcc);
+          if (std::holds_alternative<Ty::FfiFn>(tFor.ty->v)) {
+            // hack for FFI
+            std::vector<llvm::Value *> args;
+            args.reserve(i.args.size());
+            for (auto &arg : i.args) {
+              args.push_back(lcc.vals.at(arg));
+            }
+            llvm::FunctionType *fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(tFor.ty->v));
+            return lcc.ib.CreateCall(fnTy, lcc.vals.at(i.obj), args);
+          } else {
+            return cc.emitCall.at(tFor)(insn, i, cc, lcc);
+          }
         },
         [&](Insn::PhiNode &i) -> llvm::Value * {
           auto phi = lcc.ib.CreatePHI(getTy(lcc, insn.ty), i.branches.size());
@@ -215,7 +242,16 @@ namespace lir::codegen {
           }
         },
         [&](Insn::ForeignRef &i) -> llvm::Value * {
-          return cc.mod.getOrInsertGlobal(i.symbol, getTy(lcc, insn.ty));
+          auto crpTy = lcc.inst.types.at(insn.ty);
+          if (std::holds_alternative<Ty::FfiFn>(crpTy->v)) {
+            auto fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(crpTy->v));
+            auto modFn = cc.mod.getOrInsertFunction(i.symbol, fnTy);
+            return modFn.getCallee();
+          } else {
+            auto ty = getTy(cc, crpTy);
+            auto global = cc.mod.getOrInsertGlobal(i.symbol, ty);
+            return lcc.ib.CreateLoad(ty, global);
+          }
         },
         [&](Insn::LiteralString &i) -> llvm::Value * {
           size_t len = i.value.size();

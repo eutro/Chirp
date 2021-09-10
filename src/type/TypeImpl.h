@@ -13,5 +13,6 @@ IMPL_OPS(Ty::TraitRef, (ty, trait, ref), (o.ty, o.trait, o.ref));
 IMPL_SINGLETON(Ty::String);
 IMPL_OPS(Ty::Cyclic, (ty), (o.ty));
 IMPL_OPS(Ty::CyclicRef, (depth), (o.depth));
+IMPL_OPS(Ty::FfiFn, (args, ret), (o.args, o.ret));
 
 IMPL_OPS(Ty, (v), (o.v));

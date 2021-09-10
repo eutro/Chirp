@@ -57,6 +57,7 @@ namespace hir::infer {
     std::map<Block *, std::set<Idx>> blockVars;
 
     std::map<std::pair<Idx/*trait*/, Tp/*ty*/>, AbstractTraitImpl*> directTraits;
+    AbstractTraitImpl *foreignTrait;
     std::map<std::pair<Idx/*trait*/, DefIdx/*adt*/>, AbstractTraitImpl*> adtTraits;
 
     InferenceVisitor() {
@@ -103,6 +104,14 @@ namespace hir::infer {
       }
       implBinOp(boolType(), BitAnd);
       implBinOp(boolType(), BitOr);
+
+      {
+        auto &ati = *(foreignTrait = aticx.add());
+        auto args = freshType();
+        auto ret = freshType();
+        ati.ty = tcx.intern(Ty::FfiFn{args, ret});
+        ati.bound = tbcx.intern(TraitBound{Fn, {args, ret}});
+      }
     }
 
     template <bool IGNORE = false, typename... Args>
@@ -256,6 +265,9 @@ namespace hir::infer {
       if (directFound != directTraits.end()) {
         return directFound->second;
       }
+      if (std::holds_alternative<Ty::FfiFn>(ty->v)) {
+        return foreignTrait;
+      }
       if (std::holds_alternative<Ty::ADT>(ty->v)) {
         DefIdx adtI = std::get<Ty::ADT>(ty->v).i;
         auto adtFound = adtTraits.find({trait, adtI});
@@ -323,9 +335,11 @@ namespace hir::infer {
         return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
       case F16: case F32: case F64:
         return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
-        // no FN,
       case TUPLE:
         return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
+      case FFIFN:
+        auto tys = parseTyParams(ty.params);
+        return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
       }
 
       auto &def = program->bindings.at(idx);
@@ -607,6 +621,10 @@ namespace hir::infer {
                       unions.emplace_back(l.t[i], r.t[i]);
                     }
                   }
+                },
+                [&](Ty::FfiFn&l, Ty::FfiFn&r) {
+                  unions.emplace_back(l.args, r.args);
+                  unions.emplace_back(l.ret, r.ret);
                 },
                 [](Ty::String&, Ty::String&) {},
                 [&](auto&, auto&) {

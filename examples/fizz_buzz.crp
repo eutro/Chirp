@@ -1,6 +1,6 @@
-defn putC(c) = foreign
-defn println() = foreign
-defn puti(i) = foreign
+defn putC(c: i64): #() = foreign
+defn println(): #() = foreign
+defn puti(i: i64): #() = foreign
 
 defn fizz() = { putC(70), putC(105), putC(122), putC(122) }
 defn buzz() = { putC(66), putC(117), putC(122), putC(122) }

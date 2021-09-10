@@ -1,4 +1,4 @@
-defn putC(c) = foreign
+defn putC(c: i64): #() = foreign
 
 defn helloWorld(H, e, l, o, space, w, r, d, excl, lf) = {
      putC(H), putC(e), putC(l), putC(l), putC(o), putC(space)
