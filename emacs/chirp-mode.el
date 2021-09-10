@@ -7,6 +7,9 @@
   :prefix "chirp-"
   :group 'languages)
 
+(defvar chirp-indent-depth 2
+  "The depth of each level of indentation in Chirp.")
+
 ;;;###autoload
 (define-derived-mode chirp-mode prog-mode "Chirp"
   "Major mode for Chirp."
@@ -14,6 +17,8 @@
   (setq-local comment-start "//")
   (setq-local comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
   (setq-local comment-multi-line t)
+  (setq-local indent-line-function #'chirp-indent-line)
+  (setq-local electric-indent-chars '(?= ?: ?\{ ?\( ?\) ?\}))
   (set-syntax-table chirp-mode-syntax-table))
 
 (defconst chirp-mode-syntax-table
@@ -150,6 +155,44 @@
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.crp\\'" . chirp-mode))
+
+(defun chirp--in-string-p ()
+  "Check if we are currently in a string."
+  (nth 3 (save-excursion (syntax-ppss (point)))))
+
+(defun chirp-indent-line ()
+  "Indent the current line as Chirp."
+  (interactive)
+  (if (chirp--in-string-p) 'noindent
+    (let* ((last-line-indent (save-excursion (forward-line -1) (current-indentation)))
+           (offset (- (point) (save-excursion (back-to-indentation) (point)))))
+      (back-to-indentation)
+
+      (let* ((should-indent
+              (or
+               (looking-at-p "[=+/*-]")
+               (save-excursion
+                 (unless (progn (beginning-of-line) (bobp))
+                   (forward-line -1)
+                   (end-of-line)
+                   (looking-back "[=:({]\\|\\blet")))))
+             (let-alignment
+              (save-excursion
+                (unless (progn (beginning-of-line) (bobp))
+                  (forward-line -1)
+                  (back-to-indentation)
+                  (and (looking-at-p "let ")
+                       (not (re-search-forward "\\bin\\b" (save-excursion (end-of-line) (point)) t))))))
+             (at-in (looking-at-p "in\\b"))
+             (should-unindent (looking-at-p "[)}]"))
+             (target-indent
+              (+ last-line-indent
+                 (if should-indent chirp-indent-depth 0)
+                 (if let-alignment 4 0)
+                 (if at-in (- chirp-indent-depth 4) 0)
+                 (if should-unindent (- chirp-indent-depth) 0))))
+        (indent-line-to target-indent))
+      (when (> offset 0) (forward-char offset)))))
 
 (provide 'chirp-mode)
 ;;; chirp-mode.el ends here

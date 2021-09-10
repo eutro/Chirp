@@ -2,8 +2,14 @@ defn x = 2
 defn y = 3
 defn z = 4
 
-if x < y < z {
-  x + y
-} else {
-  x + (if y < z { z } else { x })
-}
+defn putI(x: i64): #() = foreign
+defn println(): #() = foreign
+
+putI(
+  if x < y < z {
+    x + y
+  } else {
+    x + (if y < z { z } else { x })
+  }
+)
+println()
