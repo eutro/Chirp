@@ -1,5 +1,5 @@
-defn getC(): int = foreign
-defn putC(c: int): unit = foreign
+defn getC(): i64 = foreign
+defn putC(c: i64): #() = foreign
 
 let in loop:
   let c = getC() in:

@@ -7,19 +7,15 @@
 
 int main() {
   auto lexed = tok::lexer().lex(std::cin);
-  std::cerr << "Lexed" << std::endl;
   err::ErrorPrintContext epc(lexed.stream.lines, std::cerr);
 
   auto parsed = tok::parser::parseProgram(lexed);
-  std::cerr << "Parsed" << std::endl;
   err::maybeAbort(epc, parsed.errors);
 
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
-  std::cerr << "Lowered" << std::endl;
   err::maybeAbort(epc, hir.errors);
 
   auto infer = hir::infer::inferenceVisitor()->visitProgram(hir.program);
-  std::cerr << "Inferred" << std::endl;
   err::maybeAbort(epc, infer.errors);
 
   for (auto &block : infer.insts) {

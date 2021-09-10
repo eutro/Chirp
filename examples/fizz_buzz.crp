@@ -2,7 +2,7 @@ defn putS(s: string): #() = foreign
 defn putI(c: i64): #() = foreign
 defn println(): #() = foreign
 
-defn fizzBuzz(n) = {
+let n = 1 in fizzBuzz {
   if n % 15 == 0 {
     putS("FizzBuzz")
   } else if n % 3 == 0 {
@@ -17,5 +17,3 @@ defn fizzBuzz(n) = {
     fizzBuzz(n + 1)
   }
 }
-
-fizzBuzz(1)

@@ -13,8 +13,10 @@ may be lowered to some other IR, etc.
 
 The final stage of the compiler here may be considered the lowering to
 the LLVM IR, which can then be further lowered to machine code
-elsewhere.
+externally.
 
 Current IRs, in order of highest to lowest, are:
-- [Tokens](tokens/)
+- [Tokens](tok/)
 - [AST](ast/)
+- [HIR](hir/)
+- [LIR](lir/)
