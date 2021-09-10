@@ -15,4 +15,4 @@ defn eight = exp(two, three)
 
 defn church2int(n) = n(\x.x + 1)(0)
 
-church2int(add(mul(eight, eight), seven))
+church2int(add(eight, seven))
