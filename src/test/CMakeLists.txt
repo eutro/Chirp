@@ -1,14 +1,13 @@
 add_executable(fsm_test fsm_test.cc)
-target_link_libraries(fsm_test fsm)
-target_include_directories(fsm_test PUBLIC fsm)
+target_link_libraries(fsm_test regex)
 add_test(fsm_test fsm_test)
 
-add_executable(lexer_test lexer_test)
-target_link_libraries(lexer_test lexer)
-target_include_directories(lexer_test PUBLIC lexer)
+add_executable(lexer_test lexer_test.cc)
+target_link_libraries(lexer_test regex err)
 add_test(lexer_test lexer_test)
 
-add_executable(type_test type_test.cc)
-target_link_libraries(type_test parser)
-target_include_directories(type_test PUBLIC parser)
-add_test(type_test type_test)
+add_executable(try_lower_hir try_lower_hir.cc)
+target_link_libraries(try_lower_hir parser astlower hirjson)
+
+add_executable(try_lower_lir try_lower_lir.cc)
+target_link_libraries(try_lower_lir parser astlower hirinfer hirlower lirdisas)

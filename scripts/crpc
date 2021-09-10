@@ -8,8 +8,7 @@ CRP_FILENAME=$FULL
 export CRP_FILEDIR
 CRP_FILEDIR=$(readlink -f "$(dirname "$1")")
 
-./bin/in2llvm < "$1" > "$BASE.ll"
-
-llc "$BASE.ll"
-as -ad "$BASE.s" -o "$BASE.o"
-gcc --static "$BASE.o" -L. -lcrp -o "$BASE"
+./bin/in2llvm < "$1" > "$BASE.ll" &&
+llc "$BASE.ll" &&
+as -ad "$BASE.s" -o "$BASE.o" &&
+cc --static "$BASE.o" -L. -lcrp -o "$BASE"

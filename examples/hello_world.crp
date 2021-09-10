@@ -1,9 +1,3 @@
-defn putC(c) = foreign
+defn putS(s: string): #() = foreign
 
-defn helloWorld(H, e, l, o, space, w, r, d, excl, lf) = {
-     putC(H), putC(e), putC(l), putC(l), putC(o), putC(space)
-     putC(w), putC(o), putC(r), putC(l), putC(d), putC(excl)
-     putC(lf)
-}
-
-helloWorld(72, 101, 108, 111, 32, 119, 114, 100, 33, 10)
+putS("Hello, world!\n")

@@ -1,9 +1,5 @@
-#include "../NFA.h"
-#include "../RegEx.h"
-
-#include <cstdlib>
-#include <iostream>
-#include <string>
+#include "../fsm/NFA.h"
+#include "../fsm/RegEx.h"
 
 template<typename NFA, typename F>
 void assertMatches(const std::string &regex,

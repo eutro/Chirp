@@ -1,5 +1,4 @@
-#include "../Lexer.h"
-#include <iostream>
+#include "../fsm/Lexer.h"
 #include <sstream>
 
 enum class TokType {

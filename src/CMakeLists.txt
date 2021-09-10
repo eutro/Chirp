@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.19)
 
 project(CodingResearchProject)
 
@@ -12,25 +12,32 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
-llvm_map_components_to_libnames(llvm_libs core analysis)
+llvm_map_components_to_libnames(llvm_libs core support)
 
-add_library(fsm RegEx.cc RegEx.h DFA.h NFA.h)
+include(FetchContent)
 
-add_library(lexer Loc.cc Lexer.h)
-target_link_libraries(lexer fsm)
+FetchContent_Declare(json
+  GIT_REPOSITORY https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent
+  GIT_TAG v3.9.1)
 
-add_library(err Err.cc)
+FetchContent_GetProperties(json)
+if(NOT json_POPULATED)
+  FetchContent_Populate(json)
+  add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
 
-add_library(ast Type.cc AstCodegen.cc Ast.cc Visitor.cc)
-target_link_libraries(ast lexer ${llvm_libs})
+option(ARENA_LOGGING "Logging of arena intern hits and misses" OFF)
 
-add_library(astprint AstPrint.cc)
-add_library(astinfer AstInfer.cc)
+if(ARENA_LOGGING)
+  add_definitions(-DARENA_LOGGING)
+endif(ARENA_LOGGING)
 
-add_library(parser Parser.cc)
-target_link_libraries(parser ast err)
+add_subdirectory(common)
+add_subdirectory(fsm)
+add_subdirectory(type)
+add_subdirectory(ir)
 
-add_library(crp Runtime.c Collector.c)
+add_library(crp runtime/Collector.c runtime/Runtime.c)
 
 add_subdirectory(bin)
 

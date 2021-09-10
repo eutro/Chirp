@@ -1,5 +1,5 @@
-defn putf(d) = foreign
-defn println() = foreign
+defn putF(d: f64): #() = foreign
+defn println(): #() = foreign
 
-putf(1.0)
+putF(1.0)
 println()

@@ -1,6 +1,6 @@
 /.idea
 *~
-/**/build
+/**/build/
 /**/cmake-build-*/
 /**/.clangd
 /**/compile_commands.json
