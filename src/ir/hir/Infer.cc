@@ -337,9 +337,12 @@ namespace hir::infer {
         return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
       case TUPLE:
         return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
-      case FFIFN:
+      case STRING:
+        return tcx.intern(Ty::String{});
+      case FFIFN: {
         auto tys = parseTyParams(ty.params);
         return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
+      }
       }
 
       auto &def = program->bindings.at(idx);

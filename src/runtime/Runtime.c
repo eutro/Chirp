@@ -1,10 +1,10 @@
 #include <stdio.h>
 
-void putf(double d) {
+void putF(double d) {
   printf("%f", d);
 }
 
-void puti(long long i) {
+void putI(long long i) {
   printf("%lld", i);
 }
 
@@ -18,4 +18,13 @@ long long getC() {
 
 void putC(long long c) {
   putchar((int) c);
+}
+
+struct String {
+  unsigned long long len;
+  char *bytes;
+};
+
+void putS(struct String s) {
+  fwrite(s.bytes, sizeof(char), s.len * sizeof(char), stdout);
 }

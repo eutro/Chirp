@@ -20,5 +20,6 @@ namespace hir {
     F16, F32, F64,
     TUPLE,
     FFIFN,
+    STRING,
   };
 }

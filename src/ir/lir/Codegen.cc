@@ -255,17 +255,26 @@ namespace lir::codegen {
         },
         [&](Insn::LiteralString &i) -> llvm::Value * {
           size_t len = i.value.size();
-          llvm::ArrayType *charArrayTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(cc.ctx), len);
+          auto charTy = llvm::Type::getInt8Ty(cc.ctx);
+          llvm::ArrayType *charArrayTy = llvm::ArrayType::get(charTy, len);
           std::vector<llvm::Constant *> constantChars;
           constantChars.reserve(len);
           for (auto c : i.value) {
             constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, c)));
           }
           llvm::Constant *charsConstant = llvm::ConstantArray::get(charArrayTy, constantChars);
-          return llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(getTy(lcc, insn.ty)), {
-              llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len)),
-              new llvm::GlobalVariable(cc.mod, charArrayTy, true, llvm::GlobalValue::PrivateLinkage, charsConstant),
-          });
+          auto globalVar = new llvm::GlobalVariable(cc.mod,
+                                                    charArrayTy,
+                                                    true,
+                                                    llvm::GlobalValue::PrivateLinkage,
+                                                    charsConstant);
+          llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
+          auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
+          llvm::ArrayRef<llvm::Constant *> idces = {const0, const0};
+          llvm::Constant *charPtrConst = llvm::ConstantExpr::
+            getInBoundsGetElementPtr(charArrayTy, globalVar, idces);
+          auto stringStructTy = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
+          return llvm::ConstantStruct::get(stringStructTy, {lenConst, charPtrConst});
         },
         [&](Insn::LiteralInt &i) -> llvm::Value * {
           return llvm::ConstantInt::get(getTy(lcc, insn.ty), i.value);

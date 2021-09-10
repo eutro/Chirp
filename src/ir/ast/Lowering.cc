@@ -132,6 +132,7 @@ namespace ast::lower {
 
       builtinType("tuple", DefType::Type{});
       builtinType("ffifn", DefType::Type{});
+      builtinType("string", DefType::Type{});
 
       typeBindings.push();
     }

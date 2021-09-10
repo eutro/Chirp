@@ -146,6 +146,14 @@ namespace hir::lower {
         for (auto it = e.value.begin() + 1; it != e.value.end() - 1; ++it) {
           if (*it == '\\') {
             ++it;
+            switch (*it) {
+            case 't': value.push_back('\t'); continue;
+            case 'v': value.push_back('\v'); continue;
+            case 'f': value.push_back('\f'); continue;
+            case 'r': value.push_back('\r'); continue;
+            case 'n': value.push_back('\n'); continue;
+            default: break;
+            }
           }
           value.push_back(*it);
         }

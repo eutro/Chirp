@@ -1,19 +1,16 @@
-defn putC(c: i64): #() = foreign
+defn putS(s: string): #() = foreign
+defn putI(c: i64): #() = foreign
 defn println(): #() = foreign
-defn puti(i: i64): #() = foreign
-
-defn fizz() = { putC(70), putC(105), putC(122), putC(122) }
-defn buzz() = { putC(66), putC(117), putC(122), putC(122) }
 
 defn fizzBuzz(n) = {
   if n % 15 == 0 {
-    fizz(), buzz()
+    putS("FizzBuzz")
   } else if n % 3 == 0 {
-    fizz()
+    putS("Fizz")
   } else if n % 5 == 0 {
-    buzz()
+    putS("Buzz")
   } else {
-    puti(n)
+    putI(n)
   }
   println()
   if n < 100 {
