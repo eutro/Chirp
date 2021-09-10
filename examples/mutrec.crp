@@ -1,4 +1,5 @@
 defn isOdd(x) = x != 0 && isEven(x - 1)
 defn isEven(x) = x == 0 || isOdd(x - 1)
 
-isOdd(10)
+defn putS(s: string): #() = foreign
+putS(if isOdd(11) { "true\n" } else { "false\n" })
