@@ -62,7 +62,8 @@ namespace fsm::re {
           size_t start = nfa.push();
           size_t last = start;
           for (const auto &sym : symbols) {
-            nfa.states[last].transitions[sym].insert(last = nfa.push());
+            auto &transitions = nfa.states[last].transitions[sym];
+            transitions.insert(last = nfa.push());
           }
           return std::make_pair(start, last);
         }
