@@ -2,7 +2,7 @@ name: CMake
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, ci ]
   pull_request:
     branches: [ master ]
 
@@ -13,7 +13,7 @@ jobs:
   build:
     strategy:
       matrix:
-        running-on: [ubuntu-latest, windows-latest, macos-latest]
+        running-on: [ubuntu-latest, macos-latest]
     
     runs-on: ${{matrix.running-on}}
 
