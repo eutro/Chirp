@@ -1,0 +1,18 @@
+defn putFln(x: f64) =
+  let putF(x: f64): #() = foreign
+      println(): #() = foreign
+    in { putF(x), println() }
+
+defn putBln(b) =
+  let putS(s: string): #() = foreign
+    in: putS(if b { "true\n" } else { "false\n" })
+
+defn nan = 0.0 / 0.0
+
+putFln(1.0 + 2.0)
+putFln(0.1 + 0.2)
+putFln(1.0 / 1.0)
+putFln(0.0 / 0.0)
+putBln(0.0 == 0.0)
+putBln(nan == nan)
+putBln(nan != nan)

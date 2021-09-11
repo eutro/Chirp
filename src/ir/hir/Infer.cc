@@ -73,33 +73,36 @@ namespace hir::infer {
         neg.refs = {ty};
         neg.bound = tbcx.intern(TraitBound{Neg});
       };
+      auto implEq = [this](Tp ty) {
+        auto &eq = *(directTraits[{Eq, ty}] = aticx.add());
+        eq.ty = ty;
+        eq.bound = tbcx.intern(TraitBound{Eq, {ty}});
+      };
       auto implCmp = [this](Tp ty) {
         auto &cmp = *(directTraits[{Cmp, ty}] = aticx.add());
         cmp.ty = ty;
         cmp.bound = tbcx.intern(TraitBound{Cmp, {ty}});
       };
 
-      for (type::IntSize is = type::IntSize::i8;
-           is <= type::IntSize::i128;
-           ++(std::underlying_type<type::IntSize>::type&)is) {
+      for (type::IntSize is : type::INT_SIZE_VALUES) {
         Tp i = tcx.intern(Ty::Int{is});
         Tp u = tcx.intern(Ty::UInt{is});
         for (Tp ty : {i, u}) {
           for (Builtins bt : {Add, Sub, Mul, Div, Rem, BitOr, BitAnd}) {
             implBinOp(ty, bt);
           }
+          implEq(ty);
           implCmp(ty);
         }
         implNeg(i);
       }
-      for (type::FloatSize fs = type::FloatSize::f16;
-           fs <= type::FloatSize::f64;
-           ++(std::underlying_type<type::FloatSize>::type&)fs) {
+      for (type::FloatSize fs : type::FLOAT_SIZE_VALUES) {
         Tp ty = tcx.intern(Ty::Float{fs});
         for (Builtins bt : {Add, Sub, Mul, Div, Rem}) {
           implBinOp(ty, bt);
         }
         implNeg(ty);
+        implEq(ty);
         implCmp(ty);
       }
       implBinOp(boolType(), BitAnd);
@@ -850,7 +853,8 @@ namespace hir::infer {
     Tp visitCmpExpr(CmpExpr &it) {
       Tp lhsType = visitExpr(*it.lhs);
       Tp rhsType = visitExpr(*it.rhs);
-      TraitBound *traitBound = tbcx.intern(TraitBound{Cmp, {rhsType}});
+      Idx trait = it.op <= CmpExpr::Eq ? Eq : Cmp;
+      TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsType}});
       exprTraits[&it] = traitBound;
       constrainTrait(lhsType, traitBound);
       return boolType();

@@ -31,6 +31,13 @@ namespace type {
   };
 
   Idx bitCount(IntSize);
+  static const std::array<IntSize, 5> INT_SIZE_VALUES {
+    IntSize::i8,
+    IntSize::i16,
+    IntSize::i32,
+    IntSize::i64,
+    IntSize::i128,
+  };
 
   enum class FloatSize {
     f16,
@@ -39,6 +46,11 @@ namespace type {
   };
 
   Idx bitCount(FloatSize);
+  static const std::array<FloatSize, 5> FLOAT_SIZE_VALUES {
+      FloatSize::f16,
+      FloatSize::f32,
+      FloatSize::f64,
+  };
 
   class Ty;
 

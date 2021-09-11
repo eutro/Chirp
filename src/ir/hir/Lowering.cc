@@ -7,10 +7,11 @@ namespace hir::lower {
 
 #define RET_T Insn *
 #define ARGS(TYPE) (TYPE &e, BlockList &l, Idx *bb, bool tail)
+
   class LoweringVisitor :
-    public AbstractLoweringVisitor,
-    public ExprVisitor<Insn *,
-                       BlockList&, Idx*, bool> {
+      public AbstractLoweringVisitor,
+      public ExprVisitor<Insn *,
+          BlockList &, Idx *, bool> {
   public:
     infer::InferResult &infer;
 
@@ -35,14 +36,14 @@ namespace hir::lower {
         size_t instCount = bi.types.size();
         for (size_t i = 0; i < instCount; ++i) {
           trait.instantiations[lir::TraitImpl::For{
-            .ty = bi.types.at(i).at(0),
-            .tb = bi.traitBounds.at(i).at(0),
+              .ty = bi.types.at(i).at(0),
+              .tb = bi.traitBounds.at(i).at(0),
           }] = instFromIdx(bi, i);
         }
       }
       return ret;
     }
-    
+
     Instantiation instFromIdx(infer::InferResult::BlockInstantiation &bi, size_t idx) {
       Instantiation inst;
       inst.types = bi.types.at(idx);
@@ -67,7 +68,7 @@ namespace hir::lower {
       insn->ty = infer.insts[rootBlock].exprTypes.at(&e);
       insn->span = e.span;
     }
-    
+
     RET_T visitExpr ARGS(Expr) override {
       RET_T ret = ExprVisitor::visitExpr(e, l, bb, tail);
       if (ret) setTyAndLoc(e, ret);
@@ -83,16 +84,16 @@ namespace hir::lower {
         Definition &def = prog->bindings.at(binding);
         auto &name = def.name;
         Insn *declare = root ?
-          l[*bb].emplace_back(Insn::DeclareParam{name}) :
-          l[*bb].emplace_back(Insn::DeclareVar{name});
+                        l[*bb].emplace_back(Insn::DeclareParam{name}) :
+                        l[*bb].emplace_back(Insn::DeclareVar{name});
         declare->ty = infer.insts[rootBlock].varTypes.at(binding);
         declare->span = def.source;
         vars[binding] = declare;
       }
       for (auto &expr : e.body) {
-        auto define = dynamic_cast<DefineExpr*>(expr.get());
+        auto define = dynamic_cast<DefineExpr *>(expr.get());
         if (define) {
-          if (dynamic_cast<NewExpr*>(define->value.get())) {
+          if (dynamic_cast<NewExpr *>(define->value.get())) {
             auto halloc = l[*bb].emplace_back(Insn::HeapAlloc{});
             setTyAndLoc(*define->value, halloc);
             l[*bb].emplace_back<false>(Insn::SetVar{vars.at(define->idx), halloc});
@@ -134,9 +135,9 @@ namespace hir::lower {
           return voidValue(l, bb);
         } else {
           return l[*bb].emplace_back(Insn::PhiNode{{
-                {thenV, &l[thenB]},
-                {elseV, &l[elseB]},
-              }});
+                                                       {thenV, &l[thenB]},
+                                                       {elseV, &l[elseB]},
+                                                   }});
         }
       }
     }
@@ -145,33 +146,45 @@ namespace hir::lower {
     }
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
       switch (e.type) {
-      case LiteralExpr::Int: {
-        return l[*bb].emplace_back(Insn::LiteralInt{std::stoull(e.value)});
-      }
-      case LiteralExpr::Float: {
-        return l[*bb].emplace_back(Insn::LiteralFloat{std::stold(e.value)});
-      }
-      case LiteralExpr::String: {
-        std::string value;
-        value.reserve(e.value.size());
-        for (auto it = e.value.begin() + 1; it != e.value.end() - 1; ++it) {
-          if (*it == '\\') {
-            ++it;
-            switch (*it) {
-            case 't': value.push_back('\t'); continue;
-            case 'v': value.push_back('\v'); continue;
-            case 'f': value.push_back('\f'); continue;
-            case 'r': value.push_back('\r'); continue;
-            case 'n': value.push_back('\n'); continue;
-            default: break;
-            }
-          }
-          value.push_back(*it);
+        case LiteralExpr::Int: {
+          return l[*bb].emplace_back(Insn::LiteralInt{std::stoull(e.value)});
         }
-        value.shrink_to_fit();
-        return l[*bb].emplace_back(Insn::LiteralString{std::move(value)});
-      }
-      default: throw 0;
+        case LiteralExpr::Float: {
+          return l[*bb].emplace_back(Insn::LiteralFloat{std::stold(e.value)});
+        }
+        case LiteralExpr::String: {
+          std::string value;
+          value.reserve(e.value.size());
+          for (auto it = e.value.begin() + 1; it != e.value.end() - 1; ++it) {
+            if (*it == '\\') {
+              ++it;
+              switch (*it) {
+                case 't':
+                  value.push_back('\t');
+                  continue;
+                case 'v':
+                  value.push_back('\v');
+                  continue;
+                case 'f':
+                  value.push_back('\f');
+                  continue;
+                case 'r':
+                  value.push_back('\r');
+                  continue;
+                case 'n':
+                  value.push_back('\n');
+                  continue;
+                default:
+                  break;
+              }
+            }
+            value.push_back(*it);
+          }
+          value.shrink_to_fit();
+          return l[*bb].emplace_back(Insn::LiteralString{std::move(value)});
+        }
+        default:
+          throw 0;
       }
     }
     RET_T visitBoolExpr ARGS(BoolExpr) override {
@@ -187,7 +200,12 @@ namespace hir::lower {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
       Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
-      return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, (Idx)e.op});
+      return l[*bb].emplace_back(Insn::CallTrait{
+        receiver, args, trait,
+        e.op <= CmpExpr::Eq ?
+        e.op :
+        (Idx)e.op - (Idx)CmpExpr::Eq
+      });
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
       auto receiver = visitExpr(*e.value, l, bb, false);

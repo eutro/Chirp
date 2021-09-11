@@ -111,6 +111,7 @@ namespace ast::lower {
       builtinType("Rem", DefType::Trait{});
       builtinType("BitOr", DefType::Trait{});
       builtinType("BitAnd", DefType::Trait{});
+      builtinType("Eq", DefType::Trait{});
       builtinType("Cmp", DefType::Trait{});
       builtinType("Neg", DefType::Trait{});
 

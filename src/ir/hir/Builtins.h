@@ -11,6 +11,7 @@ namespace hir {
     Rem,
     BitOr,
     BitAnd,
+    Eq,
     Cmp,
     Neg,
     // Types
