@@ -33,7 +33,7 @@ struct GCMeta {
   void (*visit)(void *root, VisitFn visitor);
 };
 
-AllocMeta *allocated = NULL;
+static AllocMeta *allocated = NULL;
 
 void *gcAlloc(int32_t size) {
   AllocMeta *newMeta = (AllocMeta *) malloc(sizeof(AllocMeta) + size);
@@ -78,14 +78,14 @@ static void mark() {
 }
 
 static void sweep() {
-  for (AllocMeta *meta = allocated; meta;) {
-    if (meta->marked) {
-      meta->marked = false;
-      meta = meta->next;
+  for (AllocMeta **meta = &allocated; *meta;) {
+    if ((*meta)->marked) {
+      (*meta)->marked = false;
+      meta = &(*meta)->next;
     } else {
-      AllocMeta *next = meta->next;
-      free(meta);
-      meta = next;
+      AllocMeta *toFree = *meta;
+      *meta = toFree->next;
+      free(toFree);
     }
   }
 }

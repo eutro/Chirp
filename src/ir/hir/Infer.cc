@@ -213,7 +213,11 @@ namespace hir::infer {
               }
               return idces[trf.ref];
             } else if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-              return complete->tys.at(ty);
+              auto found = complete->tys.find(ty);
+              if (found != complete->tys.end()) {
+                return found->second;
+              }
+              return tcx.intern(Ty::Err{});
             }
             return ty;
           };

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Lir.h"
+#include "../Lir.h"
 
-#include "../../common/Arena.h"
+#include "../../../common/Arena.h"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>

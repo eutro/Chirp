@@ -26,5 +26,5 @@ target_link_libraries(hirlower hir err type)
 
 add_library(lirdisas lir/Disas.cc)
 
-add_library(lircodegen lir/Codegen.cc lir/CodegenUtil.cc lir/CodegenUtil.h lir/TraitIntrinsics.cc)
+add_library(lircodegen lir/codegen/Codegen.cc lir/codegen/Util.cc lir/codegen/Util.h lir/codegen/Intrinsics.cc)
 target_link_libraries(lircodegen ${llvm_libs})

@@ -9,7 +9,7 @@ void putI(long long i) {
 }
 
 void println() {
-  puts("");
+  putchar('\n');
 }
 
 long long getC() {

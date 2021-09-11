@@ -204,6 +204,7 @@ namespace type {
                                  replaceTy<IGNORED>(tcx, tbcx, trf.trait, tr),
                                  trf.ref};
         if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
+        else tr(ty);
         break;
       }
       case 6: { // ADT

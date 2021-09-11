@@ -1,6 +1,6 @@
-#include "TraitIntrinsics.h"
+#include "Intrinsics.h"
 
-#include "../hir/Builtins.h"
+#include "../../hir/Builtins.h"
 
 namespace lir::codegen {
   template <typename T, std::size_t... Idx, typename C, typename... Args>
@@ -8,7 +8,7 @@ namespace lir::codegen {
                    std::index_sequence<Idx...>,
                    Args&&... args) {
     return [=](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
-      return (lcc.ib.*fn)(lcc.vals.at(ct.obj), lcc.vals.at(ct.args.at(Idx))..., args...);
+      return (lcc.ib.*fn)(lcc.load(ct.obj), lcc.load(ct.args.at(Idx))..., args...);
     };
   }
 
@@ -61,8 +61,8 @@ namespace lir::codegen {
                         llvm::ICmpInst::ICMP_EQ,
                     };
                     return lcc.ib.CreateICmp(cis[ct.method],
-                                             lcc.vals.at(ct.obj),
-                                             lcc.vals.at(ct.args.at(0)));
+                                             lcc.load(ct.obj),
+                                             lcc.load(ct.args.at(0)));
                   });
         implTrait(cc, ty, hir::Builtins::Cmp, {ty},
                   [isU](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc)
@@ -74,8 +74,8 @@ namespace lir::codegen {
                         isU ? llvm::ICmpInst::ICMP_UGE : llvm::ICmpInst::ICMP_SGE,
                     };
                     return lcc.ib.CreateICmp(cis[ct.method],
-                                             lcc.vals.at(ct.obj),
-                                             lcc.vals.at(ct.args.at(0)));
+                                             lcc.load(ct.obj),
+                                             lcc.load(ct.args.at(0)));
                   });
         
         implTrait<1>(cc, ty, hir::Builtins::BitOr, {ty},
@@ -108,8 +108,8 @@ namespace lir::codegen {
                       llvm::FCmpInst::FCMP_OEQ,
                   };
                   return lcc.ib.CreateFCmp(cis[ct.method],
-                                           lcc.vals.at(ct.obj),
-                                           lcc.vals.at(ct.args.at(0)));
+                                           lcc.load(ct.obj),
+                                           lcc.load(ct.args.at(0)));
                 });
       implTrait(cc, ty, hir::Builtins::Cmp, {ty},
                 [](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc)
@@ -121,8 +121,8 @@ namespace lir::codegen {
                       llvm::FCmpInst::FCMP_OGE,
                   };
                   return lcc.ib.CreateFCmp(cis[ct.method],
-                                           lcc.vals.at(ct.obj),
-                                           lcc.vals.at(ct.args.at(0)));
+                                           lcc.load(ct.obj),
+                                           lcc.load(ct.args.at(0)));
                 });
     }
   }

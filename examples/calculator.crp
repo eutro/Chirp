@@ -1,0 +1,54 @@
+defn getC(): i64 = foreign
+defn putS(s: string): #() = foreign
+defn putI(i: i64): #() = foreign
+defn putC(c: i64): #() = foreign
+
+defn readInt() =
+  let acc = 0 in loop:
+    let c = getC() in:
+    if c == 10 || c == -1 {
+      acc
+    } else {
+      loop((acc * 10) + (c - 48 /* ascii 0 */))
+    }
+
+let in loop {
+  putS("X:\n")
+  let x = readInt() in {
+    putS("Y:\n")
+    let y = readInt() in {
+      putS("Op:\n")
+      let op = getC() in {
+        getC() // drop line break
+        if op == 42 /* asterisk */ {
+          putS("x * y = ")
+          putI(x * y)
+          putS("\n")
+          loop()
+        } else if op == 43 /* plus */ {
+          putS("x + y = ")
+          putI(x + y)
+          putS("\n")
+          loop()
+        } else if op == 45 /* minus */ {
+          putS("x - y = ")
+          putI(x - y)
+          putS("\n")
+          loop()
+        } else if op == 47 /* slash */ {
+          putS("x / y = ")
+          putI(x / y)
+          putS("\n")
+          loop()
+        } else if op == -1 {
+          {} // return
+        } else {
+          putS("Unknown operation: ")
+          putC(op)
+          putS("\n")
+          loop()
+        }
+      }
+    }
+  }
+}

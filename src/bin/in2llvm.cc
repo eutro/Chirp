@@ -2,7 +2,7 @@
 #include "../ir/ast/Lowering.h"
 #include "../ir/hir/Infer.h"
 #include "../ir/hir/Lowering.h"
-#include "../ir/lir/Codegen.h"
+#include "../ir/lir/codegen/Codegen.h"
 
 #include <llvm/Support/raw_ostream.h>
 

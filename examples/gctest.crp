@@ -1,0 +1,15 @@
+defn collectGarbage(): #() = foreign
+defn putS(s: string): #() = foreign
+
+defn capture(x) = \.x
+defn dropSecond(x, y) = x
+
+defn test() =
+  putS(dropSecond(capture("Hello!\n"), { collectGarbage(), capture(1) })())
+//                ~~~~~~~~~~~~~~~~~~~
+// checks that the closure here ^ is properly preserved by the collector
+test()
+
+collectGarbage() // free the temporaries from before
+test()
+collectGarbage() // test if the garbage collector has broken its own state

@@ -204,7 +204,7 @@ namespace hir::lower {
         receiver, args, trait,
         e.op <= CmpExpr::Eq ?
         e.op :
-        (Idx)e.op - (Idx)CmpExpr::Eq
+        (Idx)e.op - (Idx)CmpExpr::Lt
       });
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
@@ -240,11 +240,15 @@ namespace hir::lower {
       return voidValue(l, bb);
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
-      Idx i = 0;
-      auto obj = l[*bb].emplace_back(Insn::HeapAlloc{}); // type will be added
+      std::vector<Insn *> values;
+      values.reserve(e.values.size());
       for (auto &v : e.values) {
-        auto value = visitExpr(*v, l, bb, false);
-        l[*bb].emplace_back<false>(Insn::SetField{obj, e.variant, i++, value});
+        values.push_back(visitExpr(*v, l, bb, false));
+      }
+      auto obj = l[*bb].emplace_back(Insn::HeapAlloc{}); // type will be added
+      Idx i = 0;
+      for (auto &v : values) {
+        l[*bb].emplace_back<false>(Insn::SetField{obj, e.variant, i++, v});
       }
       l[*bb].end.v = Jump::Ret{obj};
       return obj;

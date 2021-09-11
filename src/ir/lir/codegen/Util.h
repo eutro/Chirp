@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Lir.h"
-#include "../../common/Arena.h"
+#include "../Lir.h"
+#include "../../../common/Arena.h"
 
 #include <array>
 #include <functional>
@@ -25,7 +25,12 @@ namespace lir::codegen {
   struct LocalCC;
   struct CC;
   using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
-  using TyPair = std::tuple<llvm::Type *, llvm::DIType *>;
+
+  struct GCData {
+    llvm::Constant *metadata;
+  };
+
+  using TyTuple = std::tuple<llvm::Type *, llvm::DIType *, std::optional<GCData>>;
 
   struct CC {
     arena::InternArena<Ty> &tcx;
@@ -37,7 +42,13 @@ namespace lir::codegen {
     llvm::DICompileUnit *cu;
 
     std::map<TraitImpl::For, EmitFn> emitCall;
-    std::map<type::Ty *, TyPair> tyCache;
+    std::map<type::Ty *, TyTuple> tyCache;
+
+    llvm::StructType *gcMetaTy = nullptr;
+    llvm::FunctionType *visitFnTy = nullptr;
+    llvm::FunctionType *metaFnTy = nullptr;
+
+    std::vector<std::function<void(CC&)>> deferred;
   };
 
   struct LocalCC {
@@ -47,7 +58,20 @@ namespace lir::codegen {
     llvm::Function *func;
     lir::Instantiation &inst;
 
-    std::map<Insn *, llvm::Value *> vals;
+    struct Value {
+      llvm::Value *ref;
+      llvm::Type *ty;
+      enum Type {
+        Pointer,
+        Direct,
+      };
+      Type loadTy;
+    };
+    std::map<Insn *, Value> vals;
+    
+    llvm::Value *load(Insn *insn);
+    llvm::Value *reference(Insn *insn);
+    
     std::map<BasicBlock *, llvm::BasicBlock *> bbs;
     Idx paramC = 0;
 
@@ -56,9 +80,9 @@ namespace lir::codegen {
 
   llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
 
-  const TyPair &getTyPair(CC &cc, type::Ty *ty);
+  const TyTuple &getTyTuple(CC &cc, type::Ty *ty);
 
-  llvm::Type *adtTy(CC &cc, type::Ty::ADT &v);
+  llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 
   llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
 
@@ -66,11 +90,15 @@ namespace lir::codegen {
 
   template <typename T = llvm::Type *>
   T getTy(CC &cc, type::Tp ty) {
-    return std::get<T>(getTyPair(cc, ty));
+    return std::get<T>(getTyTuple(cc, ty));
   }
 
   template <typename T = llvm::Type *>
   T getTy(LocalCC &lcc, Idx i) {
     return getTy<T>(lcc.cc, lcc.inst.types.at(i));
   }
+
+  void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);
+
+  llvm::AllocaInst *addTemporary(LocalCC &lcc, llvm::Type *ty, llvm::Value *meta);
 }
