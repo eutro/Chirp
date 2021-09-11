@@ -26,15 +26,11 @@ TupleType ::= '#(' ( Type ( ',' Type )* ','? )? ')'
 
 Expr ::= LogCmpExpr
 
-LogCmpExpr ::= EqExpr ( ('&&' | '||') EqExpr )*
+LogCmpExpr ::= CmpExpr ( ('&&' | '||') CmpExpr )*
 
-EqExpr ::= CmpExpr ( ('!='|'='|'==') CmpExpr )*
+CmpExpr ::= BitExpr ( ('<'|'<='|'>'|'>='|'!='|'==') BitExpr )*
 
-CmpExpr ::= BitExpr ( ('<'|'<='|'>'|'>=') BitExpr )*
-
-BitExpr ::= ShiftExpr ( ('|' | '&') ShiftExpr )*
-
-ShiftExpr ::= AddExpr ( ('<<'|'>>') AddExpr )*
+BitExpr ::= AddExpr ( ('|' | '&') AddExpr )*
 
 AddExpr ::= MulExpr ( ('+'|'-') MulExpr )*
 
@@ -62,7 +58,7 @@ ColonExpr ::= ':' Expr
 
 IfExpr ::= 'if' Expr BlockExpr
            ( 'else' 'if' Expr BlockExpr )*
-           ( 'else' BlockExpr )?
+           ( 'else' DelimitedExpr )?
 
 LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr
 

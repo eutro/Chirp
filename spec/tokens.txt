@@ -49,4 +49,5 @@ TDiv ::= '/'
 TRem ::= '%'
 
 TBackslash ::= /\\/
+TLambda ::= 'λ'
 TDot ::= '.'

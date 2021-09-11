@@ -410,6 +410,7 @@ namespace tok::parser {
             Tok::TIf,
             Tok::TFn,
             Tok::TBackslash,
+            Tok::TLambda,
             Tok::TIdent,
             Tok::TStr,
             Tok::TInt,
@@ -466,7 +467,7 @@ namespace tok::parser {
           } else {
             IfExpr::Else elseClause;
             elseClause.elseToken = std::move(elseToken);
-            elseClause.thenExpr = parseBlockExpr(stream);
+            elseClause.thenExpr = parseDelimitedExpr(stream);
             expr.span.hi = elseClause.thenExpr->span.hi;
             expr.elseClause = std::move(elseClause);
             break;
@@ -486,7 +487,8 @@ namespace tok::parser {
         expr.span.hi = expr.body->span.hi;
         return std::make_unique<FnExpr>(std::move(expr));
       }
-      case Tok::TBackslash: {
+      case Tok::TBackslash:
+      case Tok::TLambda: {
         LambdaExpr expr;
         expr.lambdaToken = std::move(*token);
         expr.span.lo = expr.lambdaToken.loc;
@@ -611,12 +613,11 @@ namespace tok::parser {
   }
 
   const std::vector<std::set<Tok>> binaryOperators{
-      {Tok::TAnd2,   Tok::TOr2},
-      {Tok::TNe,     Tok::TEq,       Tok::TEq2},
-      {Tok::TLt,     Tok::TLe,       Tok::TGt, Tok::TGe},
-      {Tok::TOr1,    Tok::TAnd1},
-      {Tok::TAdd,    Tok::TSub},
-      {Tok::TMul,    Tok::TDiv,      Tok::TRem}
+      {Tok::TAnd2, Tok::TOr2},
+      {Tok::TLt,   Tok::TLe,  Tok::TGt, Tok::TGe, Tok::TNe, Tok::TEq2},
+      {Tok::TOr1,  Tok::TAnd1},
+      {Tok::TAdd,  Tok::TSub},
+      {Tok::TMul,  Tok::TDiv, Tok::TRem}
   };
 
   std::unique_ptr<Expr> parseBinaryExpr(ParserStream &stream, size_t index) {

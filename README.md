@@ -1,3 +1,12 @@
+# Chirp
+
+Chirp is a functional, statically typed programming language, created for educational purposes.
+
+It is currently severely lacking features to make it convenient for general use,
+so it is most suitable to call it a toy language at this time.
+
+For a list of features, see [features](features.md).
+
 # Building
 
 Source code can be found in the [src](./src) folder,
@@ -7,7 +16,7 @@ For example, a simple build may be produced by:
 ```bash
 mkdir build
 cd build
-cmake ../src
+cmake ../src -DCMAKE_BUILD_TYPE=Release
 cmake --build .
 ```
 
