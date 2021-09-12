@@ -84,7 +84,7 @@ namespace hir::infer {
         cmp.bound = tbcx.intern(TraitBound{Cmp, {ty}});
       };
 
-      for (type::IntSize is : type::INT_SIZE_VALUES) {
+      for (type::IntSize is : type::INT_SIZE_FIXED) {
         Tp i = tcx.intern(Ty::Int{is});
         Tp u = tcx.intern(Ty::UInt{is});
         for (Tp ty : {i, u}) {
@@ -336,16 +336,18 @@ namespace hir::infer {
       switch (idx) {
       case BOOL:
         return boolType();
-      case I8: case I16: case I32: case I64:
+      case I8: case I16: case I32: case I64: case I128:
         return tcx.intern(Ty::Int{(type::IntSize) (idx - I8)});
-      case U8: case U16: case U32: case U64:
+      case U8: case U16: case U32: case U64: case U128:
         return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
       case F16: case F32: case F64:
         return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
       case TUPLE:
         return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
       case STRING:
-        return tcx.intern(Ty::String{});
+        return tcx.intern(Ty::String{false});
+      case NULSTRING:
+        return tcx.intern(Ty::String{true});
       case FFIFN: {
         auto tys = parseTyParams(ty.params);
         return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
@@ -822,13 +824,38 @@ namespace hir::infer {
       return unitType();
     }
     Tp visitLiteralExpr(LiteralExpr &it) {
+      auto &hints = dynamic_cast<Expr&>(it).type;
       switch (it.type) {
       case LiteralExpr::Int:
+        for (auto &h : hints) {
+          if (h.base &&
+              *h.base >= Builtins::I8 &&
+              *h.base <= Builtins::I128) {
+            return tcx.intern(Ty::Int{(type::IntSize)(*h.base - (Idx)Builtins::I8)});
+          }
+          if (h.base &&
+              *h.base >= Builtins::U8 &&
+              *h.base <= Builtins::U128) {
+            return tcx.intern(Ty::UInt{(type::IntSize)(*h.base - (Idx)Builtins::U8)});
+          }
+        }
         return tcx.intern(Ty::Int{type::IntSize::i64});
       case LiteralExpr::Float:
+        for (auto &h : hints) {
+          if (h.base &&
+              *h.base >= Builtins::F16 &&
+              *h.base <= Builtins::F64) {
+            return tcx.intern(Ty::Float{(type::FloatSize)(*h.base - (Idx)Builtins::F16)});
+          }
+        }
         return tcx.intern(Ty::Float{type::FloatSize::f64});
       case LiteralExpr::String:
-        return tcx.intern(Ty::String{});
+        for (auto &h : hints) {
+          if (h.base && *h.base == Builtins::NULSTRING) {
+            return tcx.intern(Ty::String{true});
+          }
+        }
+        return tcx.intern(Ty::String{false});
       default: throw 0;
       }
     }

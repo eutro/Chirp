@@ -31,7 +31,7 @@ namespace type {
   };
 
   Idx bitCount(IntSize);
-  static const std::array<IntSize, 5> INT_SIZE_VALUES {
+  static const std::array<IntSize, 5> INT_SIZE_FIXED {
     IntSize::i8,
     IntSize::i16,
     IntSize::i32,
@@ -115,6 +115,7 @@ namespace type {
       BIN_OPS(TraitRef)
     };
     struct String {
+      bool nul;
       BIN_OPS(String)
     };
     struct Cyclic {

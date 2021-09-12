@@ -52,4 +52,5 @@ Not all of these compile (this is intentional).
 # Code Highlighting
 
 There is code highlighting (and auto-indentation) for Emacs [here](./emacs/chirp-mode.el).
-Just open the file and run <kbd>M-x</kbd> `eval-buffer`.
+This will automatically be loaded by [.dir-locals.el](.dir-locals.el),
+or alternatively just open the file and run <kbd>M-x</kbd> `eval-buffer`.

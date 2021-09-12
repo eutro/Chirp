@@ -1,0 +1,15 @@
+// mutable boxes!
+
+defn box(x) = \.x
+defn unbox(b) = b()
+defn box_set<T, Y>(x: T, y, size: i64) =
+  let memcpy(dest: T, src: Y, size: i64): T = foreign in:
+    memcpy(x, box(y): Y, size)
+
+let putS(s: string): #() = foreign
+    b = box("Hello, ") 
+  in {
+    putS(unbox(b))
+    box_set(b, "world!\n", 16)
+    putS(unbox(b))
+  }

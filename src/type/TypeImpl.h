@@ -10,7 +10,7 @@ IMPL_OPS(Ty::ADT, (i, v, s), (o.i, o.v, o.s));
 IMPL_OPS(Ty::Dyn, (t), (o.t));
 IMPL_OPS(Ty::Tuple, (t), (o.t));
 IMPL_OPS(Ty::TraitRef, (ty, trait, ref), (o.ty, o.trait, o.ref));
-IMPL_SINGLETON(Ty::String);
+IMPL_OPS(Ty::String, (nul), (o.nul));
 IMPL_OPS(Ty::Cyclic, (ty), (o.ty));
 IMPL_OPS(Ty::CyclicRef, (depth), (o.depth));
 IMPL_OPS(Ty::FfiFn, (args, ret), (o.args, o.ret));

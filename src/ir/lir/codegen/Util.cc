@@ -160,6 +160,13 @@ namespace lir::codegen {
           );
         },
         [&](Ty::String &v) -> TyTuple {
+          if (v.nul) {
+            return std::make_tuple(
+                llvm::Type::getInt8PtrTy(cc.ctx),
+                cc.db.createStringType("cstr", 64),
+                std::nullopt
+            );
+          }
           return std::make_tuple(
               llvm::StructType::get(cc.ctx, {
                   llvm::Type::getInt64Ty(cc.ctx), // len

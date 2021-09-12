@@ -61,10 +61,10 @@ namespace lir {
       std::string value;
     };
     struct LiteralInt {
-      unsigned long long value;
+      std::string value;
     };
     struct LiteralFloat {
-      long double value;
+      std::string value;
     };
     struct LiteralBool {
       bool value;

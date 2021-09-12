@@ -221,7 +221,9 @@ namespace lir::codegen {
           }
         },
         [&](Insn::LiteralString &i) -> LocalCC::Value {
-          size_t len = i.value.size();
+          auto cTy = lcc.inst.types.at(insn.ty);
+          bool nulTerminate = std::get<Ty::String>(cTy->v).nul;
+          size_t len = i.value.size() + nulTerminate;
           auto charTy = llvm::Type::getInt8Ty(cc.ctx);
           llvm::ArrayType *charArrayTy = llvm::ArrayType::get(charTy, len);
           std::vector<llvm::Constant *> constantChars;
@@ -229,24 +231,32 @@ namespace lir::codegen {
           for (auto c : i.value) {
             constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, c)));
           }
+          if (nulTerminate) {
+            constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0)));
+          }
           llvm::Constant *charsConstant = llvm::ConstantArray::get(charArrayTy, constantChars);
           auto globalVar = new llvm::GlobalVariable(cc.mod,
                                                     charArrayTy,
                                                     true,
                                                     llvm::GlobalValue::PrivateLinkage,
                                                     charsConstant);
-          llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
           auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
           llvm::ArrayRef<llvm::Constant *> indices = {const0, const0};
           llvm::Constant *charPtrConst = llvm::ConstantExpr::
             getInBoundsGetElementPtr(charArrayTy, globalVar, indices);
+          if (nulTerminate) {
+            return {charPtrConst, charTy->getPointerTo(), LocalCC::Value::Direct};
+          }
           auto stringStructTy = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
+          llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
           llvm::Constant *constant = llvm::ConstantStruct::get(stringStructTy, {lenConst, charPtrConst});
           return {constant, stringStructTy, LocalCC::Value::Direct};
         },
         [&](Insn::LiteralInt &i) -> LocalCC::Value {
-          auto ty = getTy(lcc, insn.ty);
-          return {llvm::ConstantInt::get(ty, i.value), ty, LocalCC::Value::Direct};
+          Ty *cTy = lcc.inst.types.at(insn.ty);
+          auto ty = getTy(cc, cTy);
+          llvm::IntegerType *intTy = llvm::cast<llvm::IntegerType>(ty);
+          return {llvm::ConstantInt::get(intTy, i.value, 10), ty, LocalCC::Value::Direct};
         },
         [&](Insn::LiteralFloat &i) -> LocalCC::Value {
           auto ty = getTy(lcc, insn.ty);

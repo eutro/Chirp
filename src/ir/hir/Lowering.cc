@@ -147,10 +147,10 @@ namespace hir::lower {
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
       switch (e.type) {
         case LiteralExpr::Int: {
-          return l[*bb].emplace_back(Insn::LiteralInt{std::stoull(e.value)});
+          return l[*bb].emplace_back(Insn::LiteralInt{e.value});
         }
         case LiteralExpr::Float: {
-          return l[*bb].emplace_back(Insn::LiteralFloat{std::stold(e.value)});
+          return l[*bb].emplace_back(Insn::LiteralFloat{e.value});
         }
         case LiteralExpr::String: {
           std::string value;

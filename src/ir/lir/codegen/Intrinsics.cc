@@ -35,7 +35,7 @@ namespace lir::codegen {
 
   void addIntrinsics(CC &cc) {
     using BinaryAndTwine = llvm::Value *(llvm::IRBuilder<>::*)(llvm::Value*, llvm::Value*, const llvm::Twine&);
-    for (type::IntSize is : type::INT_SIZE_VALUES) {
+    for (type::IntSize is : type::INT_SIZE_FIXED) {
       Tp i = cc.tcx.intern(Ty::Int{is});
       Tp u = cc.tcx.intern(Ty::UInt{is});
       for (Tp ty : {i, u}) {

@@ -121,11 +121,13 @@ namespace ast::lower {
       builtinType("i16", DefType::Type{});
       builtinType("i32", DefType::Type{});
       builtinType("i64", DefType::Type{});
+      builtinType("i128", DefType::Type{});
 
       builtinType("u8", DefType::Type{});
       builtinType("u16", DefType::Type{});
       builtinType("u32", DefType::Type{});
       builtinType("u64", DefType::Type{});
+      builtinType("u128", DefType::Type{});
 
       builtinType("f16", DefType::Type{});
       builtinType("f32", DefType::Type{});
@@ -134,6 +136,7 @@ namespace ast::lower {
       builtinType("tuple", DefType::Type{});
       builtinType("ffifn", DefType::Type{});
       builtinType("string", DefType::Type{});
+      builtinType("cstr", DefType::Type{});
 
       typeBindings.push();
     }

@@ -1,0 +1,7 @@
+defn printF<T>(fmt: cstr, v: T) =
+  let printf(fmt: cstr, v: T): #() = foreign in:
+    printf(fmt, v)
+
+printF("%i\n": cstr, 10: i32)
+printF("%s\n": cstr, "Hello, world!": cstr)
+printF("%llu\n": cstr, 18446744073709551615: u64)
