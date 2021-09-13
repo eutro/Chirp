@@ -7,10 +7,15 @@ so it is most suitable to call it a toy language at this time.
 
 For a list of features, see [features](features.md).
 
-# Building
+# Installing
 
 Source code can be found in the [src](./src) folder,
 and can be built using [CMake](https://cmake.org/).
+
+Requirements:
+
+- CMake 3.19 or newer
+- LLVM 12
 
 For example, a simple build may be produced by:
 ```bash
@@ -20,12 +25,14 @@ cmake ../src -DCMAKE_BUILD_TYPE=Release
 cmake --build .
 ```
 
-Final executable binaries will be output in the `bin` folder in your build directory,
-corresponding to the targets in the [bin](./src/bin) source folder.
+It can then be installed with:
+```bash
+sudo cmake --install .
+```
 
 # Compiling something
 
-The `bin/in2llvm` target emits LLVM IR in plain text on input from stdin.
+The `bin/chirp2llvm` target emits LLVM IR in plain text on input from stdin.
 
 This can then be compiled with [`llc`](https://llvm.org/docs/CommandGuide/llc.html)
 and linked with the runtime (the `crp` target) using your system's linker.
@@ -34,7 +41,7 @@ For example, on Linux, to compile `prog.crp` (from the build folder),
 you can run:
 
 ```shell
-./bin/in2llvm < prog.crp > prog.ll
+./bin/chirp2llvm < prog.crp > prog.ll
 llc prog.ll
 as -ad prog.ll -o prog.o
 cc --static -o prog prog.o -L. -lcrp
@@ -42,7 +49,8 @@ cc --static -o prog prog.o -L. -lcrp
 
 This will output the `prog` executable.
 
-There is a script [`crpc`](./scripts/crpc) for this.
+There is a script [`crpc`](./scripts/crpc) for this,
+which is installed with `cmake --install`.
 
 # Example Programs
 

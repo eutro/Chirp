@@ -4,7 +4,7 @@ project(Chirp)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(LLVM REQUIRED CONFIG)
+find_package(LLVM 12 REQUIRED CONFIG)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -37,9 +37,14 @@ add_subdirectory(fsm)
 add_subdirectory(type)
 add_subdirectory(ir)
 
-add_library(crp runtime/Collector.c runtime/Runtime.c)
+add_library(chirp_runtime runtime/Collector.c runtime/Runtime.c)
+install(TARGETS chirp_runtime ARCHIVE)
 
 add_subdirectory(bin)
+
+if(UNIX) # this almost certainly doesn't work on other systems
+  install(PROGRAMS ../scripts/crpc TYPE SBIN)
+endif(UNIX)
 
 enable_testing()
 

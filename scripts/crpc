@@ -1,14 +1,48 @@
 #!/bin/bash
 
-FULL=$(basename "$1")
-BASE=$(basename "$1" .crp)
+if [ $# -lt 1 ]; then
+    echo 1>&2 "Usage: $0 <file> [[-o <opt arg>] | [-c <lcc arg>] | [-a <as arg>] | [-l <cc arg>] ...]"
+    exit 2
+fi
+
+FILE="$1"
+shift
+while getopts "o:c:a:l:" o; do
+    case "${o}" in
+        o) s="$OPT_ARGS ${OPTARG}";;
+        c) p="$LCC_ARGS ${OPTARG}";;
+        a) p="$AS_ARGS ${OPTARG}";;
+        l) p="$CC_ARGS ${OPTARG}";;
+    esac
+done
+
+if [ "$FILE" == "--" ]; then
+    FILE="/dev/stdin"
+    FULL="stdin.crp"
+    BASE="a.out"
+    DIR=$(pwd)
+else
+    FULL=$(basename "$FILE")
+    BASE=$(basename "$FILE" .crp)
+    DIR=$(readlink -f "$(dirname "FILE")")
+fi
 
 export CRP_FILENAME
-CRP_FILENAME=$FULL
+CRP_FILENAME="$FULL"
 export CRP_FILEDIR
-CRP_FILEDIR=$(readlink -f "$(dirname "$1")")
+CRP_FILEDIR="$DIR"
 
-./bin/in2llvm < "$1" > "$BASE.ll" &&
-llc "$BASE.ll" &&
-as -ad "$BASE.s" -o "$BASE.o" &&
-cc --static "$BASE.o" -L. -lcrp -o "$BASE"
+obj_file=$(mktemp)
+trap "rm -f $obj_file" 0 2 3 15
+ll_file=$(mktemp)
+trap "rm -f $ll_file" 0 2 3 15
+opt_ll_file=$(mktemp)
+trap "rm -f $opt_ll_file" 0 2 3 15
+asm_file=$(mktemp)
+trap "rm -f $asm_file" 0 2 3 15
+
+chirp2llvm < "$FILE" > "$ll_file" &&
+    opt "$ll_file" $OPT_ARGS -o "$opt_ll_file" &&
+    llc "$opt_ll_file" $LCC_ARGS -o "$asm_file" &&
+    as "$asm_file" $AS_ARGS -ad -o "$obj_file" &&
+    cc "$obj_file" $CC_ARGS --static -L. -lchirp_runtime -o "$BASE"
