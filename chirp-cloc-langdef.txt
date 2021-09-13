@@ -1,0 +1,4 @@
+Chirp
+    filter call_regexp_common C++
+    extension crp
+    3rd_gen_scale 3.00

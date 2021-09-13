@@ -1,0 +1,41 @@
+defn C_k_n(x_1, x_2, /*...*/ x_k) = 0/*n*/
+defn S(x) = x + 1
+defn P_k_i(x_1, x_2, /*...*/ x_i, /*...*/ x_k) = x_i
+defn comp_m_k(h, g_1, g_2, /*...*/ g_m) =
+  fn f(x_1, x_2, /*...*/ x_k) =
+    h(
+      g_1(x_1, x_2, /*...*/ x_k),
+      g_2(x_1, x_2, /*...*/ x_k),
+      /*...*/
+      g_m(x_1, x_2, /*...*/ x_k),
+    )
+
+defn primrec_k(g, h) =
+  fn f(z, x_1, x_2, /*...*/ x_k) =
+    if z == 0 {
+      g(x_1, x_2, /*...*/ x_k)
+    } else:
+      let y = z - 1 in:
+        h(y, f(y, x_1, x_2, /*...*/ x_k), x_1, x_2, /*...*/ x_k)
+
+defn minimise_k(f) =
+  fn(x_1, x_2, /*...*/ x_k) =
+    let i = 0 in loop:
+      if f(i, x_1, x_2, /*...*/ x_k) == 0 {
+        i
+      } else: loop(i + 1)
+
+defn P_1_1(a) = a
+defn P_3_2(b, c, a) = c
+defn g(b, c, a) = S(P_3_2(b, c, a)) /* = c + 1 */
+defn primrec_1(g, h) =
+  fn f(z, x_1) =
+    if z == 0 {
+      g(x_1)
+    } else:
+      let y = z - 1 in:
+        h(y, f(y, x_1), x_1)
+
+defn add = primrec_1(P_1_1, g)
+
+add(3, 5)
