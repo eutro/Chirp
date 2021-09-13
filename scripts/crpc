@@ -9,10 +9,10 @@ FILE="$1"
 shift
 while getopts "o:c:a:l:" o; do
     case "${o}" in
-        o) s="$OPT_ARGS ${OPTARG}";;
-        c) p="$LCC_ARGS ${OPTARG}";;
-        a) p="$AS_ARGS ${OPTARG}";;
-        l) p="$CC_ARGS ${OPTARG}";;
+        o) OPT_ARGS="$OPT_ARGS ${OPTARG}";;
+        c) LCC_ARGS="$LCC_ARGS ${OPTARG}";;
+        a) AS_ARGS="$AS_ARGS ${OPTARG}";;
+        l) CC_ARGS="$CC_ARGS ${OPTARG}";;
     esac
 done
 
