@@ -1,0 +1,11 @@
+defn A(m, n): i64 =
+  if m == 0 { n + 1 }
+  else if n == 0 { A(m - 1, 1): i64 }
+  else: A(m - 1, A(m, n - 1): i64)
+
+defn prnA(m, n) =
+  let printf(x: cstr, n: i64): #() = foreign in:
+    printf("%llu\n": cstr, A(m, n))
+
+prnA(0, 10)
+prnA(3, 4)
