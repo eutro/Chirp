@@ -3,6 +3,7 @@
 #include "Util.h"
 #include "Intrinsics.h"
 
+#include <llvm-12/llvm/Support/Casting.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
@@ -120,15 +121,15 @@ namespace lir::codegen {
           return {gep, ty, LocalCC::Value::Pointer};
         },
 
-#define MAYBE_TEMP(VALUE) \
-        do {              \
-          const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc, insn.ty);\
-          if (gcData) {\
-            auto alloca = addTemporary(lcc, VALUE->getType(), gcData->metadata);\
-            lcc.ib.CreateStore(VALUE, alloca);\
-            return {alloca, VALUE->getType(), LocalCC::Value::Pointer};                    \
-          }                 \
-        } while(0)
+#define MAYBE_TEMP(VALUE)                                               \
+          do {                                                          \
+            const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc, insn.ty); \
+            if (gcData) {                                               \
+              auto alloca = addTemporary(lcc, VALUE->getType(), gcData->metadata); \
+              lcc.ib.CreateStore(VALUE, alloca);                        \
+              return {alloca, VALUE->getType(), LocalCC::Value::Pointer}; \
+            }                                                           \
+          } while(0)
 
         [&](Insn::HeapAlloc &i) -> LocalCC::Value {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
@@ -140,7 +141,7 @@ namespace lir::codegen {
           auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
           auto call = lcc.ib.CreateCall(gcAlloc, size);
           llvm::Value *cast = lcc.ib.CreatePointerCast(call, ty);
-          MAYBE_TEMP(cast); // this will almost certainly store it, we just heap allocated after all
+          MAYBE_TEMP(cast);
           return {cast, ty, LocalCC::Value::Direct};
         },
 
@@ -162,7 +163,20 @@ namespace lir::codegen {
           } else {
             value = cc.emitCall.at(tFor)(insn, i, cc, lcc);
           }
-          MAYBE_TEMP(value);
+          if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
+              std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
+            if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
+              if (call->getFunction() == lcc.func) {
+                // force TCO if it's self-recursive
+                call->setTailCallKind(llvm::CallInst::TCK_MustTail);
+              } else {
+                // otherwise just encourage it
+                call->setTailCallKind(llvm::CallInst::TCK_Tail);
+              }
+            }
+          } else {
+            MAYBE_TEMP(value);
+          }
           return {value, value->getType(), LocalCC::Value::Direct};
         },
         [&](Insn::PhiNode &i) -> LocalCC::Value {
@@ -314,6 +328,7 @@ namespace lir::codegen {
     }
     lcc.ib.SetInsertPoint(decl);
     for (auto &bb : bl.blocks) {
+      lcc.bb = bb.get();
       for (auto &i : bb->insns) {
         preEmitInsn(*i, cc, lcc);
       }
@@ -321,6 +336,7 @@ namespace lir::codegen {
     lcc.ib.CreateBr(lcc.bbs.at(bl.blocks.front().get()));
     for (auto &bb : bl.blocks) {
       lcc.ib.SetInsertPoint(lcc.bbs.at(bb.get()));
+      lcc.bb = bb.get();
       emitBB(*bb, cc, lcc);
     }
   }

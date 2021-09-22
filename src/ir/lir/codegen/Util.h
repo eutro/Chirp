@@ -73,6 +73,7 @@ namespace lir::codegen {
     llvm::Value *reference(Insn *insn);
     
     std::map<BasicBlock *, llvm::BasicBlock *> bbs;
+    BasicBlock *bb;
     Idx paramC = 0;
 
     std::vector<llvm::DILocalScope *> scopes{func->getSubprogram()};

@@ -13,7 +13,7 @@ let n = 1 in fizzBuzz {
     putI(n)
   }
   println()
-  if n < 100 {
+  if n < 1000000000 {
     fizzBuzz(n + 1)
   }
 }
