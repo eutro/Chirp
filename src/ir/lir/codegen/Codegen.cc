@@ -3,7 +3,7 @@
 #include "Util.h"
 #include "Intrinsics.h"
 
-#include <llvm-12/llvm/Support/Casting.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
