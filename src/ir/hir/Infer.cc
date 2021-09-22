@@ -1,6 +1,7 @@
 #include "Infer.h"
 
 #include "Builtins.h"
+#include "../../type/TypePrint.h"
 
 #include <sstream>
 #include <cstddef>
@@ -557,6 +558,12 @@ namespace hir::infer {
             }
             return ty;
           },
+          [&](Tp ty, type::PostWalk) {
+            if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+              --depth;
+            }
+            return ty;
+          },
         };
         Tp setTy = replaceTy(ty, checkFree);
         if (isFree) {
@@ -587,6 +594,10 @@ namespace hir::infer {
               std::holds_alternative<Ty::TraitRef>(rhs->v)) {
             unresolved.emplace_back(lhs, rhs);
             continue;
+          }
+          if (std::holds_alternative<Ty::CyclicRef>(lhs->v) ||
+              std::holds_alternative<Ty::CyclicRef>(rhs->v)) {
+            throw std::runtime_error("ICE: cyclic reference at wrong time");
           }
           if (lhs == rhs || seen.count({lhs, rhs})) {
             continue;
@@ -638,7 +649,11 @@ namespace hir::infer {
                   unions.emplace_back(l.args, r.args);
                   unions.emplace_back(l.ret, r.ret);
                 },
-                [](Ty::String&, Ty::String&) {},
+                [&](Ty::String &l, Ty::String &r) {
+                  if (l.nul != r.nul) {
+                    ecx.err().msg("Type error").msg("Strings of different types");
+                  }
+                },
                 [&](auto&, auto&) {
                   ecx.err().msg("Type error").msg("Incompatible types");
                 },

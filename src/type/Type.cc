@@ -49,6 +49,12 @@ namespace type {
             }
             return ty;
           },
+          [&](Tp ty, PostWalk) {
+            if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+              --depth;
+            }
+            return ty;
+          },
       };
       return replaceTy(tcx, tbcx, std::get<Ty::Cyclic>(ty->v).ty, uncycler);
     }

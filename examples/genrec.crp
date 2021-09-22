@@ -34,8 +34,25 @@ defn primrec_1(g, h) =
       g(x_1)
     } else:
       let y = z - 1 in:
-        h(y, f(y, x_1), x_1)
+        h(y: i64, f(y, x_1): i64, x_1)
+
+defn printF<T>(fmt: cstr, v: T) =
+  let printf(fmt: cstr, v: T): #() = foreign in:
+    printf(fmt, v)
 
 defn add = primrec_1(P_1_1, g)
 
-add(3, 5)
+printF("%llu\n": cstr, add(3, 5))
+
+defn minimise_1(f) =
+  fn(x_1) =
+    let i = 0 in loop:
+      if f(i, x_1) == 0 {
+        i
+      } else: loop(i + 1)
+
+// does not terminate on anything except 0
+defn zero_or_fail = minimise_1(add)
+
+printF("%llu\n": cstr, zero_or_fail(0))
+printF("%llu\n": cstr, zero_or_fail(1))
