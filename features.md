@@ -200,6 +200,22 @@ g(x, y, z)
 h()
 ```
 
+[Tail call](https://en.wikipedia.org/wiki/Tail_call) optimisation (TCO) is _guaranteed_
+when invoking the innermost function or named let from tail position.
+
+For example:
+```
+defn foo(n) =
+  let x = n, y = 0 in loop:
+    if x < y {
+      y
+    } else if x == y {
+      foo(y) // not guaranteed TCO, foo is not the innermost function
+    } else {
+      loop(x - 1, y + 1) // guaranteed TCO, loop is the innermost function
+    }
+```
+
 Note that a line break cannot be included between the function and the argument list.
 
 This:
@@ -258,7 +274,7 @@ An empty pair of curly braces returns an empty tuple.
 {}
 ```
 
-Additionally, when it would not be interpreted as a type hint,
+Additionally, when it would _not_ be interpreted as a type hint,
 a colon may prefix another expression:
 
 ```

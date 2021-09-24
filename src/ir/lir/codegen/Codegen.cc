@@ -166,7 +166,7 @@ namespace lir::codegen {
           if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
               std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
             if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
-              if (call->getFunction() == lcc.func) {
+              if (call->getFunction() == call->getCalledFunction()) {
                 // force TCO if it's self-recursive
                 call->setTailCallKind(llvm::CallInst::TCK_MustTail);
               } else {

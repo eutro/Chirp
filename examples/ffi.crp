@@ -7,7 +7,7 @@ defn box_set<T, Y>(x: T, y, size: i64) =
     memcpy(x, box(y): Y, size)
 
 let putS(s: string): #() = foreign
-    b = box("Hello, ") 
+    b = box("Hello, ")
   in {
     putS(unbox(b))
     box_set(b, "world!\n", 16)
