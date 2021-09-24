@@ -63,7 +63,7 @@ static void visitRoots(VisitFn visitor) {
   }
 }
 
-void mark1(void **root, GCMeta *gcMeta) {
+void mark1(void **root, GCMeta *gcMeta) { // Mark Function marks the locations 
   if (!*root) return;
   AllocMeta *aMeta = getMeta(*root);
   if (aMeta->marked) return;
@@ -77,7 +77,7 @@ static void mark() {
   visitRoots(mark1);
 }
 
-static void sweep() {
+static void sweep() {   // Sweep Function frees the unmarked 
   for (AllocMeta **meta = &allocated; *meta;) {
     if ((*meta)->marked) {
       (*meta)->marked = false;
@@ -90,7 +90,7 @@ static void sweep() {
   }
 }
 
-void collectGarbage() {
+void collectGarbage() {  // Main garbage collection function
   mark();
   sweep();
 }
