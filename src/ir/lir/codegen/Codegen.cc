@@ -135,11 +135,13 @@ namespace lir::codegen {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
           auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
-          auto gcAlloc = cc.mod.getOrInsertFunction("gcAlloc", i8PtrTy, i32Ty);
+          auto gcAlloc = cc.mod.getOrInsertFunction("gcAlloc", i8PtrTy, i32Ty, i32Ty);
           auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(insn.ty)->v));
           auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
+          auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
           auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
-          auto call = lcc.ib.CreateCall(gcAlloc, size);
+          auto align = llvm::ConstantExpr::getTruncOrBitCast(rawAlign, i32Ty);
+          auto call = lcc.ib.CreateCall(gcAlloc, {size, align});
           llvm::Value *cast = lcc.ib.CreatePointerCast(call, ty);
           MAYBE_TEMP(cast);
           return {cast, ty, LocalCC::Value::Direct};
@@ -437,13 +439,16 @@ namespace lir::codegen {
     }
 
     auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
+    auto voidTy = llvm::Type::getVoidTy(cc.ctx);
     auto mainTy = llvm::FunctionType::get(i32Ty, false);
     auto mainFunc = llvm::Function::Create(mainTy, llvm::GlobalValue::ExternalLinkage, "main", cc.mod);
     {
       llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", mainFunc);
       ib.SetInsertPoint(entry);
+      auto gcInit = cc.mod.getOrInsertFunction("gcInit", voidTy);
+      ib.CreateCall(gcInit);
       ib.CreateCall(unitThunkTy, crpMainFunc);
-      auto gcShutdown = cc.mod.getOrInsertFunction("gcShutdown", llvm::Type::getVoidTy(cc.ctx));
+      auto gcShutdown = cc.mod.getOrInsertFunction("gcShutdown", voidTy);
       ib.CreateCall(gcShutdown);
       ib.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
     }

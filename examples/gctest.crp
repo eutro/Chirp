@@ -1,15 +1,26 @@
-defn collectGarbage(): #() = foreign
+defn collectGarbage(x: u64): #() = foreign
 defn putS(s: string): #() = foreign
 
 defn capture(x) = \.x
 defn dropSecond(x, y) = x
 
 defn test() =
-  putS(dropSecond(capture("Hello!\n"), { collectGarbage(), capture(1) })())
-//                ~~~~~~~~~~~~~~~~~~~
-// checks that the closure here ^ is properly preserved by the collector
-test()
+  putS(
+    dropSecond(
+      capture("Hello!\n"),
+//    ~~~~~~~~~~~~~~~~~~~
+// checks that the closure here is properly preserved by the collector
+      {
+        let this = test
+            gc = collectGarbage 
+          in:
+            collectGarbage(1: u64)
+        capture(1)
+      }
+    )()
+  )
 
-collectGarbage() // free the temporaries from before
 test()
-collectGarbage() // test if the garbage collector has broken its own state
+collectGarbage(1: u64) // free the temporaries from before
+test()
+collectGarbage(1: u64) // test if the garbage collector has broken its own state
