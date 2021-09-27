@@ -37,7 +37,7 @@ add_subdirectory(fsm)
 add_subdirectory(type)
 add_subdirectory(ir)
 
-add_library(chirp_runtime runtime/Collector.c runtime/Runtime.c)
+add_library(chirp_runtime SHARED runtime/Collector.c runtime/Runtime.c)
 install(TARGETS chirp_runtime ARCHIVE)
 
 add_subdirectory(bin)

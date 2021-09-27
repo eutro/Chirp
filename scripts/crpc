@@ -32,17 +32,18 @@ CRP_FILENAME="$FULL"
 export CRP_FILEDIR
 CRP_FILEDIR="$DIR"
 
-obj_file=$(mktemp)
-trap "rm -f $obj_file" 0 2 3 15
-ll_file=$(mktemp)
-trap "rm -f $ll_file" 0 2 3 15
-opt_ll_file=$(mktemp)
-trap "rm -f $opt_ll_file" 0 2 3 15
-asm_file=$(mktemp)
-trap "rm -f $asm_file" 0 2 3 15
+TRAP_SIGS="0 1 2 3 15"
+obj_file="$(mktemp --suffix ".o")"
+trap "rm -f $obj_file" $TRAP_SIGS
+ll_file="$(mktemp --suffix ".ll")"
+trap "rm -f $ll_file" $TRAP_SIGS
+opt_ll_file="$(mktemp --suffix ".ll")"
+trap "rm -f $opt_ll_file" $TRAP_SIGS
+asm_file="$(mktemp --suffix ".s")"
+trap "rm -f $asm_file" $TRAP_SIGS
 
 chirp2llvm < "$FILE" > "$ll_file" &&
     opt "$ll_file" $OPT_ARGS -o "$opt_ll_file" &&
-    llc "$opt_ll_file" $LCC_ARGS -o "$asm_file" &&
+    llc "$opt_ll_file" $LCC_ARGS -relocation-model=pic -o "$asm_file" &&
     as "$asm_file" $AS_ARGS -ad -o "$obj_file" &&
-    cc "$obj_file" $CC_ARGS --static -L. -lchirp_runtime -o "$BASE"
+    cc "$obj_file" $CC_ARGS -L. -lchirp_runtime -o "$BASE"
