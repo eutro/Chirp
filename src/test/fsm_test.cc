@@ -150,6 +150,28 @@ int main() {
       }
   );
 
+  checkRegex(
+      "0|[1-9](_?[0-9])*",
+      {
+          {"0",     true},
+          {"1",     true},
+          {"1_000", true},
+          {"10",    true},
+          {"01",    false},
+      }
+  );
+
+  checkRegex(
+      "(0|[1-9](_?[0-9])*)?\\.[0-9](_?[0-9])*",
+      {
+          {".0",          true},
+          {".1",          true},
+          {"1.000_1",     true},
+          {"1_000.000_1", true},
+          {"01.0",        false},
+      }
+  );
+
   assertFailsParse("(");
   assertFailsParse(")");
   assertFailsParse("[");

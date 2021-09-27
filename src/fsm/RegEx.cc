@@ -28,21 +28,18 @@ namespace fsm::re {
     auto start = s.begin();
     auto end = s.end();
 
-    std::deque<RegEx<char>> groupStack;
-    groupStack.emplace_back(Type::Concat);
-    std::vector<RegEx<char>> unionVec;
+    std::deque<std::vector<RegEx<char>>> groupStack;
+    groupStack.emplace_back().emplace_back(Type::Concat);
     while (start != end) {
       RegEx<char> re(Type::Concat);
       switch (*start) {
         case '(': {
-          groupStack.emplace_back(Type::Concat);
+          groupStack.emplace_back().emplace_back(Type::Concat);
           ++start;
           continue;
         }
         case '|': {
-          unionVec.push_back(std::move(groupStack.back()));
-          groupStack.pop_back();
-          groupStack.emplace_back(Type::Concat);
+          groupStack.back().emplace_back(Type::Concat);
           ++start;
           continue;
         }
@@ -97,15 +94,13 @@ namespace fsm::re {
           if (groupStack.size() == 1) {
             throw std::runtime_error("Unmatched )");
           }
-          RegEx<char> top = std::move(groupStack.back());
+          std::vector<RegEx<char>> top = std::move(groupStack.back());
           groupStack.pop_back();
-          if (unionVec.empty()) {
-            re = std::move(top);
+          if (top.size() == 1) {
+            re = std::move(top.front());
           } else {
             re.type = Type::Union;
-            unionVec.push_back(std::move(top));
-            re.children = std::move(unionVec);
-            unionVec = std::vector<RegEx<char >>();
+            re.children = std::move(top);
           }
           ++start;
           break;
@@ -144,7 +139,7 @@ namespace fsm::re {
             RegEx<char> repeated(Type::KleeneStar);
             std::swap(re, repeated);
             if (*start == '+') {
-              groupStack.back().children.push_back(repeated);
+              groupStack.back().back().children.push_back(repeated);
             }
             re.children.push_back(std::move(repeated));
             ++start;
@@ -160,20 +155,19 @@ namespace fsm::re {
           }
         }
       }
-      groupStack.back().children.push_back(std::move(re));
+      groupStack.back().back().children.push_back(std::move(re));
     }
-    RegEx<char> top = std::move(groupStack.back());
+    std::vector<RegEx<char>> top = std::move(groupStack.back());
     groupStack.pop_back();
     if (!groupStack.empty()) {
       throw std::runtime_error("Unmatched (");
     }
     RegEx<char> ret(Type::Concat);
-    if (unionVec.empty()) {
-      ret = std::move(top);
+    if (top.size() == 1) {
+      ret = std::move(top.front());
     } else {
       ret.type = Type::Union;
-      unionVec.push_back(std::move(top));
-      ret.children = std::move(unionVec);
+      ret.children = std::move(top);
     }
     return ret;
   }
