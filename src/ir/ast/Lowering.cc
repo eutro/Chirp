@@ -544,7 +544,11 @@ namespace ast::lower {
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      return fnExpr("lambda", nullptr, nullptr, it.arguments, it.span, *it.body);
+      std::stringstream name;
+      name << "lambda:"
+           << it.lambdaToken.loc.line << ":"
+           << it.lambdaToken.loc.col;
+      return fnExpr(name.str(), nullptr, nullptr, it.arguments, it.span, *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {
