@@ -145,12 +145,23 @@ namespace hir::lower {
       return voidValue(l, bb);
     }
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
+      auto removeUnderscores = [](const std::string &s) {
+        std::string value;
+        value.reserve(s.size());
+        for (auto c : s) {
+          if (c != '_') {
+            value.push_back(c);
+          }
+        }
+        value.shrink_to_fit();
+        return value;
+      };
       switch (e.type) {
         case LiteralExpr::Int: {
-          return l[*bb].emplace_back(Insn::LiteralInt{e.value});
+          return l[*bb].emplace_back(Insn::LiteralInt{removeUnderscores(e.value)});
         }
         case LiteralExpr::Float: {
-          return l[*bb].emplace_back(Insn::LiteralFloat{e.value});
+          return l[*bb].emplace_back(Insn::LiteralFloat{removeUnderscores(e.value)});
         }
         case LiteralExpr::String: {
           std::string value;

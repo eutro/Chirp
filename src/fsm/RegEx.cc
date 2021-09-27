@@ -150,6 +150,14 @@ namespace fsm::re {
             ++start;
             break;
           }
+          case '?': {
+            RegEx<char> optional(Type::Union);
+            std::swap(re, optional);
+            re.children.push_back(std::move(optional));
+            re.children.push_back(RegEx<char>(Type::Concat));
+            ++start;
+            break;
+          }
         }
       }
       groupStack.back().children.push_back(std::move(re));

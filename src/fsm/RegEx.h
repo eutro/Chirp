@@ -119,6 +119,7 @@ namespace fsm::re {
    * - Parenthesised groups ('(' and ')').
    * - Literal characters.
    * - Kleene Star/Plus ('*' and '+' postfix).
+   * - Optional groups ('?' postfix).
    * - Pipe unions ('|' infix).
    * - Square bracket single-char unions ('[' and ']').
    *   - Their inversions, using carets ('^').
