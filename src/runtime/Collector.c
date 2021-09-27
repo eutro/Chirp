@@ -134,6 +134,7 @@ static void relocate1(void **root, GCMeta *gcMeta) {
   }
 }
 
+// Marks reachable roots for relocation
 static void mark() {
   visitRoots(mark1);
 }
@@ -142,6 +143,8 @@ static void relocate() {
   visitRoots(relocate1);
 }
 
+// Sweeps relevant generations and relocates live objects,
+// "free"ing dead objects by resetting the buffers they were in.
 static void sweep(size_t genc) {
   for (size_t g = 0; g < genc; ++g) {
     for (AllocMeta *meta = ((AllocMeta *) HEAPS[g])->next;
@@ -160,6 +163,7 @@ static void sweep(size_t genc) {
   relocate();
 }
 
+// Run garbage collection for the youngest genc generations.
 void collectGarbage(size_t genc) {
   mark();
   sweep(genc);
