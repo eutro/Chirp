@@ -6,8 +6,8 @@
   bool type::TYPE::operator==(const type::TYPE &o) const {       \
     return std::make_tuple LHSA == std::make_tuple RHSA; }
 #define IMPL_SINGLETON(TYPE)                                            \
-  bool type::TYPE::operator<(const type::TYPE &o) const { return false; } \
-  bool type::TYPE::operator==(const type::TYPE &o) const { return true; }
+  bool type::TYPE::operator<(const type::TYPE &) const { return false; } \
+  bool type::TYPE::operator==(const type::TYPE &) const { return true; }
 #include "TypeImpl.h"
 
 namespace type {

@@ -124,6 +124,7 @@ namespace fsm::re {
             ++start;
             goto postfix;
           }
+          [[fallthrough]];
         }
         default:
           re.type = Type::Literal;

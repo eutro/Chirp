@@ -159,8 +159,8 @@ namespace type {
       std::size_t operator()(const TYPE &o) {       \
         return util::hashIterable(o); } }; }
 
-ITER_HASH(type::Substs);
-ITER_HASH(type::TraitBounds);
+ITER_HASH(type::Substs)
+ITER_HASH(type::TraitBounds)
 ITER_HASH(std::set<Idx>)
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
@@ -169,7 +169,7 @@ ITER_HASH(std::set<Idx>)
         return util::hashMulti RHSA; } }; }
 #define IMPL_SINGLETON(TYPE)                                            \
   namespace std { template <> struct hash<type::TYPE> {                 \
-    std::size_t operator()(const type::TYPE &o) { return 1; } }; }
+    std::size_t operator()(const type::TYPE &) { return 1; } }; }
 #include "TypeImpl.h"
 #undef IMPL_OPS
 #undef IMPL_SINGLETON
@@ -205,31 +205,38 @@ namespace type {
                                  replaceTy<IGNORED>(tcx, tbcx, trf.trait, tr),
                                  trf.ref};
         if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
-        else tr(ty);
+        else {
+          (void)uret;
+          tr(ty);
+        }
         break;
       }
       case 6: { // ADT
         auto &adt = std::get<6>(ty->v);
         auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(tcx, tbcx, adt.s, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
         break;
       }
       case 7: { // Dyn
         auto &dyn = std::get<7>(ty->v);
         auto uret = Ty::Dyn{replaceTy<IGNORED>(tcx, tbcx, dyn.t, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
         break;
       }
       case 8: { // Tuple
         auto &tup = std::get<8>(ty->v);
         auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tbcx, tup.t, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
         break;
       }
       case 11: { // Cyclic
         auto &clc = std::get<11>(ty->v);
         auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, tbcx, clc.ty, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
         break;
       }
       case 13: { // FfiFn
@@ -237,6 +244,7 @@ namespace type {
         auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, tbcx, ffifn.args, tr),
                               replaceTy<IGNORED>(tcx, tbcx, ffifn.ret, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
         break;
       }
       case 0: // Err

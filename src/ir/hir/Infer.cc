@@ -134,7 +134,6 @@ namespace hir::infer {
         // all of these are currently assumed to be for Fn,
         // and with an ADT type
         AbstractTraitImpl &ati = *aticx.add();
-        Idx startC = paramC;
         for (DefIdx param : ti.params) {
           definedTys[param] = freshType(maybeLoc(p.bindings.at(param).source, "from here"));
         }

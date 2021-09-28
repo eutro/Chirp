@@ -53,7 +53,7 @@ namespace hir::lower {
 
     BlockList visitRootBlock(Block &block, bool func) {
       rootBlock = &block;
-      auto &insnts = infer.insts.at(&block);
+      infer.insts.at(&block);
       BlockList l;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true, func);
@@ -214,7 +214,7 @@ namespace hir::lower {
       return l[*bb].emplace_back(Insn::CallTrait{
         receiver, args, trait,
         e.op <= CmpExpr::Eq ?
-        e.op :
+        (Idx)e.op :
         (Idx)e.op - (Idx)CmpExpr::Lt
       });
     }

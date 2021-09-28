@@ -513,7 +513,7 @@ namespace ast::lower {
         call->func = recFnExpr(*it.name, nullptr, nullptr, it.bindings, it.span, *it.body);
         call->args.reserve(it.bindings.size());
         auto refs = bindings.defs().begin();
-        for (auto &b : it.bindings) {
+        for ([[maybe_unused]] auto &b : it.bindings) {
           auto var = withSpan<hir::VarExpr>(std::nullopt);
           var->ref = *refs++;
           call->args.push_back(std::move(var));

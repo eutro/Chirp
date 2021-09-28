@@ -3,6 +3,7 @@
 #include "Util.h"
 #include "Intrinsics.h"
 
+#include <llvm/ADT/None.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Constant.h>
@@ -17,6 +18,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DIBuilder.h>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -257,7 +260,7 @@ namespace lir::codegen {
                                                     llvm::GlobalValue::PrivateLinkage,
                                                     charsConstant);
           auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
-          llvm::ArrayRef<llvm::Constant *> indices = {const0, const0};
+          std::array<llvm::Constant *, 2> indices = {const0, const0};
           llvm::Constant *charPtrConst = llvm::ConstantExpr::
             getInBoundsGetElementPtr(charArrayTy, globalVar, indices);
           if (nulTerminate) {
@@ -346,8 +349,8 @@ namespace lir::codegen {
   llvm::Function *getBbFunc(const BlockList &bl, const Instantiation &inst, CC &cc) {
     std::vector<llvm::Type *> argTys;
     std::vector<llvm::Metadata *> diTys;
-    const std::string *name;
-    const std::optional<loc::Span> *span;
+    const std::string *name = nullptr;
+    const std::optional<loc::Span> *span = nullptr;
     Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
     auto &retPair = getTyTuple(cc, inst.types.at(retIdx));
     diTys.push_back(std::get<1>(retPair));
@@ -361,9 +364,12 @@ namespace lir::codegen {
       }
     }
     llvm::FunctionType *funcTy = llvm::FunctionType::get(std::get<0>(retPair), argTys, false);
-    llvm::Function *func = llvm::Function::Create(funcTy, llvm::GlobalValue::PrivateLinkage, *name, cc.mod);
+    llvm::Function *func = llvm::Function::Create(funcTy,
+                                                  llvm::GlobalValue::PrivateLinkage,
+                                                  name ? *name : "",
+                                                  cc.mod);
     func->setGC(GC_METHOD);
-    uint32_t lineNo = *span ? (**span).lo.line : 0;
+    uint32_t lineNo = span && *span ? (**span).lo.line : 0;
     func->setSubprogram(cc.db.createFunction(
         cc.cu->getFile(), *name, func->getName(), cc.cu->getFile(),
         lineNo, cc.db.createSubroutineType(cc.db.getOrCreateTypeArray(diTys)),
@@ -382,7 +388,7 @@ namespace lir::codegen {
     llvm::DIBuilder db(*llvmMod);
     auto cu = db.createCompileUnit(
         llvm::dwarf::DW_LANG_C,
-        db.createFile(fileName, fileDir),
+        db.createFile(fileName, fileDir, llvm::None),
         "Chirp Compiler",
         false, "", 0
     );

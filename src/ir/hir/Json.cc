@@ -6,8 +6,8 @@ namespace loc {
 };
 
 #define EMPTY_JSON(TYPE)                                \
-  void to_json(nlohmann::json &j, const TYPE &e) {}     \
-  void from_json(const nlohmann::json& j, TYPE &p) {}
+  void to_json(nlohmann::json &, const TYPE &) {}     \
+  void from_json(const nlohmann::json &, TYPE &) {}
 
 #define FORWARD_DEFINE_JSON(TYPE)                   \
   void to_json(nlohmann::json &j, const TYPE &e);   \

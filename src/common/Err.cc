@@ -45,8 +45,8 @@ namespace err {
 
   class SpanLine : public Line {
   private:
-    std::string msg;
     loc::Span span;
+    std::string msg;
   public:
     SpanLine(const loc::Span &span, const std::string &msg): span(span), msg(msg) {}
 
@@ -75,8 +75,8 @@ namespace err {
 
   class PosLine : public Line {
   private:
-    std::string line;
     loc::SrcLoc loc;
+    std::string line;
   public:
     PosLine(const loc::SrcLoc &loc, const std::string &line): loc(loc), line(line) {}
 

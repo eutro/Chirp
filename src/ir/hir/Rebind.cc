@@ -16,12 +16,12 @@ namespace hir::rebind {
       }
     }
 
-    std::monostate visitBlockExpr(BlockExpr &it, Eptr *ref) {
+    std::monostate visitBlockExpr([[maybe_unused]] BlockExpr &it, [[maybe_unused]] Eptr *ref) {
       visitBlock(it.block);
       return {};
     }
 
-    std::monostate visitVarExpr(VarExpr &it, Eptr *ref) {
+    std::monostate visitVarExpr([[maybe_unused]] VarExpr &it, [[maybe_unused]] Eptr *ref) {
       auto ptr = rb(it);
       if (ptr) {
         *ref = std::move(ptr);
@@ -29,43 +29,43 @@ namespace hir::rebind {
       return {};
     }
 
-    std::monostate visitCondExpr(CondExpr &it, Eptr *ref) {
+    std::monostate visitCondExpr([[maybe_unused]] CondExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.predE);
       visitPtr(it.thenE);
       visitPtr(it.elseE);
       return {};
     }
 
-    std::monostate visitVoidExpr(VoidExpr &it, Eptr *ref) {
+    std::monostate visitVoidExpr([[maybe_unused]] VoidExpr &it, [[maybe_unused]] Eptr *ref) {
       return {}; // noop
     }
 
-    std::monostate visitLiteralExpr(LiteralExpr &it, Eptr *ref) {
+    std::monostate visitLiteralExpr([[maybe_unused]] LiteralExpr &it, [[maybe_unused]] Eptr *ref) {
       return {}; // noop
     }
 
-    std::monostate visitBoolExpr(BoolExpr &it, Eptr *ref) {
+    std::monostate visitBoolExpr([[maybe_unused]] BoolExpr &it, [[maybe_unused]] Eptr *ref) {
       return {}; // noop
     }
 
-    std::monostate visitBinExpr(BinExpr &it, Eptr *ref) {
+    std::monostate visitBinExpr([[maybe_unused]] BinExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.lhs);
       visitPtr(it.rhs);
       return {};
     }
 
-    std::monostate visitCmpExpr(CmpExpr &it, Eptr *ref) {
+    std::monostate visitCmpExpr([[maybe_unused]] CmpExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.lhs);
       visitPtr(it.rhs);
       return {};
     }
 
-    std::monostate visitNegExpr(NegExpr &it, Eptr *ref) {
+    std::monostate visitNegExpr([[maybe_unused]] NegExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.value);
       return {};
     }
 
-    std::monostate visitCallExpr(CallExpr &it, Eptr *ref) {
+    std::monostate visitCallExpr([[maybe_unused]] CallExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.func);
       for (auto &a : it.args) {
         visitPtr(a);
@@ -73,28 +73,28 @@ namespace hir::rebind {
       return {};
     }
 
-    std::monostate visitDefineExpr(DefineExpr &it, Eptr *ref) {
+    std::monostate visitDefineExpr([[maybe_unused]] DefineExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.value);
       return {};
     }
 
-    std::monostate visitNewExpr(NewExpr &it, Eptr *ref) {
+    std::monostate visitNewExpr([[maybe_unused]] NewExpr &it, [[maybe_unused]] Eptr *ref) {
       for (auto &v : it.values) {
         visitPtr(v);
       }
       return {};
     }
 
-    std::monostate visitGetExpr(GetExpr &it, Eptr *ref) {
+    std::monostate visitGetExpr([[maybe_unused]] GetExpr &it, [[maybe_unused]] Eptr *ref) {
       visitPtr(it.value);
       return {};
     }
 
-    std::monostate visitForeignExpr(ForeignExpr &it, Eptr *ref) {
+    std::monostate visitForeignExpr([[maybe_unused]] ForeignExpr &it, [[maybe_unused]] Eptr *ref) {
       return {}; // noop
     }
 
-    std::monostate visitDummyExpr(DummyExpr &it, Eptr *ref) {
+    std::monostate visitDummyExpr([[maybe_unused]] DummyExpr &it, [[maybe_unused]] Eptr *ref) {
       return {}; // noop
     }
   };

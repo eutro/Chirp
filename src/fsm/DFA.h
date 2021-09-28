@@ -162,15 +162,15 @@ namespace fsm {
 
       // bottommost and rightmost edges are sentinels representing the state reached after there's no transition
       std::vector<std::vector<bool>> distinguishable(states.size() + 1, std::vector<bool>(states.size() + 1, true));
-      for (int i = 0; i < states.size(); ++i) {
-        for (int j = i + 1; j < states.size(); ++j) {
+      for (size_t i = 0; i < states.size(); ++i) {
+        for (size_t j = i + 1; j < states.size(); ++j) {
           // if states have different finish tags then the empty string leads them to a different finish
           distinguishable[i][j] = distinguishable[j][i]
               = states[i].finished != states[j].finished;
         }
       }
       // all states are indistinguishable from themselves
-      for (int i = 0; i <= states.size(); ++i) {
+      for (size_t i = 0; i <= states.size(); ++i) {
         distinguishable[i][i] = false;
       }
 
@@ -179,12 +179,12 @@ namespace fsm {
       do {
         changed = false;
         for (const S &symbol : alphabet) {
-          for (int i = 0; i < states.size() - 1; ++i) {
+          for (size_t i = 0; i < states.size() - 1; ++i) {
             // if there's a letter of the alphabet that leads to distinguishable states
             // then the two states are also distinguishable
             auto iFound = states[i].transitions.find(symbol);
             size_t iTransition = iFound != states[i].transitions.end() ? iFound->second : states.size();
-            for (int j = i + 1; j < states.size(); ++j) {
+            for (size_t j = i + 1; j < states.size(); ++j) {
               if (distinguishable[i][j]) continue;
 
               auto jFound = states[j].transitions.find(symbol);
@@ -201,8 +201,8 @@ namespace fsm {
       // group states that are indistinguishable
       DFA<S, F> optimised;
       std::map<size_t, size_t> grouped;
-      for (int i = 0; i < states.size(); ++i) {
-        for (int j = 0; j < states.size(); ++j) {
+      for (size_t i = 0; i < states.size(); ++i) {
+        for (size_t j = 0; j < states.size(); ++j) {
           if (distinguishable[i][j]) continue;
           auto found = grouped.find(j);
           if (found != grouped.end()) {
@@ -218,7 +218,7 @@ namespace fsm {
       }
 
       // add their transitions
-      for (int i = 0; i < states.size(); ++i) {
+      for (size_t i = 0; i < states.size(); ++i) {
         for (const auto &transition : states[i].transitions) {
           optimised.states[grouped[i]].transitions[transition.first] = grouped[transition.second];
         }

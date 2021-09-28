@@ -69,7 +69,7 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           os << "<" << t.ty << " as " << t.trait << ">";
           os << "::" << t.ref;
         },
-        [&](Ty::String &s) {
+        [&](Ty::String &) {
           os << "str";
         },
         [&](Ty::Cyclic &c) {
@@ -99,4 +99,4 @@ namespace type::print {
   void printTy(type::Ty *t) {
     std::cerr << t << std::endl;
   }
-};
+}
