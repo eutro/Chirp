@@ -32,11 +32,18 @@ else()
   add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 endif()
 
-option(ARENA_LOGGING "Logging of arena intern hits and misses" OFF)
+option(CHIRP_DISABLE_COLLECTOR "Disable the garbage collector" OFF)
+option(CHIRP_COLLECTOR_MARK_AND_SWEEP
+  "Use a simple mark and sweep garbage collector instead of the default generational one"
+  OFF)
 
-if(ARENA_LOGGING)
-  add_definitions(-DARENA_LOGGING)
-endif(ARENA_LOGGING)
+if(CHIRP_DISABLE_COLLECTOR)
+  add_definitions(-DCHIRP_COLLECTOR_DISABLED)
+endif()
+
+if(CHIRP_COLLECTOR_MARK_AND_SWEEP)
+  add_definitions(-DCHIRP_COLLECTOR_MARK_AND_SWEEP)
+endif()
 
 add_subdirectory(common)
 add_subdirectory(fsm)
