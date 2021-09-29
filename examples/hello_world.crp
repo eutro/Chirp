@@ -1,3 +1,5 @@
+#!/usr/bin/env crpi
+
 defn putS(s: string): #() = foreign
 
 putS("Hello, world!\n")

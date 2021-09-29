@@ -36,7 +36,7 @@ CRP_FILEDIR="$DIR"
 
 TMPDIR="$(mktemp --dir --tmpdir $(date +"crpc.%Y-%m-%d.%H:%M:%S.XXX"))"
 ll_file="$TMPDIR/$BASE.ll"
-opt_ll_file="$TMPDIR/$BASE.opt.ll"
+opt_ll_file="$TMPDIR/$BASE.opt.bc"
 obj_file="$TMPDIR/$BASE.o"
 asm_file="$TMPDIR/$BASE.s"
 

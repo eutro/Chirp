@@ -53,7 +53,7 @@ namespace tok {
 #define TOKEN_PATTERNS {                                                \
     {tok::Tok::TWhitespace, "[ \\t\\v\\f\\r]+"},                        \
       {tok::Tok::TBlockComment, "/\\*([^*]|\\*[^/])*\\*/"},             \
-    {tok::Tok::TLineComment, "//[^\\n]*"},                              \
+      {tok::Tok::TLineComment, "(//|#!)[^\\n]*"},                       \
         {tok::Tok::TLinebreak, "[ \\t\\v\\f\\r]*\\n"},                  \
         {tok::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},                   \
         {tok::Tok::TDefn, "defn"},                                      \

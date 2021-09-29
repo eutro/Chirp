@@ -1,0 +1,45 @@
+#!/bin/bash
+
+#!/bin/bash
+
+if [ $# -lt 1 ]; then
+    echo 1>&2 "Usage: $0 [[-o <opt arg>] | [-i <lli arg>] ...] <file> <args...>"
+    exit 2
+fi
+
+while getopts "o:c:a:l:" o; do
+    case "${o}" in
+        o) OPT_ARGS="$OPT_ARGS ${OPTARG}";;
+        i) LCC_ARGS="$LLI_ARGS ${OPTARG}";;
+    esac
+done
+FILE="$1"
+shift
+
+if [ "$FILE" == "--" ]; then
+    FILE="/dev/stdin"
+    FULL="stdin.crp"
+    BASE="stdin"
+    OUT="a.out"
+    DIR=$(pwd)
+else
+    FULL=$(basename "$FILE")
+    BASE=$(basename "$FILE" .crp)
+    OUT="$BASE"
+    DIR=$(readlink -f "$(dirname "$FILE")")
+fi
+
+export CRP_FILENAME
+CRP_FILENAME="$FULL"
+export CRP_FILEDIR
+CRP_FILEDIR="$DIR"
+
+TMPDIR="$(mktemp --dir --tmpdir $(date +"crpi.%Y-%m-%d.%H:%M:%S.XXX"))"
+ll_file="$TMPDIR/$BASE.ll"
+opt_ll_file="$TMPDIR/$BASE.opt.bc"
+
+trap "rm -rf $TMPDIR" EXIT
+
+chirp2llvm < "$FILE" > $ll_file &&
+    opt $ll_file $OPT_ARGS -o $opt_ll_file &&
+    lli --dlopen=libchirp_runtime.so $LLI_ARGS $opt_ll_file $@

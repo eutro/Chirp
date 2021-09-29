@@ -57,6 +57,7 @@ add_subdirectory(bin)
 
 if(UNIX) # this almost certainly doesn't work on other systems
   install(PROGRAMS ../scripts/crpc TYPE SBIN)
+  install(PROGRAMS ../scripts/crpi TYPE SBIN)
 endif(UNIX)
 
 enable_testing()
