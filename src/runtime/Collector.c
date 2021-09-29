@@ -165,6 +165,28 @@ static AllocMeta *HEAP_ENDS[GENERATION_COUNT] = {NULL};
 static size_t HEAP_OBJECTC[GENERATION_COUNT] = {0};
 static size_t TO_COLLECT = 0;
 
+static void initHeap(size_t gen) {
+  AllocMeta *heapMeta = HEAP_ENDS[gen] = HEAPS[gen];
+  heapMeta->ptr = NULL;
+  heapMeta->size = 0;
+  heapMeta->align = alignof(AllocMeta);
+  heapMeta->next = heapMeta + 1;
+}
+
+void gcInit() {
+  for (size_t gen = 0; gen < GENERATION_COUNT; ++gen) {
+    void *heap = malloc(HEAP_SIZES[gen]);
+    if (!heap) {
+      fprintf(stderr,
+              "Chirp -- Allocation of heap of size %zu for generation %zu failed.\n",
+              HEAP_SIZES[gen], gen);
+      exit(1);
+    }
+    HEAPS[gen] = heap;
+    initHeap(gen);
+  }
+}
+
 static void maybeCollect();
 
 static size_t gcd(size_t x, size_t y) {
@@ -272,7 +294,7 @@ static void sweep(size_t genc) {
         memcpy(moved, old, meta->size);
       }
     }
-    HEAP_ENDS[g] = HEAPS[g];
+    initHeap(g);
     HEAP_OBJECTC[g] = 0;
   }
   relocate();
@@ -289,24 +311,6 @@ static void maybeCollect() {
     size_t genc = TO_COLLECT;
     TO_COLLECT = 0;
     collectGarbage(genc);
-  }
-}
-
-void gcInit() {
-  for (size_t gen = 0; gen < GENERATION_COUNT; ++gen) {
-    void *heap = malloc(HEAP_SIZES[gen]);
-    if (!heap) {
-      fprintf(stderr,
-              "Chirp -- Allocation of heap of size %zu for generation %zu failed.\n",
-              HEAP_SIZES[gen], gen);
-      exit(1);
-    }
-    AllocMeta *heapMeta = heap;
-    heapMeta->ptr = NULL;
-    heapMeta->size = 0;
-    heapMeta->align = alignof(AllocMeta);
-    heapMeta->next = heapMeta + 1;
-    HEAP_ENDS[gen] = HEAPS[gen] = heap;
   }
 }
 

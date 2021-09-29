@@ -44,5 +44,5 @@ chirp2llvm < "$FILE" > "$ll_file" &&
     opt "$ll_file" $OPT_ARGS -o "$opt_ll_file" &&
     llc "$opt_ll_file" $LCC_ARGS -relocation-model=pic -o "$asm_file" &&
     as "$asm_file" $AS_ARGS -ad -o "$obj_file" &&
-    cc "$obj_file" $CC_ARGS -L. -lchirp_runtime -o "$OUT" &&
+    cc "$obj_file" $CC_ARGS -lchirp_runtime -o "$OUT" &&
     rm -rf $TMPDIR

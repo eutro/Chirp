@@ -33,9 +33,10 @@ namespace lir::codegen {
         [&](Insn::DeclareParam &i) -> void {
           Idx index = lcc.paramC++;
           llvm::Argument *arg = lcc.func->getArg(index);
+          arg->setName(i.name);
           const auto &gcData = getTy<std::optional<GCData>>(lcc, insn.ty);
           if (insn.span || gcData) {
-            llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(arg->getType());
+            llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(arg->getType(), nullptr, i.name + ".ref");
             lcc.ib.CreateStore(arg, alloca);
             if (insn.span) {
               cc.db.insertDeclare(
@@ -61,7 +62,7 @@ namespace lir::codegen {
           auto tyTup = getTyTuple(cc, lcc.inst.types.at(insn.ty));
           llvm::Type *ty = std::get<0>(tyTup);
           const auto &gcData = std::get<2>(tyTup);
-          llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(ty);
+          llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(ty, nullptr, i.name);
           if (insn.span) {
             cc.db.insertDeclare(
                 alloca,
