@@ -16,6 +16,7 @@ namespace hir::infer {
 
   struct Constraints {
     arena::Arena<Inst> instantiations;
+    std::set<Tp> bound;
     std::map<Tp, std::set<TraitBound *>> traitBounds;
     std::vector<std::pair<Tp, Tp>> unions;
   };
@@ -111,10 +112,12 @@ namespace hir::infer {
 
       {
         auto &ati = *(foreignTrait = aticx.add());
+        cCnstr = &ati.constraints;
         auto args = freshType();
         auto ret = freshType();
         ati.ty = tcx.intern(Ty::FfiFn{args, ret});
         ati.bound = tbcx.intern(TraitBound{Fn, {args, ret}});
+        cCnstr = nullptr;
       }
     }
 
@@ -134,11 +137,12 @@ namespace hir::infer {
         // all of these are currently assumed to be for Fn,
         // and with an ADT type
         AbstractTraitImpl &ati = *aticx.add();
+        cCnstr = &ati.constraints;
         for (DefIdx param : ti.params) {
           definedTys[param] = freshType(maybeLoc(p.bindings.at(param).source, "from here"));
         }
         for (Block &m : ti.methods) {
-          visitRootBlock(ati.constraints, m);
+          visitRootBlock(m);
           traitConstraints.push_back({&m, &ati.constraints});
         }
         ati.ty = parseTy(ti.type);
@@ -148,10 +152,14 @@ namespace hir::infer {
           ati.refs.push_back(parseTy(ref));
         }
         adtTraits[{Fn, std::get<Ty::ADT>(ati.ty->v).i}] = &ati;
+        cCnstr = nullptr;
       }
 
       Constraints mainConstraints;
-      visitRootBlock(mainConstraints, p.topLevel);
+      cCnstr = &mainConstraints;
+      visitRootBlock(p.topLevel);
+      cCnstr = nullptr;
+
       auto traitImplTypes = inferTypes(mainConstraints);
 
       InferResult res;
@@ -677,13 +685,15 @@ namespace hir::infer {
               inst.trait = it->tb;
               std::map<Tp, Tp> &atiSubs = inst.tys;
               allInsts.push_back(&inst);
+              for (auto ty : ati->constraints.bound) {
+                atiSubs[ty] = newFreshTy();
+              }
               auto atiReplacer = [&](Tp ty) -> Tp {
                 if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-                  auto found =  atiSubs.find(ty);
-                  if (found == atiSubs.end()) {
-                    found = atiSubs.insert({ty, newFreshTy()}).first;
+                  auto found = atiSubs.find(ty);
+                  if (found != atiSubs.end()) {
+                    return found->second;
                   }
-                  return found->second;
                 }
                 return ty;
               };
@@ -760,13 +770,11 @@ namespace hir::infer {
 
     Constraints *cCnstr = nullptr;
     Block *rootBlock = nullptr;
-    void visitRootBlock(Constraints &cnstr, Block &block, Tp *ret = nullptr) {
-      cCnstr = &cnstr;
+    void visitRootBlock(Block &block, Tp *ret = nullptr) {
       rootBlock = &block;
       Tp ty = visitBlock(block);
       if (ret) *ret = ty;
       blockVars[rootBlock]; // ensure init
-      cCnstr = nullptr;
     }
 
     Tp visitBlock(Block &block) {
@@ -791,6 +799,9 @@ namespace hir::infer {
       Tp ty = tcx.intern(Ty::Placeholder{paramC++});
       if (source) {
         typeSources[ty] = *source;
+      }
+      if (cCnstr) {
+        cCnstr->bound.insert(ty);
       }
       return ty;
     }
