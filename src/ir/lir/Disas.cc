@@ -1,15 +1,16 @@
 #include "Disas.h"
 
+#include "../../type/TypePrint.h"
 #include "Lir.h"
 
 namespace lir::disas {
   void disassemble(const BlockList &bl, std::ostream &os) {
-    std::map<const BasicBlock*, Idx> bbs;
+    std::map<const BasicBlock *, Idx> bbs;
     Idx blockIdx = 0;
     for (const auto &b : bl.blocks) {
       bbs[b.get()] = blockIdx++;
     }
-    std::map<const Insn*, Idx> insns;
+    std::map<const Insn *, Idx> insns;
     Idx insnIdx = 0;
     blockIdx = 0;
     Idx indent = 2;
@@ -26,13 +27,13 @@ namespace lir::disas {
         }
         Idx ii = insnIdx++;
         insns[i.get()] = ii;
-        os << std::string(indent + 2, ' ') << "$" << ii << " = ";
+        os << std::string(indent + 2, ' ')
+           << "(" << i->ty << ") "
+           << "$" << ii << " = ";
         std::visit(overloaded {
-          [&](Insn::DeclareVar &){os << "DeclareVar";},
-          [&](Insn::DeclareParam &){os << "DeclareParam";},
           [&](Insn::HeapAlloc &){os << "HeapAlloc";},
-          [&](Insn::SetVar &x){os << "SetVar $" << insns.at(x.var) << " $" << insns.at(x.value);},
-          [&](Insn::GetVar &x){os << "GetVar $" << insns.at(x.var);},
+          [&](Insn::SetVar &x){os << "SetVar %" << x.var << " $" << insns.at(x.value);},
+          [&](Insn::GetVar &x){os << "GetVar %" << x.var;},
           [&](Insn::SetField &x){
             os << "SetField $" << insns.at(x.obj)
             << "[" << x.variant << "][" << x.field << "] @" << insns.at(x.value);
@@ -74,12 +75,31 @@ namespace lir::disas {
       os << "\n";
     }
   }
-  
+
+  void disassemble(const Instantiation &inst, std::ostream &os) {
+    os << "Traits:\n";
+    Idx i = 0;
+    for (auto tr : inst.traits) {
+      os << "  " << i++ << ": " << tr << "\n";
+    }
+    os << "Types:\n";
+    i = 0;
+    for (auto ty : inst.types) {
+      os << "  " << i++ << ": " << ty << "\n";
+    }
+  }
+
   void disassemble(const Module &mod, std::ostream &os) {
     os << "Top:\n";
+    disassemble(mod.instantiation, os);
     disassemble(mod.topLevel, os);
     for (auto &ti : mod.traitImpls) {
       os << "Trait:\n";
+      Idx idx = 0;
+      for (auto &i : ti.instantiations) {
+        os << "Instantiation " << idx++ << ":\n";
+        disassemble(i.second, os);
+      }
       for (auto &m : ti.methods) {
         disassemble(m, os);
       }

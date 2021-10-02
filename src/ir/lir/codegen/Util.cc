@@ -76,26 +76,7 @@ namespace lir::codegen {
           if (!collectibles.empty()) {
             auto i8PtrTy = llvm::Type::getInt8PtrTy(cc.ctx);
             auto i8PtrPtrTy = i8PtrTy->getPointerTo();
-            if (!cc.gcMetaTy) {
-              cc.gcMetaTy = llvm::StructType::create(cc.ctx, "GCMeta");
-              llvm::Type *voidTy = llvm::Type::getVoidTy(cc.ctx);
-              cc.visitFnTy = llvm::FunctionType::get(
-                  voidTy,
-                  {
-                      i8PtrPtrTy,
-                      cc.gcMetaTy->getPointerTo()
-                  },
-                  false);
-              cc.metaFnTy = llvm::FunctionType::get(
-                  voidTy,
-                  {
-                      i8PtrTy,
-                      cc.visitFnTy->getPointerTo(),
-                  },
-                  false
-              );
-              cc.gcMetaTy->setBody(cc.metaFnTy->getPointerTo());
-            }
+            ensureMetaTy(cc);
 
             auto gcMetaFn = llvm::Function::Create(
                 cc.metaFnTy,
@@ -232,9 +213,8 @@ namespace lir::codegen {
     }
     return llvm::StructType::get(cc.ctx, fieldTys);
   }
-  
-  llvm::Value *LocalCC::load(Insn *insn) {
-    Value &v = vals.at(insn);
+
+  llvm::Value *LocalCC::load(Value &v) {
     switch (v.loadTy) {
       case Value::Pointer:
         return ib.CreateLoad(v.ty, v.ref);
@@ -244,8 +224,7 @@ namespace lir::codegen {
     }
   }
 
-  llvm::Value *LocalCC::reference(Insn *insn) {
-    Value &v = vals.at(insn);
+  llvm::Value *LocalCC::reference(Value &v) {
     switch (v.loadTy) {
       case Value::Pointer:
         return v.ref;
@@ -255,6 +234,30 @@ namespace lir::codegen {
       default: throw 0;
     }
   }
+  
+  llvm::Value *LocalCC::load(Insn *insn) {
+    return load(vals.at(insn));
+  }
+
+  llvm::Value *LocalCC::reference(Insn *insn) {
+    return reference(vals.at(insn));
+  }
+
+  Value &LocalCC::varFor(Idx idx) {
+    auto found = vars.find(idx);
+    if (found != vars.end()) {
+      return found->second;
+    }
+    return cc.vars.at(idx);
+  }
+
+  llvm::Value *LocalCC::load(Idx idx) {
+    return load(varFor(idx));
+  }
+
+  llvm::Value *LocalCC::reference(Idx idx) {
+    return reference(varFor(idx));
+  }
 
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta) {
     llvm::Function *gcRoot = llvm::Intrinsic::getDeclaration(&cc.mod, llvm::Intrinsic::gcroot);
@@ -262,8 +265,8 @@ namespace lir::codegen {
 
     llvm::Value *refAsVoidPtrPtr = ib.CreatePointerCast(reference, i8PtrTy->getPointerTo());
     llvm::Value *metaConst = meta ?
-                             ib.CreatePointerCast(meta, i8PtrTy) :
-                             llvm::ConstantPointerNull::get(i8PtrTy);
+      ib.CreatePointerCast(meta, i8PtrTy) :
+      llvm::ConstantPointerNull::get(i8PtrTy);
     ib.CreateCall(gcRoot, {refAsVoidPtrPtr, metaConst});
   }
 
@@ -275,5 +278,31 @@ namespace lir::codegen {
     ib.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ty)), alloca);
     gcRoot(lcc.cc, ib, alloca, meta);
     return alloca;
+  }
+
+  void ensureMetaTy(CC &cc) {
+    if (!cc.gcMetaTy) {
+      auto i8PtrTy = llvm::Type::getInt8PtrTy(cc.ctx);
+      auto i8PtrPtrTy = i8PtrTy->getPointerTo();
+      cc.gcMetaTy = llvm::StructType::create(cc.ctx, "GCMeta");
+      llvm::Type *voidTy = llvm::Type::getVoidTy(cc.ctx);
+      cc.visitFnTy = llvm::FunctionType::get(
+        voidTy,
+        {
+          i8PtrPtrTy,
+          cc.gcMetaTy->getPointerTo()
+        },
+        false
+      );
+      cc.metaFnTy = llvm::FunctionType::get(
+        voidTy,
+        {
+          i8PtrTy,
+          cc.visitFnTy->getPointerTo(),
+        },
+        false
+      );
+      cc.gcMetaTy->setBody(cc.metaFnTy->getPointerTo());
+    }
   }
 }

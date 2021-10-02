@@ -15,19 +15,13 @@ namespace lir {
 
   class Insn {
   public:
-    struct DeclareParam {
-      std::string name;
-    };
-    struct DeclareVar {
-      std::string name;
-    };
     struct HeapAlloc {};
     struct SetVar {
-      Insn *var;
+      Idx var;
       Insn *value;
     };
     struct GetVar {
-      Insn *var;
+      Idx var;
     };
     struct SetField {
       Insn *obj;
@@ -73,7 +67,7 @@ namespace lir {
     struct BlockEnd {};
     std::optional<loc::Span> span;
     Idx ty;
-    std::variant<DeclareParam, DeclareVar, HeapAlloc, SetVar, GetVar, SetField, GetField,
+    std::variant<HeapAlloc, SetVar, GetVar, SetField, GetField,
                  CallTrait, PhiNode, NewTuple, ForeignRef,
                  LiteralString, LiteralInt, LiteralFloat, LiteralBool,
                  BlockStart, BlockEnd>
@@ -112,7 +106,14 @@ namespace lir {
     }
   };
 
+  struct Decl {
+    std::string name;
+    std::optional<loc::Span> span;
+    Idx ty;
+  };
+
   struct BlockList {
+    std::map<Idx, Decl> params, vars;
     std::vector<std::unique_ptr<BasicBlock>> blocks;
     BlockList() {}
     BlockList(BlockList &&) = default;

@@ -15,8 +15,6 @@ namespace hir::lower {
   public:
     infer::InferResult &infer;
 
-    std::map<DefIdx, Insn *> vars;
-
     LoweringVisitor(infer::InferResult &res) : infer(res) {}
 
     Block *rootBlock = nullptr;
@@ -82,13 +80,10 @@ namespace hir::lower {
       }
       for (auto &binding : e.bindings) {
         Definition &def = prog->bindings.at(binding);
-        auto &name = def.name;
-        Insn *declare = root ?
-                        l[*bb].emplace_back(Insn::DeclareParam{name}) :
-                        l[*bb].emplace_back(Insn::DeclareVar{name});
-        declare->ty = infer.insts[rootBlock].varTypes.at(binding);
-        declare->span = def.source;
-        vars[binding] = declare;
+        Decl &declare = (root ? l.params : l.vars)[binding];
+        declare.ty = infer.insts[rootBlock].varTypes.at(binding);
+        declare.span = def.source;
+        declare.name = def.name;
       }
       for (auto &expr : e.body) {
         auto define = dynamic_cast<DefineExpr *>(expr.get());
@@ -96,7 +91,7 @@ namespace hir::lower {
           if (dynamic_cast<NewExpr *>(define->value.get())) {
             auto halloc = l[*bb].emplace_back(Insn::HeapAlloc{});
             setTyAndLoc(*define->value, halloc);
-            l[*bb].emplace_back<false>(Insn::SetVar{vars.at(define->idx), halloc});
+            l[*bb].emplace_back<false>(Insn::SetVar{define->idx, halloc});
           }
         }
       }
@@ -117,7 +112,7 @@ namespace hir::lower {
       return visitBlock(e.block, l, bb, tail, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
-      return l[*bb].emplace_back(Insn::GetVar{vars.at(e.ref)});
+      return l[*bb].emplace_back(Insn::GetVar{e.ref});
     }
     RET_T visitCondExpr ARGS(CondExpr) override {
       Insn *pred = visitExpr(*e.predE, l, bb, false);
@@ -237,7 +232,7 @@ namespace hir::lower {
       NewExpr *newE = dynamic_cast<NewExpr *>(e.value.get());
       if (newE) {
         Idx i = 0;
-        auto getVar = l[*bb].emplace_back(Insn::GetVar{vars.at(e.idx)});
+        auto getVar = l[*bb].emplace_back(Insn::GetVar{e.idx});
         setTyAndLoc(*e.value, getVar);
         for (auto &v : newE->values) {
           auto value = visitExpr(*v, l, bb, false);
@@ -245,7 +240,7 @@ namespace hir::lower {
         }
       } else {
         auto value = visitExpr(*e.value, l, bb, false);
-        Insn *setVar = l[*bb].emplace_back<false>(Insn::SetVar{vars.at(e.idx), value});
+        Insn *setVar = l[*bb].emplace_back<false>(Insn::SetVar{e.idx, value});
         setTyAndLoc(e, setVar);
       }
       return voidValue(l, bb);

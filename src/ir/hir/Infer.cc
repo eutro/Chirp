@@ -133,6 +133,11 @@ namespace hir::infer {
 
       std::vector<std::pair<Block *, Constraints *>> traitConstraints;
 
+      Constraints mainConstraints;
+      cCnstr = &mainConstraints;
+      visitRootBlock(p.topLevel);
+      cCnstr = nullptr;
+
       for (TraitImpl &ti : p.traitImpls) {
         // all of these are currently assumed to be for Fn,
         // and with an ADT type
@@ -154,11 +159,6 @@ namespace hir::infer {
         adtTraits[{Fn, std::get<Ty::ADT>(ati.ty->v).i}] = &ati;
         cCnstr = nullptr;
       }
-
-      Constraints mainConstraints;
-      cCnstr = &mainConstraints;
-      visitRootBlock(p.topLevel);
-      cCnstr = nullptr;
 
       auto traitImplTypes = inferTypes(mainConstraints);
 
@@ -691,9 +691,10 @@ namespace hir::infer {
               auto atiReplacer = [&](Tp ty) -> Tp {
                 if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
                   auto found = atiSubs.find(ty);
-                  if (found != atiSubs.end()) {
-                    return found->second;
+                  if (found == atiSubs.end()) {
+                    return atiSubs[ty] = ty;
                   }
+                  return found->second;
                 }
                 return ty;
               };

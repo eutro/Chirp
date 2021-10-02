@@ -153,22 +153,26 @@ namespace ast::lower {
       return introduceDef(bindings, hir::Definition{
           it.name.ident.value,
           it.name.ident.span(),
-            DefType::Variable{{}},
+          DefType::Variable{false},
         });
     }
 
     class BindingVisitor :
-      public StatementVisitor<std::optional<Idx>> {
+      public StatementVisitor<std::optional<Idx>, bool> {
     private:
       LoweringVisitor &lv;
     public:
       BindingVisitor(LoweringVisitor &lv): lv(lv) {}
 
-      std::optional<Idx> visitDefn(Defn &it) override {
-        return lv.introduceBinding(it.binding);
+      std::optional<Idx> visitDefn(Defn &it, bool topLevel) override {
+        auto idx = lv.introduceBinding(it.binding);
+        if (topLevel) {
+          std::get<DefType::Variable>(lv.program.bindings.at(idx).defType.v).global = true;
+        }
+        return idx;
       }
 
-      std::optional<Idx> visitExpr(Expr &it) override {
+      std::optional<Idx> visitExpr(Expr &it, bool topLevel) override {
         return std::nullopt;
       }
     };
@@ -221,8 +225,10 @@ namespace ast::lower {
                 const loc::Span &source,
                 Expr &body) {
       std::set<hir::DefIdx> closed;
-      bindings.push([&closed](hir::DefIdx vr) {
-        closed.insert(vr);
+      bindings.push([&](hir::DefIdx vr) {
+        if (!std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+          closed.insert(vr);
+        }
       });
       typeBindings.push();
       if (typeParams) {
@@ -241,7 +247,7 @@ namespace ast::lower {
         introduceDef(bindings, hir::Definition{
             p.name.ident.value,
             p.name.ident.span(),
-            DefType::Variable{{visitHint(p.typeHint)}},
+            DefType::Variable{false, {visitHint(p.typeHint)}},
           });
       }
 
@@ -272,7 +278,7 @@ namespace ast::lower {
         variant.values.push_back(introduceDef(hir::Definition{
               data.name,
               data.source,
-                DefType::Variable{},
+              DefType::Variable{false},
             }));
       }
 
@@ -342,7 +348,7 @@ namespace ast::lower {
       auto thisIdx = introduceDef(hir::Definition{
           name,
           source,
-          DefType::Variable{{adtType}},
+          DefType::Variable{false, {adtType}},
         });
       block.bindings.push_back(thisIdx);
 
@@ -382,7 +388,7 @@ namespace ast::lower {
       auto idx = introduceDef(bindings, hir::Definition{
           name.ident.value,
           name.ident.span(),
-            DefType::Variable{},
+          DefType::Variable{false},
         });
       expr->block.bindings.push_back(idx);
       auto defE = withSpan<hir::DefineExpr>(std::nullopt);
@@ -439,7 +445,7 @@ namespace ast::lower {
       std::vector<std::optional<Idx>> indeces;
       indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
-        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt));
+        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt, true));
       }
 
       addBindingsToBlock(program.topLevel);
@@ -562,7 +568,7 @@ namespace ast::lower {
       std::vector<std::optional<Idx>> indeces;
       indeces.reserve(it.statements.size());
       for (auto &stmt : it.statements) {
-        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt.statement));
+        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt.statement, false));
       }
 
       auto expr = withSpan<hir::BlockExpr>(it.span);

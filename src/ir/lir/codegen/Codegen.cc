@@ -28,81 +28,18 @@
 namespace lir::codegen {
   const std::string GC_METHOD = "shadow-stack";
 
-  void preEmitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
-    std::visit(overloaded{
-        [&](Insn::DeclareParam &i) -> void {
-          Idx index = lcc.paramC++;
-          llvm::Argument *arg = lcc.func->getArg(index);
-          arg->setName(i.name);
-          const auto &gcData = getTy<std::optional<GCData>>(lcc, insn.ty);
-          if (insn.span || gcData) {
-            llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(arg->getType(), nullptr, i.name + ".ref");
-            lcc.ib.CreateStore(arg, alloca);
-            if (insn.span) {
-              cc.db.insertDeclare(
-                  alloca,
-                  cc.db.createParameterVariable(
-                      lcc.scopes.back(), i.name, index, cc.cu->getFile(),
-                      insn.span->lo.line, getTy<llvm::DIType *>(lcc, insn.ty)
-                  ),
-                  cc.db.createExpression(),
-                  locFromSpan(cc, lcc, insn.span->lo),
-                  lcc.ib.GetInsertBlock()
-              );
-            }
-            if (gcData) {
-              gcRoot(cc, lcc.ib, alloca, gcData->metadata);
-            }
-            lcc.vals[&insn] = {alloca, arg->getType(), LocalCC::Value::Pointer};
-            return;
-          }
-          lcc.vals[&insn] = {arg, arg->getType(), LocalCC::Value::Direct};
-        },
-        [&](Insn::DeclareVar &i) -> void {
-          auto tyTup = getTyTuple(cc, lcc.inst.types.at(insn.ty));
-          llvm::Type *ty = std::get<0>(tyTup);
-          const auto &gcData = std::get<2>(tyTup);
-          llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(ty, nullptr, i.name);
-          if (insn.span) {
-            cc.db.insertDeclare(
-                alloca,
-                cc.db.createAutoVariable(
-                    lcc.scopes.back(), i.name, cc.cu->getFile(),
-                    insn.span->lo.line, std::get<1>(tyTup)
-                ),
-                cc.db.createExpression(),
-                locFromSpan(cc, lcc, insn.span->lo),
-                lcc.ib.GetInsertBlock()
-            );
-          }
-          if (gcData) {
-            lcc.ib.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ty)), alloca);
-            gcRoot(cc, lcc.ib, alloca, gcData->metadata);
-          }
-          lcc.vals[&insn] = {alloca, ty, LocalCC::Value::Pointer};
-        },
-        [](auto&){}
-    }, insn.v);
-  }
-
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     if (insn.span) {
       auto &loc = insn.span->lo;
       lcc.ib.SetCurrentDebugLocation(locFromSpan(cc, lcc, loc));
     }
     lcc.vals[&insn] = std::visit(overloaded {
-        [&](Insn::DeclareParam &i) -> LocalCC::Value {
-          return lcc.vals[&insn];
-        },
-        [&](Insn::DeclareVar &i) -> LocalCC::Value {
-          return lcc.vals[&insn];
-        },
-        [&](Insn::SetVar &i) -> LocalCC::Value {
+        [&](Insn::SetVar &i) -> Value {
           lcc.ib.CreateStore(lcc.load(i.value), lcc.reference(i.var));
           return {}; // ignored
         },
-        [&](Insn::GetVar &i) -> LocalCC::Value {
-          return lcc.vals.at(i.var);
+        [&](Insn::GetVar &i) -> Value {
+          return lcc.varFor(i.var);
         },
 
 #define FIELD_GEP \
@@ -114,15 +51,15 @@ namespace lir::codegen {
             llvm::ConstantInt::get(i32Ty, i.field)\
           });
 
-        [&](Insn::SetField &i) -> LocalCC::Value {
+        [&](Insn::SetField &i) -> Value {
           FIELD_GEP
           lcc.ib.CreateStore(lcc.load(i.value), gep);
           return {};
         },
-        [&](Insn::GetField &i) -> LocalCC::Value {
+        [&](Insn::GetField &i) -> Value {
           FIELD_GEP
           llvm::Type *ty = getTy(lcc, insn.ty);
-          return {gep, ty, LocalCC::Value::Pointer};
+          return {gep, ty, Value::Pointer};
         },
 
 #define MAYBE_TEMP(VALUE)                                               \
@@ -131,11 +68,11 @@ namespace lir::codegen {
             if (gcData) {                                               \
               auto alloca = addTemporary(lcc, VALUE->getType(), gcData->metadata); \
               lcc.ib.CreateStore(VALUE, alloca);                        \
-              return {alloca, VALUE->getType(), LocalCC::Value::Pointer}; \
+              return {alloca, VALUE->getType(), Value::Pointer}; \
             }                                                           \
           } while(0)
 
-        [&](Insn::HeapAlloc &i) -> LocalCC::Value {
+        [&](Insn::HeapAlloc &i) -> Value {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
           auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
@@ -148,10 +85,10 @@ namespace lir::codegen {
           auto call = lcc.ib.CreateCall(gcAlloc, {size, align});
           llvm::Value *cast = lcc.ib.CreatePointerCast(call, ty);
           MAYBE_TEMP(cast);
-          return {cast, ty, LocalCC::Value::Direct};
+          return {cast, ty, Value::Direct};
         },
 
-        [&](Insn::CallTrait &i) -> LocalCC::Value {
+        [&](Insn::CallTrait &i) -> Value {
           TraitImpl::For tFor {
             .ty = lcc.inst.types.at(i.obj->ty),
             .tb = lcc.inst.traits.at(i.trait),
@@ -183,9 +120,9 @@ namespace lir::codegen {
           } else {
             MAYBE_TEMP(value);
           }
-          return {value, value->getType(), LocalCC::Value::Direct};
+          return {value, value->getType(), Value::Direct};
         },
-        [&](Insn::PhiNode &i) -> LocalCC::Value {
+        [&](Insn::PhiNode &i) -> Value {
           llvm::Type *ty = getTy(lcc, insn.ty);
           auto phi = lcc.ib.CreatePHI(ty, i.branches.size());
           for (auto &ic : i.branches) {
@@ -196,9 +133,9 @@ namespace lir::codegen {
           }
           lcc.ib.SetInsertPoint(phi->getParent());
           MAYBE_TEMP(phi);
-          return {phi, ty, LocalCC::Value::Direct};
+          return {phi, ty, Value::Direct};
         },
-        [&](Insn::NewTuple &i) -> LocalCC::Value {
+        [&](Insn::NewTuple &i) -> Value {
           {
             for (auto &v : i.values) {
               if (!llvm::isa<llvm::Constant>(lcc.load(v))) {
@@ -211,7 +148,7 @@ namespace lir::codegen {
               vs.push_back(llvm::cast<llvm::Constant>(lcc.load(v)));
             }
             auto ty = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
-            return {llvm::ConstantStruct::get(ty, vs), ty, LocalCC::Value::Direct};
+            return {llvm::ConstantStruct::get(ty, vs), ty, Value::Direct};
           } not_const: {
             auto ty = getTy(lcc, insn.ty);
             auto alloca = lcc.ib.CreateAlloca(ty);
@@ -224,23 +161,23 @@ namespace lir::codegen {
                 });
               lcc.ib.CreateStore(lcc.load(v), gep);
             }
-            return {alloca, ty, LocalCC::Value::Pointer};
+            return {alloca, ty, Value::Pointer};
           }
         },
-        [&](Insn::ForeignRef &i) -> LocalCC::Value {
+        [&](Insn::ForeignRef &i) -> Value {
           auto crpTy = lcc.inst.types.at(insn.ty);
           if (std::holds_alternative<Ty::FfiFn>(crpTy->v)) {
             auto fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(crpTy->v));
             auto modFn = cc.mod.getOrInsertFunction(i.symbol, fnTy);
             llvm::Value *callee = modFn.getCallee();
-            return {callee, callee->getType(), LocalCC::Value::Direct};
+            return {callee, callee->getType(), Value::Direct};
           } else {
             auto ty = getTy(cc, crpTy);
             auto global = cc.mod.getOrInsertGlobal(i.symbol, ty);
-            return {global, ty, LocalCC::Value::Pointer};
+            return {global, ty, Value::Pointer};
           }
         },
-        [&](Insn::LiteralString &i) -> LocalCC::Value {
+        [&](Insn::LiteralString &i) -> Value {
           auto cTy = lcc.inst.types.at(insn.ty);
           bool nulTerminate = std::get<Ty::String>(cTy->v).nul;
           size_t len = i.value.size() + nulTerminate;
@@ -260,33 +197,34 @@ namespace lir::codegen {
                                                     true,
                                                     llvm::GlobalValue::PrivateLinkage,
                                                     charsConstant);
+          globalVar->setName("str");
           auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
           std::array<llvm::Constant *, 2> indices = {const0, const0};
           llvm::Constant *charPtrConst = llvm::ConstantExpr::
             getInBoundsGetElementPtr(charArrayTy, globalVar, indices);
           if (nulTerminate) {
-            return {charPtrConst, charTy->getPointerTo(), LocalCC::Value::Direct};
+            return {charPtrConst, charTy->getPointerTo(), Value::Direct};
           }
           auto stringStructTy = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
           llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
           llvm::Constant *constant = llvm::ConstantStruct::get(stringStructTy, {lenConst, charPtrConst});
-          return {constant, stringStructTy, LocalCC::Value::Direct};
+          return {constant, stringStructTy, Value::Direct};
         },
-        [&](Insn::LiteralInt &i) -> LocalCC::Value {
+        [&](Insn::LiteralInt &i) -> Value {
           Ty *cTy = lcc.inst.types.at(insn.ty);
           auto ty = getTy(cc, cTy);
           llvm::IntegerType *intTy = llvm::cast<llvm::IntegerType>(ty);
-          return {llvm::ConstantInt::get(intTy, i.value, 10), ty, LocalCC::Value::Direct};
+          return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};
         },
-        [&](Insn::LiteralFloat &i) -> LocalCC::Value {
+        [&](Insn::LiteralFloat &i) -> Value {
           auto ty = getTy(lcc, insn.ty);
-          return {llvm::ConstantFP::get(ty, i.value), ty, LocalCC::Value::Direct};
+          return {llvm::ConstantFP::get(ty, i.value), ty, Value::Direct};
         },
-        [&](Insn::LiteralBool &i) -> LocalCC::Value {
+        [&](Insn::LiteralBool &i) -> Value {
           auto ty = getTy(lcc, insn.ty);
-          return {llvm::ConstantInt::get(ty, i.value), ty, LocalCC::Value::Direct};
+          return {llvm::ConstantInt::get(ty, i.value), ty, Value::Direct};
         },
-        [&](Insn::BlockStart &i) -> LocalCC::Value {
+        [&](Insn::BlockStart &i) -> Value {
           loc::SrcLoc &loc = insn.span->lo;
           llvm::DILexicalBlock *block = cc.db.createLexicalBlock(
               lcc.scopes.back(),
@@ -296,7 +234,7 @@ namespace lir::codegen {
           lcc.scopes.push_back(block);
           return {};
         },
-        [&](Insn::BlockEnd &i) -> LocalCC::Value {
+        [&](Insn::BlockEnd &i) -> Value {
           lcc.scopes.pop_back();
           return {};
         },
@@ -327,17 +265,84 @@ namespace lir::codegen {
     emitJump(bb.end, cc, lcc);
   }
 
-  void emitBlockList(BlockList &bl, CC &cc, LocalCC &lcc) {
+  void emitParam(Idx idx, Decl &i, CC &cc, LocalCC &lcc) {
+    Idx index = lcc.paramC++;
+    llvm::Argument *arg = lcc.func->getArg(index);
+    arg->setName(i.name);
+    const auto &gcData = getTy<std::optional<GCData>>(lcc, i.ty);
+    if (i.span || gcData) {
+      llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(arg->getType(), nullptr, i.name + ".ref");
+      lcc.ib.CreateStore(arg, alloca);
+      if (i.span) {
+        cc.db.insertDeclare(
+          alloca,
+            cc.db.createParameterVariable(
+            lcc.scopes.back(), i.name, index, cc.cu->getFile(),
+              i.span->lo.line, getTy<llvm::DIType *>(lcc, i.ty)
+            ),
+            cc.db.createExpression(),
+            locFromSpan(cc, lcc, i.span->lo),
+            lcc.ib.GetInsertBlock()
+        );
+      }
+      if (gcData) {
+        gcRoot(cc, lcc.ib, alloca, gcData->metadata);
+      }
+      lcc.vars[idx] = {alloca, arg->getType(), Value::Pointer};
+      return;
+    }
+    lcc.vars[idx] = {arg, arg->getType(), Value::Direct};
+  }
+
+  void emitVar(Idx idx, Decl &i, CC &cc, LocalCC &lcc, bool topLevel) {
+    auto tyTup = getTyTuple(cc, lcc.inst.types.at(i.ty));
+    llvm::Type *ty = std::get<0>(tyTup);
+    const auto &gcData = std::get<2>(tyTup);
+    if (topLevel) {
+      auto global = new llvm::GlobalVariable(
+        cc.mod,
+        ty,
+        false,
+        llvm::GlobalVariable::PrivateLinkage,
+        llvm::ConstantExpr::getNullValue(ty)
+      );
+      global->setName("global." + i.name);
+      // if (gcData) {} TODO ensure root if collectible
+      
+      cc.vars[idx] = {global, ty, Value::Pointer};
+      return;
+    }
+    llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(ty, nullptr, i.name);
+    if (i.span) {
+      cc.db.insertDeclare(
+          alloca,
+          cc.db.createAutoVariable(
+              lcc.scopes.back(), i.name, cc.cu->getFile(),
+              i.span->lo.line, std::get<1>(tyTup)
+          ),
+          cc.db.createExpression(),
+          locFromSpan(cc, lcc, i.span->lo),
+          lcc.ib.GetInsertBlock()
+      );
+    }
+    if (gcData) {
+      lcc.ib.CreateStore(llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(ty)), alloca);
+      gcRoot(cc, lcc.ib, alloca, gcData->metadata);
+    }
+    lcc.vars[idx] = {alloca, ty, Value::Pointer};
+  }
+
+  void emitBlockList(BlockList &bl, CC &cc, LocalCC &lcc, bool topLevel) {
     llvm::BasicBlock *decl = llvm::BasicBlock::Create(cc.ctx, "decl", lcc.func);
     for (auto &bb : bl.blocks) {
       lcc.bbs[bb.get()] = llvm::BasicBlock::Create(cc.ctx, "", lcc.func);
     }
     lcc.ib.SetInsertPoint(decl);
-    for (auto &bb : bl.blocks) {
-      lcc.bb = bb.get();
-      for (auto &i : bb->insns) {
-        preEmitInsn(*i, cc, lcc);
-      }
+    for (auto &e : bl.vars) {
+      emitVar(e.first, e.second, cc, lcc, topLevel);
+    }
+    for (auto &e : bl.params) {
+      emitParam(e.first, e.second, cc, lcc);
     }
     lcc.ib.CreateBr(lcc.bbs.at(bl.blocks.front().get()));
     for (auto &bb : bl.blocks) {
@@ -350,29 +355,26 @@ namespace lir::codegen {
   llvm::Function *getBbFunc(const BlockList &bl, const Instantiation &inst, CC &cc) {
     std::vector<llvm::Type *> argTys;
     std::vector<llvm::Metadata *> diTys;
-    const std::string *name = nullptr;
-    const std::optional<loc::Span> *span = nullptr;
+    auto &receiver = bl.params.rbegin()->second;
+    const std::string &name = receiver.name;
+    const std::optional<loc::Span> &span = receiver.span;
     Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
     auto &retPair = getTyTuple(cc, inst.types.at(retIdx));
     diTys.push_back(std::get<1>(retPair));
-    for (auto &insn : bl.blocks.front()->insns) {
-      if (std::holds_alternative<Insn::DeclareParam>(insn->v)) {
-        auto argPair = getTyTuple(cc, inst.types.at(insn->ty));
-        argTys.push_back(std::get<0>(argPair));
-        diTys.push_back(std::get<1>(argPair));
-        name = &std::get<Insn::DeclareParam>(insn->v).name;
-        span = &insn->span;
-      }
+    for (auto e : bl.params) {
+      auto argPair = getTyTuple(cc, inst.types.at(e.second.ty));
+      argTys.push_back(std::get<0>(argPair));
+      diTys.push_back(std::get<1>(argPair));
     }
     llvm::FunctionType *funcTy = llvm::FunctionType::get(std::get<0>(retPair), argTys, false);
     llvm::Function *func = llvm::Function::Create(funcTy,
                                                   llvm::GlobalValue::PrivateLinkage,
-                                                  name ? *name : "",
+                                                  name,
                                                   cc.mod);
     func->setGC(GC_METHOD);
-    uint32_t lineNo = span && *span ? (**span).lo.line : 0;
+    uint32_t lineNo = span ? span->lo.line : 0;
     func->setSubprogram(cc.db.createFunction(
-        cc.cu->getFile(), *name, func->getName(), cc.cu->getFile(),
+        cc.cu->getFile(), name, func->getName(), cc.cu->getFile(),
         lineNo, cc.db.createSubroutineType(cc.db.getOrCreateTypeArray(diTys)),
         lineNo, llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
     ));
@@ -442,7 +444,7 @@ namespace lir::codegen {
           .func = crpMainFunc,
           .inst = mod.instantiation,
       };
-      emitBlockList(mod.topLevel, cc, lcc);
+      emitBlockList(mod.topLevel, cc, lcc, true);
     }
 
     auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
@@ -473,7 +475,7 @@ namespace lir::codegen {
                 .func = *fIt++,
                 .inst = entry.second,
             };
-            emitBlockList(bl, cc, lcc);
+            emitBlockList(bl, cc, lcc, false);
           }
         }
       }

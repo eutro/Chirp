@@ -32,6 +32,16 @@ namespace lir::codegen {
 
   using TyTuple = std::tuple<llvm::Type *, llvm::DIType *, std::optional<GCData>>;
 
+  struct Value {
+    llvm::Value *ref;
+    llvm::Type *ty;
+    enum Type {
+      Pointer,
+      Direct,
+    };
+    Type loadTy;
+  };
+
   struct CC {
     arena::InternArena<Ty> &tcx;
     arena::InternArena<type::TraitBound> &tbcx;
@@ -43,6 +53,8 @@ namespace lir::codegen {
 
     std::map<TraitImpl::For, EmitFn> emitCall;
     std::map<type::Ty *, TyTuple> tyCache;
+
+    std::map<Idx, Value> vars;
 
     llvm::StructType *gcMetaTy = nullptr;
     llvm::FunctionType *visitFnTy = nullptr;
@@ -58,20 +70,17 @@ namespace lir::codegen {
     llvm::Function *func;
     lir::Instantiation &inst;
 
-    struct Value {
-      llvm::Value *ref;
-      llvm::Type *ty;
-      enum Type {
-        Pointer,
-        Direct,
-      };
-      Type loadTy;
-    };
+    std::map<Idx, Value> vars;
     std::map<Insn *, Value> vals;
-    
+
+    Value &varFor(Idx idx);
+    llvm::Value *load(Value &v);
     llvm::Value *load(Insn *insn);
+    llvm::Value *load(Idx var);
+    llvm::Value *reference(Value &v);
     llvm::Value *reference(Insn *insn);
-    
+    llvm::Value *reference(Idx var);
+
     std::map<BasicBlock *, llvm::BasicBlock *> bbs;
     BasicBlock *bb;
     Idx paramC = 0;
@@ -102,4 +111,6 @@ namespace lir::codegen {
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);
 
   llvm::AllocaInst *addTemporary(LocalCC &lcc, llvm::Type *ty, llvm::Value *meta);
+
+  void ensureMetaTy(CC &cc);
 }

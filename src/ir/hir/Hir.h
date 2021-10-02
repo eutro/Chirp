@@ -27,6 +27,7 @@ namespace hir {
 
   struct DefType {
     struct Variable {
+      bool global;
       std::vector<Type> hints;
     };
     struct Type {};
