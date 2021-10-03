@@ -27,7 +27,7 @@ namespace lir::codegen {
   using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
 
   struct GCData {
-    llvm::Constant *metadata;
+    llvm::GlobalVariable *metadata;
   };
 
   using TyTuple = std::tuple<llvm::Type *, llvm::DIType *, std::optional<GCData>>;
@@ -91,6 +91,8 @@ namespace lir::codegen {
   llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
 
   const TyTuple &getTyTuple(CC &cc, type::Ty *ty);
+
+  bool isZeroSize(Tp ty);
 
   llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 

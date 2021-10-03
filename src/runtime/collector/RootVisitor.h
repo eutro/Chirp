@@ -11,6 +11,9 @@ typedef void (*VisitFn)(void **, GCMeta *);
 
 struct GCMeta {
   void (*visit)(void *root, VisitFn visitor);
+  // true if this pointer is not managed by the garbage collector,
+  // but it's a pointer to one that is
+  uint8_t pointerTo;
 };
 
 typedef struct FrameMap {

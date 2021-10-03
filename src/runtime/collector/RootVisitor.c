@@ -6,7 +6,12 @@ void chirpVisitRoots(VisitFn visitor) {
 
     // For roots [0, NumMeta), the metadata pointer is in the FrameMap.
     for (unsigned e = r->map->numMeta; i != e; ++i) {
-      visitor(&r->roots[i], (GCMeta *) r->map->meta[i]);
+      GCMeta *meta = r->map->meta[i];
+      if (meta->pointerTo) {
+        visitor(r->roots[i], meta);
+      } else {
+        visitor(&r->roots[i], meta);
+      }
     }
 
     // For roots [NumMeta, NumRoots), the metadata pointer is null.

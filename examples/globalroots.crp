@@ -1,0 +1,15 @@
+defn foo = {
+  defn x = 10
+  defn addx(y) = x + y
+  defn addy(z) = addx(x) + z
+  addy
+}
+
+defn chirpGc(x: i64): #() = foreign
+chirpGc(0)
+
+defn putI(x: i64): #() = foreign
+defn println(): #() = foreign
+
+putI(foo(10))
+println()

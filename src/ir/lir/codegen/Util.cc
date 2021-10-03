@@ -58,11 +58,18 @@ namespace lir::codegen {
         [&](Ty::ADT &v) -> TyTuple {
           auto sType = llvm::StructType::get(cc.ctx); // opaque
           llvm::PointerType *lt = llvm::PointerType::getUnqual(sType);
+          bool zeroSize = isZeroSize(ty);
+          if (zeroSize) {
+            sType->setBody(llvm::None);
+          }
           auto tup = std::make_tuple(
-              lt,
-              cc.db.createUnspecifiedType("adt"),
-              std::make_optional(GCData{nullptr})
+            zeroSize ? (llvm::Type *) sType : lt,
+            cc.db.createUnspecifiedType("adt"),
+            zeroSize ? std::nullopt : std::make_optional(GCData{nullptr})
           );
+          if (zeroSize) {
+            return tup;
+          }
           cc.tyCache[ty] = tup;
           auto &optRef = std::get<2>(tup);
           std::vector<Idx> collectibles;
@@ -89,7 +96,13 @@ namespace lir::codegen {
                 cc.gcMetaTy,
                 true,
                 llvm::GlobalVariable::PrivateLinkage,
-                llvm::ConstantStruct::get(cc.gcMetaTy, {gcMetaFn}),
+                llvm::ConstantStruct::get(
+                  cc.gcMetaTy,
+                  {
+                    gcMetaFn,
+                    llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0))
+                  }
+                ),
                 "adt.meta"
             );
             cc.deferred.push_back([&v, // lifetime of the tcx it's from
@@ -189,6 +202,29 @@ namespace lir::codegen {
         }
     }, ty->v);
     return cc.tyCache[ty] = tyTup;
+  }
+
+  bool isZeroSize(Tp ty) {
+    return std::visit(overloaded {
+        [](Ty::Tuple &v) {
+          for (auto &ty : v.t) {
+            if (!isZeroSize(ty)) return false;
+          }
+          return true;
+        },
+        [](Ty::ADT &v) {
+          for (auto &ty : v.s) {
+            if (!isZeroSize(ty)) return false;
+          }
+          return true;
+        },
+        // cyclic types are only non-zero sized if a contained
+        // component is, so cyclic references should be ignored
+        [](Ty::Cyclic &c) { return isZeroSize(c.ty); },
+        [](Ty::CyclicRef&) { return true; },
+        // other types assumed to be non-zero sized
+        [](auto &v) { return false; },
+      }, ty->v);
   }
 
   llvm::DILocation *locFromSpan(CC &cc, LocalCC &lcc, const loc::SrcLoc &loc) {
@@ -302,7 +338,10 @@ namespace lir::codegen {
         },
         false
       );
-      cc.gcMetaTy->setBody(cc.metaFnTy->getPointerTo());
+      cc.gcMetaTy->setBody(
+        cc.metaFnTy->getPointerTo(),
+        llvm::Type::getInt8Ty(cc.ctx)
+      );
     }
   }
 }

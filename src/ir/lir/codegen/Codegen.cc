@@ -43,22 +43,34 @@ namespace lir::codegen {
         },
 
 #define FIELD_GEP \
-          auto i32Ty = llvm::Type::getInt32Ty(cc.ctx); \
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(i.obj->ty)->v));\
-          auto castPtr = lcc.ib.CreatePointerCast(lcc.load(i.obj), structTy->getPointerTo());\
-          auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {\
-            llvm::ConstantInt::get(i32Ty, 0),\
-            llvm::ConstantInt::get(i32Ty, i.field)\
-          });
+          auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);                  \
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(i.obj->ty)->v)); \
+          auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo()); \
+          auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {                \
+              llvm::ConstantInt::get(i32Ty, 0),                         \
+              llvm::ConstantInt::get(i32Ty, i.field)                    \
+            })
 
         [&](Insn::SetField &i) -> Value {
-          FIELD_GEP
+          auto loaded = lcc.load(i.obj);
+          if (!loaded->getType()->isPointerTy()) {
+            // setting field of zero-sized type:
+            // noop
+            return {};
+          }
+          FIELD_GEP;
           lcc.ib.CreateStore(lcc.load(i.value), gep);
           return {};
         },
         [&](Insn::GetField &i) -> Value {
-          FIELD_GEP
           llvm::Type *ty = getTy(lcc, insn.ty);
+          auto loaded = lcc.load(i.obj);
+          if (!loaded->getType()->isPointerTy()) {
+            return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
+          }
+          FIELD_GEP;
+          // FIXME: this GEP is wonderful but a garbage collection may
+          // occur before this value is dereferenced
           return {gep, ty, Value::Pointer};
         },
 
@@ -76,6 +88,10 @@ namespace lir::codegen {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
           auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
+          if (!ty->isPointerTy()) {
+            // zero-sized type
+            return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
+          }
           auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
           auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(insn.ty)->v));
           auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
@@ -307,7 +323,26 @@ namespace lir::codegen {
         llvm::ConstantExpr::getNullValue(ty)
       );
       global->setName("global." + i.name);
-      // if (gcData) {} TODO ensure root if collectible
+      if (gcData) {
+        llvm::AllocaInst *alloca = lcc.ib.CreateAlloca(global->getType(), nullptr, i.name);
+        lcc.ib.CreateStore(global, alloca);
+        ensureMetaTy(cc);
+        auto meta = new llvm::GlobalVariable(
+          cc.mod,
+          cc.gcMetaTy,
+          true,
+          llvm::GlobalVariable::PrivateLinkage,
+          llvm::ConstantStruct::get(
+            cc.gcMetaTy,
+            gcData->metadata ?
+            gcData->metadata->getInitializer()->getAggregateElement(0U) :
+            llvm::ConstantPointerNull::get(cc.metaFnTy->getPointerTo()),
+            llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 1))
+          ),
+          "global." + i.name + ".meta"
+        );
+        gcRoot(cc, lcc.ib, alloca, meta);
+      }
       
       cc.vars[idx] = {global, ty, Value::Pointer};
       return;
