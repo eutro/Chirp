@@ -1,23 +1,30 @@
-#!/bin/sh
+#!/bin/bash
 
-EXAMPLES_DIR="$(dirname "$0")"
+EXAMPLES_DIR="$(readlink -f "$(dirname "$0")")"
+
+TEMP_DIR="$(mktemp -d)"
+cd "$TEMP_DIR"
+trap "rm -rf $TEMP_DIR" exit
 
 compile () {
     FILENAME="$EXAMPLES_DIR/$1.crp"
     shift
     echo crpc "$FILENAME" "$@"
-    crpc "$FILENAME" "$@"
+    time crpc "$FILENAME" "$@"
+    echo
 }
 
 nonterminating () {
     echo timeout "$@"
     timeout "$@"
+    echo
 }
 
 terminating () {
     echo "./$1"
-    "./$1"
+    time "./$1"
     echo "status code $?"
+    echo
 }
 
 if ! [ $CHIRP_TEST_NO_RECOMPILE ]; then
@@ -48,7 +55,7 @@ do
     echo "catting!" | terminating cat
     echo "1\n2\n+" | terminating calculator
     nonterminating 0.1 ./genrec
-    terminating fizz_buzz | tee /dev/null | head
+    terminating fizz_buzz | head && echo
     terminating gctest
 
 done
