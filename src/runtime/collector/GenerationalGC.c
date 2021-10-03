@@ -1,136 +1,16 @@
+#ifdef CHIRP_DYNAMIC_COLLECTOR
+#define CHIRP_GC_IMPL_NAME Generational
+#endif
 #include "Collector.h"
 
+#include "RootVisitor.h"
+
+#include <stdbool.h>
+#include <stdlib.h>
 #include <assert.h>
-#include <string.h>
 #include <stdalign.h>
 #include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stddef.h>
-
-#ifdef CHIRP_COLLECTOR_DISABLED
-
-void *gcAlloc(uint32_t size, uint32_t align) {
-  return malloc(size);
-}
-void collectGarbage(size_t genc) {}
-void gcInit(void) {}
-void gcShutdown(void) {}
-
-#else
-
-// root visiting
-
-// https://github.com/llvm/llvm-project/blob/0fdb25cd954c5aaf86259e713f03d119ab9f2700/llvm/lib/CodeGen/ShadowStackGCLowering.cpp#L173
-
-typedef struct GCMeta GCMeta;
-
-typedef void (*VisitFn)(void **, GCMeta *);
-
-struct GCMeta {
-  void (*visit)(void *root, VisitFn visitor);
-};
-
-static void visitRoots(VisitFn visitor);
-
-typedef struct FrameMap {
-  int32_t numRoots; // Number of roots in stack frame.
-  int32_t numMeta;  // Number of metadata descriptors. May be < NumRoots.
-  void *meta[];     // May be absent for roots without metadata.
-} FrameMap;
-
-typedef struct StackEntry {
-  struct StackEntry *next; // Caller's stack entry.
-  FrameMap *map;           // Pointer to constant FrameMap.
-  void *roots[];           // Stack roots (in-place array, so we pretend).
-} StackEntry;
-
-StackEntry *llvm_gc_root_chain;
-
-static void visitRoots(VisitFn visitor) {
-  for (StackEntry *r = llvm_gc_root_chain; r; r = r->next) {
-    unsigned i = 0;
-
-    // For roots [0, NumMeta), the metadata pointer is in the FrameMap.
-    for (unsigned e = r->map->numMeta; i != e; ++i) {
-      visitor(&r->roots[i], (GCMeta *) r->map->meta[i]);
-    }
-
-    // For roots [NumMeta, NumRoots), the metadata pointer is null.
-    for (unsigned e = r->map->numRoots; i != e; ++i) {
-      visitor(&r->roots[i], NULL);
-    }
-  }
-}
-
-#ifdef CHIRP_COLLECTOR_MARK_AND_SWEEP
-// simple mark and sweep
-
-typedef struct AllocMeta {
-  struct AllocMeta *next;
-  bool marked;
-  max_align_t value[0];
-} AllocMeta;
-
-static AllocMeta *allocated = NULL;
-
-void *gcAlloc(uint32_t size, uint32_t align) {
-  AllocMeta *newMeta = (AllocMeta *) malloc(sizeof(AllocMeta) + size);
-  newMeta->next = allocated;
-  newMeta->marked = false;
-  allocated = newMeta;
-  return &newMeta->value;
-}
-
-static AllocMeta *getMeta(void *ptr) {
-  return (AllocMeta *) ptr - 1;
-}
-
-// Mark Function marks the locations
-static void mark1(void **root, GCMeta *gcMeta) {
-  if (!*root) return;
-  AllocMeta *aMeta = getMeta(*root);
-  if (aMeta->marked) return;
-  aMeta->marked = true;
-  if (gcMeta) {
-    gcMeta->visit(*root, mark1);
-  }
-}
-
-static void mark() {
-  visitRoots(mark1);
-}
-
-// Sweep Function frees the unmarked
-static void sweep() {
-  for (AllocMeta **meta = &allocated; *meta;) {
-    if ((*meta)->marked) {
-      (*meta)->marked = false;
-      meta = &(*meta)->next;
-    } else {
-      AllocMeta *toFree = *meta;
-      *meta = toFree->next;
-      free(toFree);
-    }
-  }
-}
-
-// Main garbage collection function
-void collectGarbage(size_t genc) { 
-  mark();
-  sweep();
-}
-
-void gcInit() {}
-
-void gcShutdown() {
-  sweep();
-}
-
-#else
-
-// generational garbage collector
+#include <string.h>
 
 #ifndef CHIRP_COLLECTOR_START_HEAP_SIZES
 # define CHIRP_COLLECTOR_START_HEAP_SIZES {30000000, 30000000, 30000000}
@@ -173,7 +53,7 @@ static void initHeap(size_t gen) {
   heapMeta->next = heapMeta + 1;
 }
 
-void gcInit() {
+void chirpGcInit() {
   for (size_t gen = 0; gen < GENERATION_COUNT; ++gen) {
     void *heap = malloc(HEAP_SIZES[gen]);
     if (!heap) {
@@ -241,7 +121,7 @@ static void *appendToGen(size_t gen, size_t size, size_t align, bool collectFirs
   }
 }
 
-void *gcAlloc(uint32_t size, uint32_t align) {
+void *chirpGcAlloc(uint32_t size, uint32_t align) {
   if (size == 0) return NULL;
   size_t allocAllign = lcm(align, alignof(AllocMeta));
   return appendToGen(0, size, allocAllign, true);
@@ -273,11 +153,11 @@ static void relocate1(void **root, GCMeta *gcMeta) {
 
 // Marks reachable roots for relocation
 static void mark() {
-  visitRoots(mark1);
+  chirpVisitRoots(mark1);
 }
 
 static void relocate() {
-  visitRoots(relocate1);
+  chirpVisitRoots(relocate1);
 }
 
 // Sweeps relevant generations and relocates live objects,
@@ -301,7 +181,7 @@ static void sweep(size_t genc) {
 }
 
 // Run garbage collection for the youngest genc generations.
-void collectGarbage(size_t genc) {
+void chirpGc(size_t genc) {
   mark();
   sweep(genc);
 }
@@ -310,15 +190,12 @@ static void maybeCollect() {
   while (TO_COLLECT) {
     size_t genc = TO_COLLECT;
     TO_COLLECT = 0;
-    collectGarbage(genc);
+    chirpGc(genc);
   }
 }
 
-void gcShutdown() {
+void chirpGcShutdown() {
   for (size_t gen = 0; gen < GENERATION_COUNT; ++gen) {
     free(HEAPS[gen]);
   }
 }
-
-#endif
-#endif

@@ -1,4 +1,4 @@
-defn collectGarbage(x: u64): #() = foreign
+defn chirpGc(x: u64): #() = foreign
 defn putS(s: string): #() = foreign
 
 defn capture(x) = \.x
@@ -11,16 +11,13 @@ defn test() =
 //    ~~~~~~~~~~~~~~~~~~~
 // checks that the closure here is properly preserved by the collector
       {
-        let this = test
-            gc = collectGarbage 
-          in:
-            collectGarbage(1: u64)
+        chirpGc(1: u64)
         capture(1)
       }
     )()
   )
 
 test()
-collectGarbage(1: u64) // free the temporaries from before
+chirpGc(1: u64) // free the temporaries from before
 test()
-collectGarbage(1: u64) // test if the garbage collector has broken its own state
+chirpGc(1: u64) // test if the garbage collector has broken its own state

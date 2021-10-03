@@ -32,25 +32,42 @@ else()
   add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 endif()
 
-option(CHIRP_DISABLE_COLLECTOR "Disable the garbage collector" OFF)
-option(CHIRP_COLLECTOR_MARK_AND_SWEEP
-  "Use a simple mark and sweep garbage collector instead of the default generational one"
-  OFF)
-
-if(CHIRP_DISABLE_COLLECTOR)
-  add_definitions(-DCHIRP_COLLECTOR_DISABLED)
-endif()
-
-if(CHIRP_COLLECTOR_MARK_AND_SWEEP)
-  add_definitions(-DCHIRP_COLLECTOR_MARK_AND_SWEEP)
-endif()
-
 add_subdirectory(common)
 add_subdirectory(fsm)
 add_subdirectory(type)
 add_subdirectory(ir)
 
-add_library(chirp_runtime SHARED runtime/Collector.c runtime/Runtime.c)
+set(CHIRP_KNOWN_COLLECTOR_STRATEGIES "Noop" "MarkAndSweep" "Generational")
+set(CHIRP_COLLECTOR_STRATEGY
+  "Dynamic"
+  CACHE
+  STRING
+  "The type of garbage collector used by the Chirp runtime.")
+set_property(CACHE CHIRP_COLLECTOR_STRATEGY
+  PROPERTY STRINGS "Dynamic" ${CHIRP_KNOWN_COLLECTOR_STRATEGIES})
+message(STATUS "Garbage collector style: ${CHIRP_COLLECTOR_STRATEGY}")
+
+add_library(gc)
+target_sources(gc PUBLIC runtime/collector/RootVisitor.c)
+if(${CHIRP_COLLECTOR_STRATEGY} STREQUAL "Dynamic")
+  add_compile_definitions(CHIRP_DYNAMIC_COLLECTOR)
+  target_sources(gc PUBLIC runtime/collector/DynamicCollector.c)
+  list(TRANSFORM CHIRP_KNOWN_COLLECTOR_STRATEGIES
+    REPLACE ".+" "runtime/collector/\\0GC.c"
+    OUTPUT_VARIABLE CHIRP_COLLECTOR_SOURCES)
+  target_sources(gc PUBLIC ${CHIRP_COLLECTOR_SOURCES})
+elseif(${CHIRP_COLLECTOR_STRATEGY} IN_LIST CHIRP_KNOWN_COLLECTOR_STRATEGIES)
+  target_sources(gc PUBLIC runtime/collector/${CHIRP_COLLECTOR_STRATEGY}GC.c)
+else()
+  list(JOIN CHIRP_KNOWN_COLLECTOR_STRATEGIES ", " COLLECTOR_STRATEGIES_PP)
+  message(FATAL_ERROR
+    "Unknown garbage collector strategy: ${CHIRP_COLLECTOR_STRATEGY}\n"
+    "Known styles: Dynamic, ${COLLECTOR_STRATEGIES_PP}")
+endif()
+
+add_library(chirp_runtime SHARED runtime/Runtime.c)
+target_link_libraries(chirp_runtime gc)
+
 install(TARGETS chirp_runtime ARCHIVE)
 
 add_subdirectory(bin)

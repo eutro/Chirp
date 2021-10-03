@@ -76,7 +76,7 @@ namespace lir::codegen {
           auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
           auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
-          auto gcAlloc = cc.mod.getOrInsertFunction("gcAlloc", i8PtrTy, i32Ty, i32Ty);
+          auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
           auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(insn.ty)->v));
           auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
           auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
@@ -454,10 +454,10 @@ namespace lir::codegen {
     {
       llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", mainFunc);
       ib.SetInsertPoint(entry);
-      auto gcInit = cc.mod.getOrInsertFunction("gcInit", voidTy);
+      auto gcInit = cc.mod.getOrInsertFunction("chirpGcInit", voidTy);
       ib.CreateCall(gcInit);
       ib.CreateCall(unitThunkTy, crpMainFunc);
-      auto gcShutdown = cc.mod.getOrInsertFunction("gcShutdown", voidTy);
+      auto gcShutdown = cc.mod.getOrInsertFunction("chirpGcShutdown", voidTy);
       ib.CreateCall(gcShutdown);
       ib.CreateRet(llvm::ConstantInt::get(i32Ty, 0));
     }
