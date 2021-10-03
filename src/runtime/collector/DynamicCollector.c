@@ -4,10 +4,10 @@
 #include <string.h>
 #include <stdlib.h>
 
-void *(*chirpGcAllocImpl)(uint32_t size, uint32_t align);
-void (*chirpGcImpl)(size_t genc);
-void (*chirpGcInitImpl)(void);
-void (*chirpGcShutdownImpl)(void);
+static void *(*chirpGcAllocImpl)(uint32_t size, uint32_t align);
+static void (*chirpGcImpl)(size_t genc);
+static void (*chirpGcInitImpl)(void);
+static void (*chirpGcShutdownImpl)(void);
 
 // chooses the garbage collector implementation based on environmental variables
 
