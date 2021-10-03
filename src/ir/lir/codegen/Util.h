@@ -33,13 +33,27 @@ namespace lir::codegen {
   using TyTuple = std::tuple<llvm::Type *, llvm::DIType *, std::optional<GCData>>;
 
   struct Value {
-    llvm::Value *ref;
+    using ValFn = std::function<llvm::Value*()>;
+    // this function MUST derive any collectible pointers from registered GC roots,
+    // otherwise they may have been relocated by the collector
+    ValFn ref;
     llvm::Type *ty;
     enum Type {
       Pointer,
       Direct,
     };
     Type loadTy;
+    Value(): ref([](){return nullptr;}) {}
+    Value(llvm::Value *v, llvm::Type *ty, Type loadTy):
+      ref([=](){return v;}),
+      ty(ty),
+      loadTy(loadTy)
+    {}
+    Value(ValFn &&v, llvm::Type *ty, Type loadTy):
+      ref(std::forward<ValFn>(v)),
+      ty(ty),
+      loadTy(loadTy)
+    {}
   };
 
   struct CC {

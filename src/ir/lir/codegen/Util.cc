@@ -251,11 +251,12 @@ namespace lir::codegen {
   }
 
   llvm::Value *LocalCC::load(Value &v) {
+    auto ref = v.ref();
     switch (v.loadTy) {
       case Value::Pointer:
-        return ib.CreateLoad(v.ty, v.ref);
+        return ib.CreateLoad(v.ty, ref);
       case Value::Direct:
-        return v.ref;
+        return ref;
       default: throw 0;
     }
   }
@@ -263,7 +264,7 @@ namespace lir::codegen {
   llvm::Value *LocalCC::reference(Value &v) {
     switch (v.loadTy) {
       case Value::Pointer:
-        return v.ref;
+        return v.ref();
       case Value::Direct:
         // allocate temporary?
         throw std::runtime_error("Attempted to get reference to direct value");

@@ -64,14 +64,19 @@ namespace lir::codegen {
         },
         [&](Insn::GetField &i) -> Value {
           llvm::Type *ty = getTy(lcc, insn.ty);
-          auto loaded = lcc.load(i.obj);
-          if (!loaded->getType()->isPointerTy()) {
+          llvm::Type *objTy = getTy(lcc, i.obj->ty);
+          if (!objTy->isPointerTy()) {
             return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
           }
-          FIELD_GEP;
-          // FIXME: this GEP is wonderful but a garbage collection may
-          // occur before this value is dereferenced
-          return {gep, ty, Value::Pointer};
+          return {
+            [&](){
+              auto loaded = lcc.load(i.obj);
+              FIELD_GEP;
+              return gep;
+            },
+            ty,
+            Value::Pointer
+          };
         },
 
 #define MAYBE_TEMP(VALUE)                                               \

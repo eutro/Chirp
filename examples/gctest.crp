@@ -1,23 +1,33 @@
-defn chirpGc(x: u64): #() = foreign
+// file for pressure testing GC
+
+defn chirpGc(x: i64): #() = foreign
 defn putS(s: string): #() = foreign
 
-defn capture(x) = \.x
-defn dropSecond(x, y) = x
-
-defn test() =
-  putS(
-    dropSecond(
-      capture("Hello!\n"),
-//    ~~~~~~~~~~~~~~~~~~~
-// checks that the closure here is properly preserved by the collector
-      {
-        chirpGc(1: u64)
-        capture(1)
-      }
-    )()
-  )
+defn test = (\capture,dropSecond.{ // ensure they aren't globals
+  defn testfn() =
+    putS(
+      dropSecond(
+        capture("Hello!\n"),
+        {
+          chirpGc(1)
+          capture("")
+        }
+      )()
+    )
+  testfn
+})(
+  let capture(x) = \.x in: capture,
+  (\.{
+    /// true, but taken from FFI so the optimiser doesn't inline
+    /// #include <stdbool.h>
+    /// bool ffiTrue() { return true; }
+    defn ffiTrue(): bool = foreign
+    defn dropSecond(x, y) = if ffiTrue() { x } else { y }
+    dropSecond
+  })()
+)
 
 test()
-chirpGc(1: u64) // free the temporaries from before
+chirpGc(1) // free the temporaries from before
 test()
-chirpGc(1: u64) // test if the garbage collector has broken its own state
+chirpGc(1) // test if the garbage collector has broken its own state
