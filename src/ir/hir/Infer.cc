@@ -32,15 +32,31 @@ namespace hir::infer {
       program = &p;
       InferResult res;
       Idx counter = 0;
+
       initBlock(p.topLevel, res, counter);
-      visitBlock(p.topLevel, res.graphs.front(), counter);
+      for (auto &ti : p.traitImpls) {
+        for (auto &m : ti.methods) {
+          initBlock(m, res, counter);
+        }
+      }
+
+      Idx graphI = 0;
+      visitBlock(p.topLevel, res.graphs.at(graphI++), counter);
+      for (auto &ti : p.traitImpls) {
+        for (auto &m : ti.methods) {
+          visitBlock(m, res.graphs.at(graphI++), counter);
+        }
+      }
+
       res.tcx = std::move(tcx);
       res.tbcx = std::move(tbcx);
       return res;
     }
 
     void initBlock(Block &block, InferResult &res, Idx &counter) {
+      Idx index = res.graphs.size();
       InferenceGraph &graph = res.graphs.emplace_back();
+      graph.index = index;
       std::set<Idx> defs;
       DefinitionVisitor().visitBlock(block, defs);
       for (Idx def : defs) {
@@ -350,17 +366,17 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {
-      TVar &retNode = *visitExpr(*e.value PASS_ARGS);
+      TVar &exprNode = *visitExpr(*e.value PASS_ARGS);
       TVar &varNode = *varNodes.at(e.idx);
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.desc.maybeSpan(e.span, "defined here");
         cnstr.tyA = varNode.ty;
-        cnstr.tyB = retNode.ty;
-        varNode.connectTo(cnstr);
-        cnstr.connectTo(retNode);
+        cnstr.tyB = exprNode.ty;
+        exprNode.connectTo(cnstr);
+        cnstr.connectTo(varNode);
       }
-      return &retNode;
+      return &varNode;
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
       TVar &retNode = ig.add(tcx, counter);

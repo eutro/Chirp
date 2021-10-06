@@ -450,6 +450,7 @@ namespace tok::parser {
       }
       case Tok::TIf: {
         IfExpr expr;
+        expr.span.lo = token->loc;
         expr.ifToken = std::move(*token);
         expr.predExpr = parseExpr(stream);
         expr.thenExpr = parseBlockExpr(stream);

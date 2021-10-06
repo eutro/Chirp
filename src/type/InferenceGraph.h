@@ -8,11 +8,16 @@
 #include <set>
 
 namespace type::infer {
+  struct NodeRef {
+    Idx graph, index;
+    bool operator<(const NodeRef &o) const;
+  };
+
   struct Node {
     virtual ~Node() = default;
     err::Location desc;
-    std::set<Idx> inbound, outbound;
-    Idx index;
+    std::set<NodeRef> inbound, outbound;
+    NodeRef ref;
     void connectTo(Node &o);
   };
 
@@ -25,12 +30,14 @@ namespace type::infer {
   };
 
   struct InferenceGraph {
+    Idx index;
     arena::Arena<Node> nodes;
     template <typename T>
     T &add() {
-      auto index = nodes.ptrs.size();
+      auto nIndex = nodes.ptrs.size();
       T &n = *nodes.cast<T>().add();
-      n.index = index;
+      n.ref.graph = index;
+      n.ref.index = nIndex;
       return n;
     }
     TVar &add(Tcx &tcx, Idx &counter);

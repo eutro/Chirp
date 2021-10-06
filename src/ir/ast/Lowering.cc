@@ -329,7 +329,7 @@ namespace ast::lower {
       retTy.base = retIdx;
       fnType.params = {fnArgsTy, retTy};
 
-      auto expr = withSpan<hir::NewExpr>(std::nullopt);
+      auto expr = withSpan<hir::NewExpr>(source);
       expr->adt = typeIdx;
       expr->variant = 0;
       expr->values.reserve(closed.size());
