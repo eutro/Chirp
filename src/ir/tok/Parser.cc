@@ -241,7 +241,7 @@ namespace tok::parser {
       TypeHint hint;
       hint.colon = std::move(*colon);
       hint.type = parseType(stream);
-      return std::move(hint);
+      return hint;
     }
     return std::nullopt;
   }
@@ -548,7 +548,7 @@ namespace tok::parser {
   std::unique_ptr<Expr> parsePostfixExpr(ParserStream &stream) {
     std::unique_ptr<Expr> expr = parsePrimaryExpr(stream);
     if (stream.peekFor(Tok::TLinebreak)) {
-      return std::move(expr);
+      return expr;
     }
     auto openToken = stream.optional(Tok::TParOpen);
     while (openToken) {
@@ -573,7 +573,7 @@ namespace tok::parser {
       callExpr.span.hi = tokEnd(callExpr.closeToken);
       expr = std::make_unique<FunCallExpr>(std::move(callExpr));
       if (stream.peekFor(Tok::TLinebreak)) {
-        return std::move(expr);
+        return expr;
       }
       openToken = stream.optional(Tok::TParOpen);
     }
