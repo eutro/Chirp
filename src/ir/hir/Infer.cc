@@ -2,7 +2,7 @@
 
 #include "Builtins.h"
 #include "../../type/TypePrint.h"
-#include "../../type/InferenceGraph.h"
+#include "../../type/infer/InferenceGraph.h"
 
 #include <sstream>
 #include <cstddef>

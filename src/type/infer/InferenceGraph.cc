@@ -13,4 +13,9 @@ namespace type::infer {
     outbound.insert(o.ref);
     o.inbound.insert(ref);
   }
+
+  NodeVariant Constraint::Concrete::asVariant() const { return this; }
+  NodeVariant Constraint::Trait::asVariant() const { return this; }
+  NodeVariant Constraint::Assigned::asVariant() const { return this; }
+  NodeVariant TVar::asVariant() const { return this; }
 }

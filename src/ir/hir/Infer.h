@@ -2,7 +2,7 @@
 
 #include "Hir.h"
 #include "../../type/Type.h"
-#include "../../type/InferenceGraph.h"
+#include "../../type/infer/InferenceGraph.h"
 #include "../../common/Arena.h"
 
 #include <unordered_set>

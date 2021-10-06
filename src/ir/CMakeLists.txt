@@ -19,7 +19,7 @@ add_library(astlower ast/Lowering.cc)
 target_link_libraries(astlower ast hirrebind err)
 
 add_library(hirinfer hir/Infer.cc)
-target_link_libraries(hirinfer hir err type typeinfergraph)
+target_link_libraries(hirinfer hir err type typeinfer)
 
 add_library(hirlower hir/Lowering.cc)
 target_link_libraries(hirlower hir err type)
