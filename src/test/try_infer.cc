@@ -11,7 +11,7 @@
 using namespace type::infer;
 
 void printNode(err::ErrorPrintContext &epc, Node *node) {
-  std::cerr << "** Task " << node->ref.graph << ":" << node->ref.index << "\n";
+  std::cerr << "*** Task " << node->ref.graph << ":" << node->ref.index << "\n";
   if (auto tv = dynamic_cast<TVar*>(node)) {
     std::cerr << "Type variable (" << tv->ty << "):\n";
   } else if (auto cnstr = dynamic_cast<Constraint::Assigned*>(node)) {
@@ -54,31 +54,41 @@ int main() {
     std::map<Node*, std::set<NodeRef>> deps;
     std::deque<Node*> ready;
     for (auto &n : graph.nodes.ptrs) {
-      if (n->inbound.empty()) {
+      std::set<NodeRef> ds = n->inbound;
+      for (auto it = ds.begin(); it != ds.end();) {
+        if (it->graph != graph.index) {
+          it = ds.erase(it);
+        } else {
+          ++it;
+        }
+      }
+      if (ds.empty()) {
         ready.push_back(n.get());
       } else {
-        deps[n.get()] = n->inbound;
+        deps[n.get()] = std::move(ds);
       }
     }
     std::cerr << "* Graph #" << graph.index << "\n";
+    std::cerr << "** Ordering\n";
     while (!ready.empty()) {
       Node *next = ready.front();
       ready.pop_front();
       printNode(epc, next);
       for (auto o : next->outbound) {
         Node *out = types.graphs.at(o.graph).nodes.ptrs.at(o.index).get();
-        auto &ds = deps.at(out);
-        ds.erase(next->ref);
-        if (ds.empty()) {
-          deps.erase(out);
-          ready.push_back(out);
+        if (deps.count(out)) {
+          auto &ds = deps.at(out);
+          ds.erase(next->ref);
+          if (ds.empty()) {
+            deps.erase(out);
+            ready.push_back(out);
+          }
         }
       }
     }
     if (deps.empty()) {
-      std::cerr << "Solved.\n\n";
     } else {
-      std::cerr << "Unsolved:\n";
+      std::cerr << "** Unsolved\n";
       for (auto &e : deps) {
         printNode(epc, e.first);
       }
