@@ -89,10 +89,18 @@ namespace type::infer {
   InferenceSeq::InferenceSeq(const InferenceGraph &graph) {
     auto SCCs = findSCCs(graph);
     for (auto it = SCCs.rbegin(); it != SCCs.rend(); ++it) {
+      if (it->size() > 1) {
+        for (Idx index : *it) {
+          const Node &node = *graph.nodes.ptrs.at(index);
+          auto variant = node.asVariant();
+          if (std::holds_alternative<const Constraint::Trait*>(variant)) {
+            throw err::Location().msg("illegal trait constraint within constraint cycle:").chain(node.desc);
+          }
+        }
+      }
       // within a single strongly connected component
       // the order of steps doesn't matter:tm:
-      // since anything other than singular unification is forbidden
-      // (TODO, not currently verified)
+      // since anything other than simple unification is forbidden
       for (Idx index : *it) {
         const Node &node = *graph.nodes.ptrs.at(index);
         appendNode(*this, graph.index, node);

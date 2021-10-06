@@ -7,13 +7,13 @@
 #include <variant>
 
 namespace util {
-  template <typename Data = std::monostate>
+  template<typename Data = std::monostate>
   struct DSU {
     DSU *parent = this;
     size_t size = 0;
     Data data;
 
-    template <typename... Arg>
+    template<typename... Arg>
     DSU(Arg... arg): data(std::forward<Arg>(arg)...) {}
 
     DSU *find() {
@@ -36,16 +36,16 @@ namespace util {
     }
   };
 
-  template <typename Compare = std::less<>>
+  template<typename Compare = std::less<>>
   struct DerefCmp {
-    template <typename LHS, typename RHS>
+    template<typename LHS, typename RHS>
     bool operator()(const LHS &lhs, const RHS &rhs) const {
       Compare cmp;
       return cmp(*lhs, *rhs);
     }
   };
 
-  template <typename T, typename Hash = std::hash<T>>
+  template<typename T, typename Hash = std::hash<T>>
   struct DerefHash {
     std::size_t operator()(const T &v) const {
       Hash hash;
@@ -53,7 +53,7 @@ namespace util {
     }
   };
 
-  template <typename Iterable>
+  template<typename Iterable>
   std::size_t hashIterable(const Iterable &iterable) {
     std::size_t result = 1;
     for (auto x : iterable) {
@@ -62,10 +62,26 @@ namespace util {
     return result;
   }
 
-  template <typename... Arg>
+  template<typename... Arg>
   std::size_t hashMulti(const Arg &...t) {
     std::size_t result = 1;
     ((result = 32 * result + std::hash<Arg>()(t)), ...);
     return result;
   }
+
+  template<typename T, typename X>
+  struct index_of {};
+
+  template<typename T, typename... V>
+  struct index_of<T, std::variant<V...>> : index_of<T, std::tuple<V...>> {};
+
+  template<typename T, typename... V>
+  struct index_of<T, std::tuple<T, V...>> {
+    static const size_t value = 0;
+  };
+
+  template<typename T, typename K, typename... V>
+  struct index_of<T, std::tuple<K, V...>> {
+    static const size_t value = 1 + index_of<T, std::tuple<V...>>::value;
+  };
 }
