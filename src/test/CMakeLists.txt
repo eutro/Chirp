@@ -9,5 +9,8 @@ add_test(lexer_test lexer_test)
 add_executable(try_lower_hir try_lower_hir.cc)
 target_link_libraries(try_lower_hir parser astlower hirjson)
 
+add_executable(try_infer try_infer.cc)
+target_link_libraries(try_infer parser astlower hirinfer)
+
 add_executable(try_lower_lir try_lower_lir.cc)
 target_link_libraries(try_lower_lir parser astlower hirinfer hirlower lirdisas)
