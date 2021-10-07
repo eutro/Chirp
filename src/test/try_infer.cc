@@ -38,6 +38,7 @@ int main() {
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
   auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
+
   for (auto graph : types.graphs) {
     InferenceSeq seq = graph;
     std::cerr << "* Graph #" << (graph.index + 1) << "\n";
@@ -59,4 +60,10 @@ int main() {
       printStep(epc, step, idx++);
     }
   }
+
+  InferenceSeq seq = types.graphs.front();
+  std::map<NodeRef, type::Tp> inputs;
+  std::map<Idx, type::Tp> outputs;
+  std::map<Idx, UnifyMap<InferenceSeq*>> traits;
+  seq.run(types.tcx, types.tbcx, inputs, outputs, traits);
 }

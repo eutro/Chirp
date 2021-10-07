@@ -2,6 +2,7 @@
 
 #include "../Type.h"
 #include "InferenceGraph.h"
+#include "UnifyMap.h"
 
 #include <vector>
 #include <variant>
@@ -41,5 +42,12 @@ namespace type::infer {
      * This is mostly just a topological sort of the strongly connected components of the graph.
      */
     InferenceSeq(const InferenceGraph &graph);
+
+    void run(
+      Tcx &tcx, Tbcx &tbcx,
+      std::map<NodeRef, Tp> &inputs,
+      std::map<Idx, Tp> &outputs,
+      std::map<Idx, UnifyMap<InferenceSeq*>> &traits
+    );
   };
 }

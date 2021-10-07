@@ -70,18 +70,26 @@ namespace util {
   }
 
   template<typename T, typename X>
-  struct index_of {};
+  struct index_of_type {};
 
   template<typename T, typename... V>
-  struct index_of<T, std::variant<V...>> : index_of<T, std::tuple<V...>> {};
+  struct index_of_type<T, std::variant<V...>> : index_of_type<T, std::tuple<V...>> {};
 
   template<typename T, typename... V>
-  struct index_of<T, std::tuple<T, V...>> {
+  struct index_of_type<T, std::tuple<T, V...>> {
     static const size_t value = 0;
   };
 
   template<typename T, typename K, typename... V>
-  struct index_of<T, std::tuple<K, V...>> {
-    static const size_t value = 1 + index_of<T, std::tuple<V...>>::value;
+  struct index_of_type<T, std::tuple<K, V...>> {
+    static const size_t value = 1 + index_of_type<T, std::tuple<V...>>::value;
   };
+
+  template<typename T, typename X>
+  inline constexpr size_t index_of_type_v = index_of_type<T, X>::value;
+
+  template<typename... Alts, typename... Ts>
+  constexpr bool holds_any_of(std::variant<Ts...> const& v) noexcept {
+    return (std::holds_alternative<Alts>(v) || ...);
+  }
 }
