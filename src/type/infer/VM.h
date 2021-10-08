@@ -3,6 +3,8 @@
 #include "InferenceSeq.h"
 #include "UnifyMap.h"
 
+#include <deque>
+
 namespace type::infer {
   struct Instantiation {
     std::map<Idx, Tp> typeVars;
@@ -17,6 +19,7 @@ namespace type::infer {
 
   struct Env {
     std::map<Tp, Tp> mapping;
+    std::deque<err::Location> backtrace;
     std::map<
       std::pair<Tp, TraitBound *>,
       Instantiation *> traits;

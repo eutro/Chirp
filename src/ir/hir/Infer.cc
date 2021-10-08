@@ -43,10 +43,10 @@ namespace hir::infer {
       std::vector<InferenceGraph> graphs;
       std::vector<std::vector<TVar *>> tvs;
 
-      initBlock(p.topLevel, graphs, counter, tvs.emplace_back());
+      initBlock(p.topLevel, graphs, tvs.emplace_back());
       for (auto &ti : p.traitImpls) {
         for (auto &m : ti.methods) {
-          initBlock(m, graphs, counter, tvs.emplace_back());
+          initBlock(m, graphs, tvs.emplace_back());
         }
       }
 
@@ -61,8 +61,8 @@ namespace hir::infer {
           auto &map = res.traits[*ti.trait.base];
           auto &ig = graphs.at(graphI);
           AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
-          for (Idx p : ti.params) {
-            definedTys[p] = ig.add(tcx, counter).ty;
+          for (Idx param : ti.params) {
+            definedTys[param] = ig.add(tcx, counter).ty;
           }
           std::vector<Tp> &tys = ati.inputs;
           tys.push_back(parseTy(ti.type));
@@ -76,6 +76,7 @@ namespace hir::infer {
             visitBlock(m, ig, tvIter);
             graphI++;
           }
+          ati.steps = ig;
           map.insert(ttcx, tys, std::move(ati));
         }
       }
@@ -85,13 +86,12 @@ namespace hir::infer {
     void initBlock(
       Block &block,
       std::vector<InferenceGraph> &graphs,
-      Idx &counter,
       std::vector<TVar *> &tvs
     ) {
       Idx index = graphs.size();
       InferenceGraph &graph = graphs.emplace_back();
-      TVarVisitor(graph, tcx, counter, tvs).visitBlock(block);
       graph.index = index;
+      TVarVisitor(graph, tcx, counter, tvs).visitBlock(block);
       std::set<Idx> defs;
       DefinitionVisitor().visitBlock(block, defs);
       for (Idx def : defs) {
@@ -129,7 +129,6 @@ namespace hir::infer {
       }
     };
 
-    Idx paramC = 0;
     Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
     Tp boolType() { return tcx.intern(Ty::Bool{}); }
 
@@ -455,10 +454,11 @@ namespace hir::infer {
       TVar &retNode = **tvi++;
       TVar &funcNode = *visitExpr(*e.func PASS_ARGS);
       auto &tCnstr = ig.add<Constraint::Trait>();
+      funcNode.connectTo(tCnstr);
       std::vector<Tp> argTys;
       argTys.reserve(e.args.size());
-      for (Eptr &e : e.args) {
-        TVar &argNode = *visitExpr(*e PASS_ARGS);
+      for (Eptr &argE : e.args) {
+        TVar &argNode = *visitExpr(*argE PASS_ARGS);
         argTys.push_back(argNode.ty);
         argNode.connectTo(tCnstr);
       }
@@ -468,8 +468,6 @@ namespace hir::infer {
         tCnstr.ty = funcNode.ty;
         tCnstr.tb = traitBound;
         tCnstr.desc.maybeSpan(e.span, "called here");
-        funcNode.connectTo(tCnstr);
-        tCnstr.connectTo(retNode);
       }
       {
         auto &cnstr = ig.add<Constraint::Concrete>();

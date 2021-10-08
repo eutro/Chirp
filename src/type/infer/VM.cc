@@ -8,21 +8,43 @@ namespace type::infer {
   Env::Frame::~Frame() {
     for (auto &p : vars) {
       auto it = env.mapping.find(p.first);
-      if (p.second) {
-        it->second = p.second;
+      if (it == env.mapping.end()) {
+        if (p.second) {
+          env.mapping[p.first] = p.second;
+        }
+      } else {
+        if (p.second) {
+          it->second = p.second;
+        } else {
+          env.mapping.erase(it);
+        }
       }
-      env.mapping.erase(it);
     }
   }
   void Env::Frame::assoc(Tp var, Tp value) {
     auto found = env.mapping.find(var);
     if (found == env.mapping.end()) {
-      env.mapping[var] = value;
-      value = nullptr;
+      if (value) {
+        env.mapping[var] = value;
+        value = nullptr;
+      } else {
+        return;
+      }
     } else {
-      std::swap(found->second, value);
+      if (value) {
+        std::swap(found->second, value);
+      } else {
+        value = found->second;
+        env.mapping.erase(found);
+      }
     }
     vars[var] = value;
+  }
+
+  void addBacktrace(Env &env, err::Location &err) {
+    for (auto it = env.backtrace.rbegin(); it != env.backtrace.rend(); ++it) {
+      err.chain(*it);
+    }
   }
 
   template <typename T>
@@ -87,7 +109,7 @@ namespace type::infer {
     std::function<void(Tp, Tp)> innerUnify = [&](Tp tyA, Tp tyB) {
       tyA = uncycle(ctx.ttcx, appRepl(ctx, env, tyA));
       tyB = uncycle(ctx.ttcx, appRepl(ctx, env, tyB));
-      if (!seen.insert({tyA, tyB}).second) {
+      if (tyA == tyB || !seen.insert({tyA, tyB}).second) {
         return; // already seen
       } else if (std::holds_alternative<Ty::Placeholder>(tyA->v)) {
         setVar(ctx, env, frame, tyA, tyB);
@@ -101,7 +123,8 @@ namespace type::infer {
       } else {
         IndexAndArityCmp cmp;
         if (cmp(tyA, tyB) || cmp(tyB, tyA)) {
-          throw std::runtime_error("Diferring base types/arities");
+          addBacktrace(env, ctx.ecx.err()
+            .msg("mismatched types"));
         }
         auto chA = childrenOf({tyA});
         auto chB = childrenOf({tyB}, chA.size());
@@ -121,13 +144,22 @@ namespace type::infer {
     Instantiation &inst
   );
 
-  // TODO stack trace and enforce a maximum recursion depth safely
+#ifndef CHIRP_INFER_MAX_DEPTH
+#define CHIRP_INFER_MAX_DEPTH 256
+#endif
+#define CHIRP_TOK_TO_STR0(TOK) #TOK
+#define CHIRP_TOK_TO_STR(TOK) CHIRP_TOK_TO_STR0(TOK)
+#define CHIRP_INFER_MAX_DEPTH_STR CHIRP_TOK_TO_STR(CHIRP_INFER_MAX_DEPTH)
+
   void AbstractTraitImpl::operator()(
     InferContext &ctx,
     Env &env,
     const std::vector<Tp> &args,
     Instantiation &inst
   ) const {
+    if (env.backtrace.size() > CHIRP_INFER_MAX_DEPTH) {
+      throw std::runtime_error("Past recursion limit: " CHIRP_INFER_MAX_DEPTH_STR);
+    }
     if (inputs.size() != args.size()) {
       throw std::runtime_error("ICE - Bad arity to trait impl");
     }
@@ -183,6 +215,7 @@ namespace type::infer {
     Instantiation &inst
   ) {
     for (auto &step : seq.steps) {
+      env.backtrace.emplace_back().msg("caused by").chain(step.desc);
       switch (step.v.index()) {
       case util::index_of_type_v<Step::Unify, decltype(step.v)>: {
         auto &s = std::get<Step::Unify>(step.v);
@@ -212,17 +245,19 @@ namespace type::infer {
           auto &memos = ctx.insts[&impl->steps];
           auto iter = memos.lower_bound(args);
           if (iter == memos.end() || iter->first != args) {
-            iter = memos.emplace_hint(iter);
+            iter = memos.insert(iter, std::make_pair(args, Instantiation{}));
             env.traits.emplace(std::make_pair(recTy, trait), &iter->second);
             (*impl)(ctx, env, args, iter->second);
           }
           inst.traitImpls.emplace(s.idx, std::make_pair(&impl->steps, &iter->second));
         } else {
-          ctx.ecx.err().msg("trait not implemented").chain(step.desc);
+          addBacktrace(env, ctx.ecx.err()
+              .msg("trait not implemented"));
           // implicitly poisoned
         }
         break;
       }
+      env.backtrace.pop_back();
     }
 
     for (auto &tv : seq.vars) {
