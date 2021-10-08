@@ -13,7 +13,6 @@ namespace type::infer {
   void addChildren(std::vector<Tp> &c, Tp ty);
   std::vector<Tp> childrenOf(const std::vector<Tp> &tys, size_t hint = 0);
 
-  // TODO make it work with cyclic types
   template <typename T>
   struct UnifyMap {
     // mask of placeholders and types at this level
@@ -76,7 +75,7 @@ namespace type::infer {
       bool &newNode
     ) {
       while (true) {
-        if (tys.size() != node->mask.size()) {
+        if (!newNode && tys.size() != node->mask.size()) {
           throw std::runtime_error("Bad arity in insert");
         }
         std::vector<bool> mask(tys.size(), true);
@@ -86,6 +85,7 @@ namespace type::infer {
           ty = uncycle(ttcx, ty);
           if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
             mask[i] = false;
+          } else {
             ++maskArity;
           }
         }
@@ -114,6 +114,7 @@ namespace type::infer {
             newNode = true;
           } else {
             node = &found->second;
+            newNode = false;
           }
           tys = childrenOf(masked, 0);
         }

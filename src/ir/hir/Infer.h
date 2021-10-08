@@ -12,8 +12,8 @@ namespace hir::infer {
   using Tp = Ty *;
 
   struct InferResult {
+    std::vector<std::unique_ptr<type::infer::InferenceSeq>> seqs;
     std::map<Idx, type::infer::UnifyMap<type::infer::AbstractTraitImpl>> traits;
-    type::infer::InferenceSeq top;
   };
 
   std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::TTcx &ttcx);

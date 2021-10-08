@@ -14,28 +14,31 @@ namespace hir::infer {
   using namespace type::infer;
 
 #define RET_T TVar *
-#define ARGS(TYPE) (TYPE &e, InferenceGraph &ig, Idx &counter, std::vector<TVar *>::iterator &tvi)
-#define PASS_ARGS , ig, counter, tvi
+#define ARGS(TYPE) (TYPE &e, InferenceGraph &ig, std::vector<TVar *>::iterator &tvi)
+#define PASS_ARGS , ig, tvi
 
   class InferenceVisitor :
-    public ExprVisitor<TVar*, InferenceGraph&, Idx&, std::vector<TVar *>::iterator&>,
+    public ExprVisitor<TVar*, InferenceGraph&, std::vector<TVar *>::iterator&>,
     public ProgramVisitor<InferResult> {
   public:
     type::Tcx &tcx;
     type::Tbcx &tbcx;
+    type::TTcx &ttcx;
 
     InferenceVisitor(type::TTcx &ttcx):
       tcx(ttcx.tcx),
-      tbcx(ttcx.tbcx)
+      tbcx(ttcx.tbcx),
+      ttcx(ttcx)
     {}
 
     Program *program = nullptr;
     std::map<DefIdx, TVar*> varNodes;
+    std::map<DefIdx, Tp> definedTys;
+    Idx counter = 0;
 
     InferResult visitProgram(Program &p) override {
       program = &p;
       InferResult res;
-      Idx counter = 0;
 
       std::vector<InferenceGraph> graphs;
       std::vector<std::vector<TVar *>> tvs;
@@ -51,17 +54,31 @@ namespace hir::infer {
       std::vector<TVar*>::iterator tvIter;
       {
         tvIter = tvs.at(graphI).begin();
-        visitBlock(p.topLevel, graphs.at(graphI), counter, tvIter);
+        visitBlock(p.topLevel, graphs.at(graphI), tvIter);
+        res.seqs.push_back(std::make_unique<InferenceSeq>(graphs.at(graphI)));
         graphI++;
         for (auto &ti : p.traitImpls) {
+          auto &map = res.traits[*ti.trait.base];
+          auto &ig = graphs.at(graphI);
+          AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+          for (Idx p : ti.params) {
+            definedTys[p] = ig.add(tcx, counter).ty;
+          }
+          std::vector<Tp> &tys = ati.inputs;
+          tys.push_back(parseTy(ti.type));
+          {
+            auto tp = parseTyParams(ti.trait.params);
+            std::copy(tp.begin(), tp.end(), std::back_inserter(tys));
+          }
+          ati.outputs = parseTyParams(ti.types);
           for (auto &m : ti.methods) {
             tvIter = tvs.at(graphI).begin();
-            visitBlock(m, graphs.at(graphI), counter, tvIter);
+            visitBlock(m, ig, tvIter);
             graphI++;
           }
+          map.insert(ttcx, tys, std::move(ati));
         }
       }
-      res.top = graphs.front();
       return res;
     }
 
@@ -116,7 +133,114 @@ namespace hir::infer {
     Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
     Tp boolType() { return tcx.intern(Ty::Bool{}); }
 
+    Tp getDefinedType(DefIdx id) {
+      auto found = definedTys.find(id);
+      if (found != definedTys.end()) {
+        return found->second;
+      }
+      return definedTys[id] = tcx.intern(Ty::Placeholder{counter++});
+    }
+
+    std::optional<Tp> maybeParseTy(Type &ty) {
+      DefIdx idx = *ty.base;
+
+      // builtins
+      switch (idx) {
+      case BOOL:
+        return boolType();
+      case I8: case I16: case I32: case I64: case I128:
+        return tcx.intern(Ty::Int{(type::IntSize) (idx - I8)});
+      case U8: case U16: case U32: case U64: case U128:
+        return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
+      case F16: case F32: case F64:
+        return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
+      case TUPLE:
+        return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
+      case STRING:
+        return tcx.intern(Ty::String{false});
+      case NULSTRING:
+        return tcx.intern(Ty::String{true});
+      case FFIFN: {
+        auto tys = parseTyParams(ty.params);
+        return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
+      }
+      }
+
+      auto &def = program->bindings.at(idx);
+      if (std::holds_alternative<DefType::Type>(def.defType.v)) {
+        return getDefinedType(idx);
+      } if (std::holds_alternative<DefType::ADT>(def.defType.v)) {
+        auto &adt = std::get<DefType::ADT>(def.defType.v);
+        type::Variants variants;
+        for (Idx i = 0; i < adt.variants.size(); ++i) {
+          variants.insert(i);
+        }
+        return tcx.intern(Ty::ADT{idx, variants, parseTyParams(ty.params)});
+      }
+
+      return std::nullopt;
+    }
+
+    void parseTypeHint(InferenceGraph &ig, TVar &target, Type &hint) {
+      if (!hint.base) {
+        return; // explicit placeholder hint
+      }
+
+      auto type = maybeParseTy(hint);
+      if (type) {
+        auto &cnstr = ig.add<Constraint::Concrete>();
+        cnstr.tyA = target.ty;
+        cnstr.tyB = *type;
+        cnstr.desc.maybeSpan(hint.source, "from type hint");
+        target.connectTo(cnstr);
+        return;
+      }
+
+      auto found = program->bindings.find(*hint.base);
+      if (found != program->bindings.end() &&
+          std::holds_alternative<DefType::Trait>(found->second.defType.v)) {
+        auto &cnstr = ig.add<Constraint::Trait>();
+        cnstr.ty = target.ty;
+        cnstr.tb = parseTb(hint);
+        cnstr.desc.maybeSpan(hint.source, "from trait hint");
+        target.connectTo(cnstr);
+      } else {
+        throw std::runtime_error("ICE: index is not a type or trait");
+      }
+    }
+
+    Tp parseTy(Type &ty) {
+      if (ty.base) {
+        auto type = maybeParseTy(ty);
+        if (type) {
+          return *type;
+        }
+        throw std::runtime_error("ICE: Undefined type");
+      }
+      return tcx.intern(Ty::Placeholder{counter++});
+    }
+
+    std::vector<Tp> parseTyParams(std::vector<Type> params) {
+      std::vector<Tp> ret;
+      ret.reserve(params.size());
+      for (Type &ty : params) {
+        ret.push_back(parseTy(ty));
+      }
+      return ret;
+    }
+
+    TraitBound *parseTb(Type &ty) {
+      return tbcx.intern(TraitBound{ty.base.value(), parseTyParams(ty.params)});
+    }
+
     RET_T visitBlock ARGS(Block) {
+      for (Idx var : e.bindings) {
+        auto &varDef = std::get<DefType::Variable>(program->bindings.at(var).defType.v);
+        TVar &n = *varNodes.at(var);
+        for (auto &hint : varDef.hints) {
+          parseTypeHint(ig, n, hint);
+        }
+      }
       for (auto it = e.body.begin();;) {
         TVar &n = *visitExpr(**it PASS_ARGS);
         if (++it == e.body.end()) {
@@ -128,7 +252,9 @@ namespace hir::infer {
     RET_T visitExpr ARGS(Expr) override {
       TVar &n = *ExprVisitor::visitExpr(e PASS_ARGS);
       n.desc.maybeSpan(e.span, "type of this expression");
-      // TODO add hints
+      for (auto &hint : e.type) {
+        parseTypeHint(ig, n, hint);
+      }
       return &n;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {

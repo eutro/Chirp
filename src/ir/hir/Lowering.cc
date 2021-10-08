@@ -130,9 +130,9 @@ namespace hir::lower {
           return voidValue(l, bb);
         } else {
           return l[*bb].emplace_back(Insn::PhiNode{{
-                                                       {thenV, &l[thenB]},
-                                                       {elseV, &l[elseB]},
-                                                   }});
+                {thenV, &l[thenB]},
+                {elseV, &l[elseB]},
+              }});
         }
       }
     }

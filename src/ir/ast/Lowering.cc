@@ -325,9 +325,11 @@ namespace ast::lower {
         });
       fnImpl.params.push_back(retIdx);
       block.body.back()->type.emplace_back().base = retIdx;
+
+      fnType.params = {fnArgsTy};
       hir::Type retTy;
       retTy.base = retIdx;
-      fnType.params = {fnArgsTy, retTy};
+      fnImpl.types.push_back(retTy);
 
       auto expr = withSpan<hir::NewExpr>(source);
       expr->adt = typeIdx;

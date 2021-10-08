@@ -19,6 +19,7 @@ namespace type::infer {
     struct ImplTrait {
       Tp ty;
       TraitBound *trait;
+      Idx idx; // for looking up later
     };
     err::Location desc;
     std::variant<Unify, Assign, ImplTrait> v;
