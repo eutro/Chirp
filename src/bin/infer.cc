@@ -70,7 +70,7 @@ int main() {
   type::infer::Env env;
   auto &topSeq = *types.seqs.front();
   type::infer::runInEnv(icx, env, topSeq, icx.insts[&topSeq][{}]);
-  err::maybeAbort(epc, icx.ecx);
+  err::printErrors(epc, icx.ecx);
 
   auto seqI = types.seqs.begin();
   std::cerr << "* Top\n";

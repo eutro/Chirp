@@ -1,8 +1,11 @@
 #include "VM.h"
 
+#include "../TypePrint.h"
+
 #include <deque>
 #include <functional>
 #include <variant>
+#include <sstream>
 
 namespace type::infer {
   Env::Frame::~Frame() {
@@ -45,6 +48,27 @@ namespace type::infer {
     for (auto it = env.backtrace.rbegin(); it != env.backtrace.rend(); ++it) {
       err.chain(*it);
     }
+  }
+
+  template <typename T>
+  bool isComplete(TTcx &ttcx, T ty) {
+    bool isComplete = true;
+    auto checker = overloaded {
+        [&](Tp ty) -> Tp {
+          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+        [&](Tp ty, type::PostWalk) -> Tp {
+          if (std::holds_alternative<Ty::Err>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+    };
+    replaceTy<true>(ttcx, ty, checker);
+    return isComplete;
   }
 
   template <typename T>
@@ -106,11 +130,11 @@ namespace type::infer {
 
   void unify(InferContext &ctx, Env &env, Env::Frame &frame, Tp tyA, Tp tyB) {
     std::set<std::pair<Tp, Tp>> seen;
-    std::function<void(Tp, Tp)> innerUnify = [&](Tp tyA, Tp tyB) {
+    std::function<bool(Tp&, Tp&)> innerUnify = [&](Tp &tyA, Tp &tyB) {
       tyA = uncycle(ctx.ttcx, appRepl(ctx, env, tyA));
       tyB = uncycle(ctx.ttcx, appRepl(ctx, env, tyB));
       if (tyA == tyB || !seen.insert({tyA, tyB}).second) {
-        return; // already seen
+        return true; // already seen
       } else if (std::holds_alternative<Ty::Placeholder>(tyA->v)) {
         setVar(ctx, env, frame, tyA, tyB);
       } else if (std::holds_alternative<Ty::Placeholder>(tyB->v)) {
@@ -119,21 +143,35 @@ namespace type::infer {
         std::holds_alternative<Ty::Err>(tyA->v) ||
         std::holds_alternative<Ty::Err>(tyB->v)
       ) {
-        return; // propagate
+        return true; // propagate
       } else {
         IndexAndArityCmp cmp;
         if (cmp(tyA, tyB) || cmp(tyB, tyA)) {
-          addBacktrace(env, ctx.ecx.err()
-            .msg("mismatched types"));
+          return false;
         }
         auto chA = childrenOf({tyA});
         auto chB = childrenOf({tyB}, chA.size());
         for (Idx i = 0; i < chA.size(); ++i) {
-          innerUnify(chA[i], chB[i]);
+          if (!innerUnify(chA[i], chB[i])) return false;
         }
       }
+      return true;
     };
-    innerUnify(tyA, tyB);
+    if (!innerUnify(tyA, tyB)) {
+      err::Location &err = ctx.ecx.err()
+          .msg("mismatched types");
+      {
+        std::stringstream ss;
+        ss << tyA;
+        err.msg(ss.str()).msg("and");
+      }
+      {
+        std::stringstream ss;
+        ss << tyB;
+        err.msg(ss.str());
+      }
+      addBacktrace(env, err);
+    }
   }
 
   void runInEnvWithFrame(
@@ -237,23 +275,22 @@ namespace type::infer {
         std::copy(trait->s.begin(), trait->s.end(), std::back_inserter(args));
         for (Tp &arg : args) {
           arg = appRepl(ctx, env, arg);
-          if (std::holds_alternative<Ty::Err>(arg->v)) {
-            break; // already errored, but implicitly poisoned
-          }
         }
-        if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i].find(ctx.ttcx, args)) {
-          auto &memos = ctx.insts[&impl->steps];
-          auto iter = memos.lower_bound(args);
-          if (iter == memos.end() || iter->first != args) {
-            iter = memos.insert(iter, std::make_pair(args, Instantiation{}));
-            env.traits.emplace(std::make_pair(recTy, trait), &iter->second);
-            (*impl)(ctx, env, args, iter->second);
+        if (isComplete(ctx.ttcx, args) /* otherwise propagate error */) {
+          if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i].find(ctx.ttcx, args)) {
+            auto &memos = ctx.insts[&impl->steps];
+            auto iter = memos.lower_bound(args);
+            if (iter == memos.end() || iter->first != args) {
+              iter = memos.insert(iter, std::make_pair(args, Instantiation{}));
+              env.traits.emplace(std::make_pair(recTy, trait), &iter->second);
+              (*impl)(ctx, env, args, iter->second);
+            }
+            inst.traitImpls.emplace(s.idx, std::make_pair(&impl->steps, &iter->second));
+          } else {
+            addBacktrace(env, ctx.ecx.err()
+                .msg("trait not implemented"));
+            // implicitly poisoned
           }
-          inst.traitImpls.emplace(s.idx, std::make_pair(&impl->steps, &iter->second));
-        } else {
-          addBacktrace(env, ctx.ecx.err()
-              .msg("trait not implemented"));
-          // implicitly poisoned
         }
         break;
       }

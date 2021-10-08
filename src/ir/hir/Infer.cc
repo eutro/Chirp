@@ -65,12 +65,12 @@ namespace hir::infer {
             definedTys[param] = ig.add(tcx, counter).ty;
           }
           std::vector<Tp> &tys = ati.inputs;
-          tys.push_back(parseTy(ti.type));
+          tys.push_back(parseTy(ig, ti.type));
           {
-            auto tp = parseTyParams(ti.trait.params);
+            auto tp = parseTyParams(ig, ti.trait.params);
             std::copy(tp.begin(), tp.end(), std::back_inserter(tys));
           }
-          ati.outputs = parseTyParams(ti.types);
+          ati.outputs = parseTyParams(ig, ti.types);
           for (auto &m : ti.methods) {
             tvIter = tvs.at(graphI).begin();
             visitBlock(m, ig, tvIter);
@@ -132,15 +132,17 @@ namespace hir::infer {
     Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
     Tp boolType() { return tcx.intern(Ty::Bool{}); }
 
-    Tp getDefinedType(DefIdx id) {
+    // TODO proper parsing -_-
+
+    Tp getDefinedType(InferenceGraph &ig, DefIdx id) {
       auto found = definedTys.find(id);
       if (found != definedTys.end()) {
         return found->second;
       }
-      return definedTys[id] = tcx.intern(Ty::Placeholder{counter++});
+      return definedTys[id] = ig.add(tcx, counter).ty;
     }
 
-    std::optional<Tp> maybeParseTy(Type &ty) {
+    std::optional<Tp> maybeParseTy(InferenceGraph &ig, Type &ty) {
       DefIdx idx = *ty.base;
 
       // builtins
@@ -154,27 +156,27 @@ namespace hir::infer {
       case F16: case F32: case F64:
         return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
       case TUPLE:
-        return tcx.intern(Ty::Tuple{parseTyParams(ty.params)});
+        return tcx.intern(Ty::Tuple{parseTyParams(ig, ty.params)});
       case STRING:
         return tcx.intern(Ty::String{false});
       case NULSTRING:
         return tcx.intern(Ty::String{true});
       case FFIFN: {
-        auto tys = parseTyParams(ty.params);
+        auto tys = parseTyParams(ig, ty.params);
         return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
       }
       }
 
       auto &def = program->bindings.at(idx);
       if (std::holds_alternative<DefType::Type>(def.defType.v)) {
-        return getDefinedType(idx);
+        return getDefinedType(ig, idx);
       } if (std::holds_alternative<DefType::ADT>(def.defType.v)) {
         auto &adt = std::get<DefType::ADT>(def.defType.v);
         type::Variants variants;
         for (Idx i = 0; i < adt.variants.size(); ++i) {
           variants.insert(i);
         }
-        return tcx.intern(Ty::ADT{idx, variants, parseTyParams(ty.params)});
+        return tcx.intern(Ty::ADT{idx, variants, parseTyParams(ig, ty.params)});
       }
 
       return std::nullopt;
@@ -185,7 +187,7 @@ namespace hir::infer {
         return; // explicit placeholder hint
       }
 
-      auto type = maybeParseTy(hint);
+      auto type = maybeParseTy(ig, hint);
       if (type) {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = target.ty;
@@ -200,7 +202,7 @@ namespace hir::infer {
           std::holds_alternative<DefType::Trait>(found->second.defType.v)) {
         auto &cnstr = ig.add<Constraint::Trait>();
         cnstr.ty = target.ty;
-        cnstr.tb = parseTb(hint);
+        cnstr.tb = parseTb(ig, hint);
         cnstr.desc.maybeSpan(hint.source, "from trait hint");
         target.connectTo(cnstr);
       } else {
@@ -208,9 +210,9 @@ namespace hir::infer {
       }
     }
 
-    Tp parseTy(Type &ty) {
+    Tp parseTy(InferenceGraph &ig, Type &ty) {
       if (ty.base) {
-        auto type = maybeParseTy(ty);
+        auto type = maybeParseTy(ig, ty);
         if (type) {
           return *type;
         }
@@ -219,17 +221,17 @@ namespace hir::infer {
       return tcx.intern(Ty::Placeholder{counter++});
     }
 
-    std::vector<Tp> parseTyParams(std::vector<Type> params) {
+    std::vector<Tp> parseTyParams(InferenceGraph &ig, std::vector<Type> params) {
       std::vector<Tp> ret;
       ret.reserve(params.size());
       for (Type &ty : params) {
-        ret.push_back(parseTy(ty));
+        ret.push_back(parseTy(ig, ty));
       }
       return ret;
     }
 
-    TraitBound *parseTb(Type &ty) {
-      return tbcx.intern(TraitBound{ty.base.value(), parseTyParams(ty.params)});
+    TraitBound *parseTb(InferenceGraph &ig, Type &ty) {
+      return tbcx.intern(TraitBound{ty.base.value(), parseTyParams(ig, ty.params)});
     }
 
     RET_T visitBlock ARGS(Block) {
@@ -522,8 +524,6 @@ namespace hir::infer {
       TVar &retNode = **tvi++;
       TVar &objTy = *visitExpr(*e.value PASS_ARGS);
       auto &cnstr = ig.add<Constraint::Assigned>();
-      objTy.connectTo(cnstr);
-      cnstr.connectTo(retNode);
       std::vector<Tp> argTys;
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
       Idx size = 0;
@@ -538,24 +538,29 @@ namespace hir::infer {
       for (Idx i = 0; i < size; ++i) {
         Tp ty;
         if (i == *fieldTyIdx) {
+          cnstr.connectTo(retNode);
           ty = retNode.ty;
         } else {
-          ty = tcx.intern(Ty::Placeholder{counter++});
+          TVar &argNode = ig.add(tcx, counter);
+          cnstr.connectTo(argNode);
+          ty = argNode.ty;
         }
         argTys.push_back(ty);
       }
-      Tp gottenTy = tcx.intern(Ty::Placeholder{counter++});
+      TVar &gottenNode = ig.add(tcx, counter);
       {
         cnstr.fromTy = objTy.ty;
-        cnstr.toTy = gottenTy;
+        cnstr.toTy = gottenNode.ty;
+        objTy.connectTo(gottenNode);
+        gottenNode.connectTo(cnstr);
         cnstr.desc.maybeSpan(e.span, "field taken here");
       }
       {
         auto &cCnstr = ig.add<Constraint::Concrete>();
         cCnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
-        cCnstr.tyB = gottenTy;
+        cCnstr.tyB = gottenNode.ty;
         cCnstr.desc.maybeSpan(e.span, "field is taken");
-        cCnstr.connectTo(cnstr);
+        cCnstr.connectTo(gottenNode);
       }
       return &retNode;
     }
