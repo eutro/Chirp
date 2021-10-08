@@ -30,6 +30,9 @@ namespace type {
     }
   }
 
+  Ty *uncycle(TTcx &ttcx, Ty *ty) {
+    return uncycle(ttcx.tcx, ttcx.tbcx, ty);
+  }
   Ty *uncycle(Tcx &tcx, Tbcx &tbcx, Ty *ty) {
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Idx depth = 0;

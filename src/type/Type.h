@@ -20,6 +20,12 @@ namespace type {
   class TraitBound;
   using Tcx = arena::InternArena<Ty>;
   using Tbcx = arena::InternArena<TraitBound>;
+
+  struct TTcx {
+    Tcx tcx;
+    Tbcx tbcx;
+  };
+
   using Tp = Ty *;
 
   enum class IntSize {
@@ -176,9 +182,15 @@ ITER_HASH(std::set<Idx>)
 
 namespace type {
   Ty *uncycle(Tcx &, Tbcx &, Ty *);
+  Ty *uncycle(TTcx &, Ty *);
 
   struct PreWalk {};
   struct PostWalk {};
+
+  template <bool IGNORED = false, typename T, typename TR>
+  T replaceTy(TTcx &ttcx, T x, TR &tr) {
+    return replaceTy(ttcx.tcx, ttcx.tbcx, x, tr);
+  }
 
   template <bool IGNORED = false, typename TR>
   TraitBound *replaceTy(Tcx &tcx, Tbcx &tbcx, TraitBound *tb, TR &tr) {

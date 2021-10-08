@@ -37,33 +37,11 @@ int main() {
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
-  auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
+  type::TTcx ttcx;
+  auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
 
-  for (auto graph : types.graphs) {
-    InferenceSeq seq = graph;
-    std::cerr << "* Graph #" << (graph.index + 1) << "\n";
-    std::cerr << "** Free Variables\n";
-    for (const auto &free : seq.freeVars) {
-      std::cerr << "*** Free #" << free.first.graph << ":" << free.first.index << "\n";
-      std::cerr << "Type: " << free.second.ty << "\n";
-      epc << free.second.desc;
-    }
-    std::cerr << "** Bound Variables\n";
-    for (const auto &bound : seq.vars) {
-      std::cerr << "*** Bound #" << graph.index << ":" << bound.first << "\n";
-      std::cerr << "Type: " << bound.second.ty << "\n";
-      epc << bound.second.desc;
-    }
-    std::cerr << "** Steps\n";
-    Idx idx = 1;
-    for (const auto &step : seq.steps) {
-      printStep(epc, step, idx++);
-    }
-  }
-
-  InferenceSeq seq = types.graphs.front();
-  std::map<NodeRef, type::Tp> inputs;
-  std::map<Idx, type::Tp> outputs;
-  std::map<Idx, UnifyMap<InferenceSeq*>> traits;
-  seq.run(types.tcx, types.tbcx, inputs, outputs, traits);
+  type::infer::InferContext icx(ttcx);
+  icx.traits = std::move(types.traits);
+  type::infer::Env env;
+  type::infer::runInEnv(icx, env, types.top);
 }

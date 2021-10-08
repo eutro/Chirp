@@ -28,13 +28,16 @@ namespace type::infer {
       T // value if mask is all false
     > map;
 
-    friend const T *findLoop(const UnifyMap *node, const std::vector<Tp> *tys) {
-      std::vector<Tp> heapTys;
+    friend const T *findLoop(
+      TTcx &ttcx,
+      const UnifyMap *node,
+      std::vector<Tp> tys
+    ) {
       while (true) {
         if (node->map.index() == 0 && std::get<0>(node->map).empty()) {
           return nullptr;
         }
-        if (tys->size() != node->mask.size()) {
+        if (tys.size() != node->mask.size()) {
           throw std::runtime_error("Bad arity in find");
         }
         if (node->maskedArity == 0) {
@@ -43,10 +46,10 @@ namespace type::infer {
         std::vector<Tp> masked;
         masked.reserve(node->maskedArity);
         {
-          auto ti = tys->begin();
+          auto ti = tys.begin();
           auto mi = node->mask.begin();
-          for (; ti != tys->end(); ++ti, ++mi) {
-            if (*mi) masked.push_back(*ti);
+          for (; ti != tys.end(); ++ti, ++mi) {
+            if (*mi) masked.push_back(uncycle(ttcx, *ti));
           }
         }
         auto &m = std::get<0>(node->map);
@@ -55,29 +58,32 @@ namespace type::infer {
           return nullptr;
         }
         node = &found->second;
-        heapTys = childrenOf(masked, found->second.mask.size());
-        tys = &heapTys;
+        tys = childrenOf(masked, found->second.mask.size());
       }
     }
 
-    const T *find(const std::vector<Tp> &tys) const {
-      return findLoop(this, &tys);
+    const T *find(
+      TTcx &ttcx,
+      const std::vector<Tp> &tys
+    ) const {
+      return findLoop(ttcx, this, tys);
     }
 
     friend UnifyMap *getOrCreateNode(
+      TTcx &ttcx,
       UnifyMap *node,
-      const std::vector<Tp> *tys,
+      std::vector<Tp> tys,
       bool &newNode
     ) {
-      std::vector<Tp> heapTys;
       while (true) {
-        if (tys->size() != node->mask.size()) {
+        if (tys.size() != node->mask.size()) {
           throw std::runtime_error("Bad arity in insert");
         }
-        std::vector<bool> mask(tys->size(), true);
+        std::vector<bool> mask(tys.size(), true);
         size_t maskArity = 0;
-        for (Idx i = 0; i < tys->size(); ++i) {
-          Tp ty = (*tys)[i];
+        for (Idx i = 0; i < tys.size(); ++i) {
+          Tp &ty = tys[i];
+          ty = uncycle(ttcx, ty);
           if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
             mask[i] = false;
             ++maskArity;
@@ -96,7 +102,7 @@ namespace type::infer {
         } else {
           std::vector<Tp> masked;
           masked.reserve(maskArity);
-          for (Tp ty : *tys) {
+          for (Tp ty : tys) {
             if (!std::holds_alternative<Ty::Placeholder>(ty->v)) {
               masked.push_back(ty);
             }
@@ -109,28 +115,21 @@ namespace type::infer {
           } else {
             node = &found->second;
           }
-          heapTys = childrenOf(masked, 0);
-          tys = &heapTys;
+          tys = childrenOf(masked, 0);
         }
       }
     }
 
     template<typename... Args>
-    bool insert(const std::vector<Tp> &tys, Args &&...args) {
+    bool insert(
+      TTcx &ttcx,
+      const std::vector<Tp> &tys,
+      Args &&...args
+    ) {
       bool newNode = map.index() == 0 && std::get<0>(map).empty();
-      UnifyMap *node = getOrCreateNode(this, &tys, newNode);
+      UnifyMap *node = getOrCreateNode(ttcx, this, tys, newNode);
       node->map.template emplace<1>(std::forward<Args>(args)...);
       return newNode;
-    }
-
-    T &operator[](const std::vector<Tp> &tys) {
-      bool newNode;
-      UnifyMap *node = getOrCreateNode(this, &tys, newNode);
-      if (newNode) {
-        return node->map.template emplace<1>();
-      } else {
-        return std::get<1>(node->map);
-      }
     }
   };
 }

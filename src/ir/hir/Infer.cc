@@ -3,27 +3,31 @@
 #include "Builtins.h"
 #include "../../type/TypePrint.h"
 #include "../../type/infer/InferenceGraph.h"
+#include "RecurVisitor.h"
 
 #include <sstream>
 #include <cstddef>
 #include <deque>
+#include <variant>
 
 namespace hir::infer {
   using namespace type::infer;
 
 #define RET_T TVar *
-#define ARGS(TYPE) (TYPE &e, InferenceGraph &ig, Idx &counter)
-#define PASS_ARGS , ig, counter
+#define ARGS(TYPE) (TYPE &e, InferenceGraph &ig, Idx &counter, std::vector<TVar *>::iterator &tvi)
+#define PASS_ARGS , ig, counter, tvi
 
   class InferenceVisitor :
-    public ExprVisitor<TVar*, InferenceGraph&, Idx&>,
+    public ExprVisitor<TVar*, InferenceGraph&, Idx&, std::vector<TVar *>::iterator&>,
     public ProgramVisitor<InferResult> {
   public:
-    type::Tcx tcx;
-    type::Tbcx tbcx;
+    type::Tcx &tcx;
+    type::Tbcx &tbcx;
 
-    InferenceVisitor() {
-    }
+    InferenceVisitor(type::TTcx &ttcx):
+      tcx(ttcx.tcx),
+      tbcx(ttcx.tbcx)
+    {}
 
     Program *program = nullptr;
     std::map<DefIdx, TVar*> varNodes;
@@ -33,29 +37,43 @@ namespace hir::infer {
       InferResult res;
       Idx counter = 0;
 
-      initBlock(p.topLevel, res, counter);
+      std::vector<InferenceGraph> graphs;
+      std::vector<std::vector<TVar *>> tvs;
+
+      initBlock(p.topLevel, graphs, counter, tvs.emplace_back());
       for (auto &ti : p.traitImpls) {
         for (auto &m : ti.methods) {
-          initBlock(m, res, counter);
+          initBlock(m, graphs, counter, tvs.emplace_back());
         }
       }
 
       Idx graphI = 0;
-      visitBlock(p.topLevel, res.graphs.at(graphI++), counter);
-      for (auto &ti : p.traitImpls) {
-        for (auto &m : ti.methods) {
-          visitBlock(m, res.graphs.at(graphI++), counter);
+      std::vector<TVar*>::iterator tvIter;
+      {
+        tvIter = tvs.at(graphI).begin();
+        visitBlock(p.topLevel, graphs.at(graphI), counter, tvIter);
+        graphI++;
+        for (auto &ti : p.traitImpls) {
+          for (auto &m : ti.methods) {
+            tvIter = tvs.at(graphI).begin();
+            visitBlock(m, graphs.at(graphI), counter, tvIter);
+            graphI++;
+          }
         }
       }
-
-      res.tcx = std::move(tcx);
-      res.tbcx = std::move(tbcx);
+      res.top = graphs.front();
       return res;
     }
 
-    void initBlock(Block &block, InferResult &res, Idx &counter) {
-      Idx index = res.graphs.size();
-      InferenceGraph &graph = res.graphs.emplace_back();
+    void initBlock(
+      Block &block,
+      std::vector<InferenceGraph> &graphs,
+      Idx &counter,
+      std::vector<TVar *> &tvs
+    ) {
+      Idx index = graphs.size();
+      InferenceGraph &graph = graphs.emplace_back();
+      TVarVisitor(graph, tcx, counter, tvs).visitBlock(block);
       graph.index = index;
       std::set<Idx> defs;
       DefinitionVisitor().visitBlock(block, defs);
@@ -64,79 +82,33 @@ namespace hir::infer {
       }
     }
 
-    class DefinitionVisitor : public ExprVisitor<std::monostate, std::set<Idx>&> {
-#define DEFINITION_VISIT(TY) std::monostate visit##TY([[maybe_unused]] TY &it, std::set<Idx> &vars) override
+    class TVarVisitor : public RecurVisitor<std::monostate> {
     public:
-      void visitBlock(Block &it, std::set<Idx> &vars) {
+      InferenceGraph &ig;
+      type::Tcx &tcx;
+      Idx &counter;
+      std::vector<TVar *> &tvs;
+      TVarVisitor(
+        decltype(ig) ig,
+        decltype(tcx) tcx,
+        decltype(counter) counter,
+        decltype(tvs) tvs
+      ): ig(ig), tcx(tcx), counter(counter), tvs(tvs) {}
+
+      std::monostate visitExpr(Expr &it) override {
+        tvs.push_back(&ig.add(tcx, counter));
+        RecurVisitor::visitExpr(it);
+        return {};
+      }
+    };
+
+    class DefinitionVisitor : public RecurVisitor<std::monostate, std::set<Idx>> {
+    public:
+      void visitBlock(Block &it, std::set<Idx> &vars) override {
         for (auto b : it.bindings) {
           vars.insert(b);
         }
-        for (auto &e : it.body) {
-          visitExpr(*e, vars);
-        }
-      }
-      DEFINITION_VISIT(BlockExpr) {
-        visitBlock(it.block, vars);
-        return {};
-      }
-      DEFINITION_VISIT(VarExpr) {
-        return {};
-      }
-      DEFINITION_VISIT(CondExpr) {
-        visitExpr(*it.predE, vars);
-        visitExpr(*it.thenE, vars);
-        visitExpr(*it.elseE, vars);
-        return {};
-      }
-      DEFINITION_VISIT(VoidExpr) {
-        return {}; // noop
-      }
-      DEFINITION_VISIT(LiteralExpr) {
-        return {}; // noop
-      }
-      DEFINITION_VISIT(BoolExpr) {
-        return {}; // noop
-      }
-      DEFINITION_VISIT(BinExpr) {
-        visitExpr(*it.lhs, vars);
-        visitExpr(*it.rhs, vars);
-        return {};
-      }
-      DEFINITION_VISIT(CmpExpr) {
-        visitExpr(*it.lhs, vars);
-        visitExpr(*it.rhs, vars);
-        return {};
-      }
-      DEFINITION_VISIT(NegExpr) {
-        visitExpr(*it.value, vars);
-        return {};
-      }
-      DEFINITION_VISIT(CallExpr) {
-        visitExpr(*it.func, vars);
-        for (auto &a : it.args) {
-          visitExpr(*a, vars);
-        }
-        return {};
-      }
-      DEFINITION_VISIT(DefineExpr) {
-        visitExpr(*it.value, vars);
-        return {};
-      }
-      DEFINITION_VISIT(NewExpr) {
-        for (auto &v : it.values) {
-          visitExpr(*v, vars);
-        }
-        return {};
-      }
-      DEFINITION_VISIT(GetExpr) {
-        visitExpr(*it.value, vars);
-        return {};
-      }
-      DEFINITION_VISIT(ForeignExpr) {
-        return {}; // noop
-      }
-      DEFINITION_VISIT(DummyExpr) {
-        return {}; // noop
+        RecurVisitor::visitBlock(it, vars);
       }
     };
 
@@ -160,10 +132,20 @@ namespace hir::infer {
       return &n;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
-      return visitBlock(e.block PASS_ARGS);
+      TVar &retNode = **tvi++;
+      TVar &ty = *visitBlock(e.block PASS_ARGS);
+      {
+        auto &cnstr = ig.add<Constraint::Concrete>();
+        cnstr.tyA = ty.ty;
+        cnstr.tyB = retNode.ty;
+        ty.connectTo(cnstr);
+        cnstr.connectTo(retNode);
+        cnstr.desc.maybeSpan(e.span, "last expression of block");
+      }
+      return &retNode;
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
-      TVar &retNode = ig.add(tcx, counter);
+      TVar &retNode = **tvi++;
       TVar &varNode = *varNodes.at(e.ref);
       {
         auto &cnstr = ig.add<Constraint::Assigned>();
@@ -176,10 +158,10 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitCondExpr ARGS(CondExpr) override {
+      TVar &retNode = **tvi++;
       TVar &predENode = *visitExpr(*e.predE PASS_ARGS);
       TVar &thenNode = *visitExpr(*e.thenE PASS_ARGS);
       TVar &elseNode = *visitExpr(*e.elseE PASS_ARGS);
-      TVar &retNode = ig.add(tcx, counter);
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = boolType();
@@ -201,7 +183,7 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitVoidExpr ARGS(VoidExpr) override {
-      TVar &retNode = ig.add(tcx, counter);
+      TVar &retNode = **tvi++;
       auto &cnstr = ig.add<Constraint::Concrete>();
       cnstr.tyA = unitType();
       cnstr.tyB = retNode.ty;
@@ -210,6 +192,7 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
+      TVar &retNode = **tvi++;
       auto &hints = dynamic_cast<Expr&>(e).type;
       auto ty = ([&]() {
         switch (e.type) {
@@ -246,7 +229,6 @@ namespace hir::infer {
         default: throw 0;
         }
       })();
-      TVar &retNode = ig.add(tcx, counter);
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = ty;
@@ -257,7 +239,7 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitBoolExpr ARGS(BoolExpr) override {
-      TVar &retNode = ig.add(tcx, counter);
+      TVar &retNode = **tvi++;
       auto &cnstr = ig.add<Constraint::Concrete>();
       cnstr.tyA = boolType();
       cnstr.tyB = retNode.ty;
@@ -266,9 +248,9 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitBinExpr ARGS(BinExpr) override {
+      TVar &retNode = **tvi++;
       TVar &lhsNode = *visitExpr(*e.lhs PASS_ARGS);
       TVar &rhsNode = *visitExpr(*e.rhs PASS_ARGS);
-      TVar &retNode = ig.add(tcx, counter);
       Idx trait;
       switch (e.op) {
       case BinExpr::BitOr: trait = BitOr; break;
@@ -300,9 +282,9 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
+      TVar &retNode = **tvi++;
       TVar &lhsNode = *visitExpr(*e.lhs PASS_ARGS);
       TVar &rhsNode = *visitExpr(*e.rhs PASS_ARGS);
-      TVar &retNode = ig.add(tcx, counter);
       Idx trait = e.op <= CmpExpr::Eq ? Eq : Cmp;
       TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsNode.ty}});
       {
@@ -323,8 +305,8 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
+      TVar &retNode = **tvi++;
       TVar &exprNode = *visitExpr(*e.value PASS_ARGS);
-      TVar &retNode = ig.add(tcx, counter);
       TraitBound *traitBound = tbcx.intern(TraitBound{Neg});
       auto &tCnstr = ig.add<Constraint::Trait>();
       {
@@ -344,8 +326,8 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
+      TVar &retNode = **tvi++;
       TVar &funcNode = *visitExpr(*e.func PASS_ARGS);
-      TVar &retNode = ig.add(tcx, counter);
       auto &tCnstr = ig.add<Constraint::Trait>();
       std::vector<Tp> argTys;
       argTys.reserve(e.args.size());
@@ -355,7 +337,7 @@ namespace hir::infer {
         argNode.connectTo(tCnstr);
       }
       Tp argsTy = tcx.intern(Ty::Tuple{argTys});
-      TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy, retNode.ty}});
+      TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy}});
       {
         tCnstr.ty = funcNode.ty;
         tCnstr.tb = traitBound;
@@ -363,9 +345,18 @@ namespace hir::infer {
         funcNode.connectTo(tCnstr);
         tCnstr.connectTo(retNode);
       }
+      {
+        auto &cnstr = ig.add<Constraint::Concrete>();
+        cnstr.tyA = tcx.intern(Ty::TraitRef{funcNode.ty, traitBound, 0});
+        cnstr.tyB = retNode.ty;
+        cnstr.desc.maybeSpan(e.span, "result of function call");
+        tCnstr.connectTo(cnstr);
+        cnstr.connectTo(retNode);
+      }
       return &retNode;
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {
+      TVar &retNode = **tvi++;
       TVar &exprNode = *visitExpr(*e.value PASS_ARGS);
       TVar &varNode = *varNodes.at(e.idx);
       {
@@ -376,10 +367,17 @@ namespace hir::infer {
         exprNode.connectTo(cnstr);
         cnstr.connectTo(varNode);
       }
-      return &varNode;
+      {
+        auto &cnstr = ig.add<Constraint::Concrete>();
+        cnstr.desc.maybeSpan(e.span, "is definition");
+        cnstr.tyA = unitType();
+        cnstr.tyB = retNode.ty;
+        cnstr.connectTo(retNode);
+      }
+      return &retNode;
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
-      TVar &retNode = ig.add(tcx, counter);
+      TVar &retNode = **tvi++;
       std::vector<Tp> argTys;
       argTys.reserve(e.values.size());
       auto &cnstr = ig.add<Constraint::Concrete>();
@@ -397,9 +395,11 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
+      TVar &retNode = **tvi++;
       TVar &objTy = *visitExpr(*e.value PASS_ARGS);
       auto &cnstr = ig.add<Constraint::Assigned>();
       objTy.connectTo(cnstr);
+      cnstr.connectTo(retNode);
       std::vector<Tp> argTys;
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
       Idx size = 0;
@@ -411,35 +411,35 @@ namespace hir::infer {
         size += adt.variants[v].values.size();
       }
       argTys.reserve(size);
-      TVar *retNode = nullptr;
       for (Idx i = 0; i < size; ++i) {
-        auto &argNode = ig.add(tcx, counter);
-        argTys.push_back(argNode.ty);
-        cnstr.connectTo(argNode);
+        Tp ty;
         if (i == *fieldTyIdx) {
-          retNode = &argNode;
+          ty = retNode.ty;
+        } else {
+          ty = tcx.intern(Ty::Placeholder{counter++});
         }
+        argTys.push_back(ty);
       }
-      TVar &gottenTy = ig.add(tcx, counter);
+      Tp gottenTy = tcx.intern(Ty::Placeholder{counter++});
       {
         cnstr.fromTy = objTy.ty;
-        cnstr.toTy = gottenTy.ty;
+        cnstr.toTy = gottenTy;
         cnstr.desc.maybeSpan(e.span, "field taken here");
       }
       {
         auto &cCnstr = ig.add<Constraint::Concrete>();
         cCnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
-        cCnstr.tyB = gottenTy.ty;
+        cCnstr.tyB = gottenTy;
         cCnstr.desc.maybeSpan(e.span, "field is taken");
         cCnstr.connectTo(cnstr);
       }
-      return &*retNode;
+      return &retNode;
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
-      return &ig.add(tcx, counter);
+      return &**tvi++; // should be never type
     }
     RET_T visitDummyExpr ARGS(DummyExpr) override {
-      TVar &n = ig.add(tcx, counter); // propagate error
+      TVar &n = **tvi++; // propagate error
       auto &cnstr = ig.add<Constraint::Concrete>();
       cnstr.tyA = tcx.intern(Ty::Err{});
       cnstr.tyB = n.ty;
@@ -448,7 +448,7 @@ namespace hir::infer {
     }
   };
 
-  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor() {
-    return std::make_unique<InferenceVisitor>();
+  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::TTcx &ttcx) {
+    return std::make_unique<InferenceVisitor>(ttcx);
   }
 }

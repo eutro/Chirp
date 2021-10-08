@@ -69,16 +69,15 @@ namespace type::infer {
   }
 
   void appendNode(InferenceSeq &seq, Idx graphIdx, const Node &node) {
-    *std::visit(overloaded{
-        [&](const TVar *tv) {
-          VarInfo *vi;
+    auto ptr = std::visit(overloaded{
+        [&](const TVar *tv) -> err::Location * {
           if (tv->ref.graph == graphIdx) {
-            vi = &seq.vars[tv->ref.index];
+            auto vi = &seq.vars[tv->ref.index];
+            vi->ty = tv->ty;
+            return &vi->desc;
           } else {
-            vi = &seq.freeVars[tv->ref];
+            return nullptr;
           }
-          vi->ty = tv->ty;
-          return &vi->desc;
         },
         [&](const Constraint::Concrete *c) {
           return &seq.steps.emplace_back(Step::Unify{c->tyA, c->tyB}).desc;
@@ -89,7 +88,8 @@ namespace type::infer {
         [&](const Constraint::Assigned *c) {
           return &seq.steps.emplace_back(Step::Assign{c->toTy, c->fromTy}).desc;
         },
-    }, node.asVariant()) = node.desc;
+    }, node.asVariant());
+    if (ptr) *ptr = node.desc;
   }
 
   InferenceSeq::InferenceSeq(const InferenceGraph &graph) {
@@ -112,115 +112,6 @@ namespace type::infer {
       for (Idx index : *it) {
         const Node &node = *graph.nodes.ptrs.at(index);
         appendNode(*this, graph.index, node);
-      }
-    }
-  }
-
-  void InferenceSeq::run(
-    Tcx &tcx, Tbcx &tbcx,
-    std::map<NodeRef, Tp> &inputs,
-    std::map<Idx, Tp> &outputs,
-    std::map<Idx, UnifyMap<InferenceSeq*>> &traits
-  ) {
-    std::map<Tp, Tp> vars;
-    for (auto &e : inputs) {
-      vars[freeVars.at(e.first).ty] = e.second;
-    }
-
-    auto appRepl = [&](auto ty) -> auto {
-      std::function<Tp(Tp)> replacer = [&](Tp ty) {
-        if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-          auto found = vars.find(ty);
-          if (found != vars.end()) {
-            return found->second = replaceTy(tcx, tbcx, found->second, replacer);
-          }
-        }
-        return ty;
-      };
-      return replaceTy(tcx, tbcx, ty, replacer);
-    };
-
-    auto setVar = [&](Tp var, Tp value) {
-      bool isFree = false;
-      Idx depth = 0;
-      auto checkFree = overloaded {
-        [&](Tp ty) {
-          if (ty == var) {
-            isFree = true;
-            return tcx.intern(Ty::CyclicRef{depth});
-          }
-          return ty;
-        },
-        [&](Tp ty, PreWalk) {
-          if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-            ++depth;
-          }
-          return ty;
-        },
-        [&](Tp ty, PostWalk) {
-          if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-            --depth;
-          }
-          return ty;
-        },
-      };
-      Tp setTy = replaceTy(tcx, tbcx, value, checkFree);
-      if (isFree) {
-        setTy = tcx.intern(Ty::Cyclic{setTy});
-      }
-      vars[var] = setTy;
-    };
-
-    auto unify = [&](Tp tyA, Tp tyB) {
-      std::set<std::pair<Tp, Tp>> seen;
-      std::function<void(Tp, Tp)> innerUnify = [&](Tp tyA, Tp tyB) {
-        tyA = appRepl(tyA);
-        tyB = appRepl(tyB);
-        if (!seen.insert({tyA, tyB}).second) {
-          return; // already seen
-        } else if (std::holds_alternative<Ty::Placeholder>(tyA->v)) {
-          setVar(tyA, tyB);
-        } else if (std::holds_alternative<Ty::Placeholder>(tyB->v)) {
-          setVar(tyB, tyA);
-        } else if (
-          std::holds_alternative<Ty::Err>(tyA->v) ||
-          std::holds_alternative<Ty::Err>(tyB->v)
-        ) {
-          return; // propagate
-        } else {
-          IndexAndArityCmp cmp;
-          if (cmp(tyA, tyB) || cmp(tyB, tyA)) {
-            throw std::runtime_error("Diferring base types/arities");
-          }
-          auto chA = childrenOf({tyA});
-          auto chB = childrenOf({tyB}, chA.size());
-          for (Idx i = 0; i < chA.size(); ++i) {
-            innerUnify(chA[i], chB[i]);
-          }
-        }
-      };
-      innerUnify(tyA, tyB);
-    };
-
-    for (auto &step : steps) {
-      switch (step.v.index()) {
-      case util::index_of_type_v<Step::Unify, decltype(step.v)>: {
-        auto &s = std::get<Step::Unify>(step.v);
-        unify(s.tyA, s.tyB);
-        break;
-      }
-      case util::index_of_type_v<Step::Assign, decltype(step.v)>: {
-        auto &s = std::get<Step::Assign>(step.v);
-        unify(s.toTy, s.fromTy); // :)
-        break;
-      }
-      case util::index_of_type_v<Step::ImplTrait, decltype(step.v)>:
-        auto &s = std::get<Step::ImplTrait>(step.v);
-        auto impl = traits[s.trait->i].find({s.ty});
-        if (!impl) {
-          throw std::runtime_error("Trait not implemented");
-        }
-        break;
       }
     }
   }
