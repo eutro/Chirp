@@ -174,6 +174,18 @@ namespace type::infer {
     }
   }
 
+  Tp assigned(InferContext &ctx, Env &env, Env::Frame &frame, Tp toTy, Tp fromTy) {
+    toTy = appRepl(ctx, env, toTy);
+    fromTy = appRepl(ctx, env, fromTy);
+    if (std::holds_alternative<Ty::Never>(toTy->v)) {
+      return fromTy;
+    } else if (std::holds_alternative<Ty::Never>(fromTy->v)) {
+      return toTy;
+    }
+    unify(ctx, env, frame, toTy, fromTy);
+    return appRepl(ctx, env, toTy);
+  }
+
   void runInEnvWithFrame(
     InferContext &ctx,
     Env &env,
@@ -216,7 +228,7 @@ namespace type::infer {
     //              ~~~~~~ never
     inst.outputs.resize(
       outputs.size(),
-      ctx.ttcx.tcx.intern(Ty::Err{}) // TODO never type
+      ctx.ttcx.tcx.intern(Ty::Never{})
     );
 
     Env::Frame frame(env);
@@ -262,7 +274,14 @@ namespace type::infer {
       }
       case util::index_of_type_v<Step::Assign, decltype(step.v)>: {
         auto &s = std::get<Step::Assign>(step.v);
-        unify(ctx, env, frame, s.toTy, s.fromTy); // :)
+        auto iter = s.fromTy.begin();
+        if (iter != s.fromTy.end()) {
+          Tp ty = *iter;
+          while (++iter != s.fromTy.end()) {
+            ty = assigned(ctx, env, frame, ty, *iter);
+          }
+          unify(ctx, env, frame, s.toTy, ty);
+        }
         break;
       }
       case util::index_of_type_v<Step::ImplTrait, decltype(step.v)>:

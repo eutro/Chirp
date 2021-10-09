@@ -192,7 +192,11 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = target.ty;
         cnstr.tyB = *type;
-        cnstr.desc.maybeSpan(hint.source, "from type hint");
+        if (hint.source) {
+          cnstr.desc.maybeSpan(hint.source, "type hint");
+        } else {
+          cnstr.desc.msg("implicit type hint");
+        }
         target.connectTo(cnstr);
         return;
       }
@@ -277,8 +281,8 @@ namespace hir::infer {
       {
         auto &cnstr = ig.add<Constraint::Assigned>();
         cnstr.toTy = retNode.ty;
-        cnstr.fromTy = varNode.ty;
-        cnstr.desc.maybeSpan(e.span, "variable is referenced here");
+        cnstr.fromTy.insert(varNode.ty);
+        cnstr.desc.maybeSpan(e.span, "variable reference");
         varNode.connectTo(cnstr);
         cnstr.connectTo(retNode);
       }
@@ -293,19 +297,21 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = boolType();
         cnstr.tyB = predENode.ty;
-        cnstr.desc.maybeSpan(e.predE->span, "predicate of conditional must be boolean");
+        cnstr.desc.maybeSpan(e.predE->span, "predicate of a conditional");
         cnstr.connectTo(predENode);
       }
-      for (auto p : std::vector<std::pair<TVar&, Expr&>>{
-          {thenNode, *e.thenE},
-          {elseNode, *e.elseE},
-        }) {
+      {
         auto &cnstr = ig.add<Constraint::Assigned>();
-        cnstr.fromTy = p.first.ty;
         cnstr.toTy = retNode.ty;
-        cnstr.desc.maybeSpan(p.second.span, "is a conditional branch");
-        p.first.connectTo(cnstr);
         cnstr.connectTo(retNode);
+        for (auto p : std::vector<std::pair<TVar&, Expr&>>{
+            {thenNode, *e.thenE},
+            {elseNode, *e.elseE},
+        }) {
+          cnstr.fromTy.insert(p.first.ty);
+          cnstr.desc.maybeSpan(p.second.span, "conditional branch");
+          p.first.connectTo(cnstr);
+        }
       }
       return &retNode;
     }
@@ -314,7 +320,7 @@ namespace hir::infer {
       auto &cnstr = ig.add<Constraint::Concrete>();
       cnstr.tyA = unitType();
       cnstr.tyB = retNode.ty;
-      cnstr.desc.maybeSpan(e.span, "is void");
+      cnstr.desc.maybeSpan(e.span, "void value");
       cnstr.connectTo(retNode);
       return &retNode;
     }
@@ -360,7 +366,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = ty;
         cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "from this expression");
+        cnstr.desc.maybeSpan(e.span, "literal value");
         cnstr.connectTo(retNode);
       }
       return &retNode;
@@ -370,7 +376,7 @@ namespace hir::infer {
       auto &cnstr = ig.add<Constraint::Concrete>();
       cnstr.tyA = boolType();
       cnstr.tyB = retNode.ty;
-      cnstr.desc.maybeSpan(e.span, "is a boolean");
+      cnstr.desc.maybeSpan(e.span, "literal boolean");
       cnstr.connectTo(retNode);
       return &retNode;
     }
@@ -394,7 +400,7 @@ namespace hir::infer {
       {
         tCnstr.ty = lhsNode.ty;
         tCnstr.tb = traitBound;
-        tCnstr.desc.maybeSpan(e.span, "from expression here");
+        tCnstr.desc.maybeSpan(e.span, "binary expression here");
         lhsNode.connectTo(tCnstr);
         rhsNode.connectTo(tCnstr);
       }
@@ -402,7 +408,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = tcx.intern(Ty::TraitRef{lhsNode.ty, traitBound, 0});
         cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "from expression here");
+        cnstr.desc.maybeSpan(e.span, "binary expression here");
         tCnstr.connectTo(cnstr);
         cnstr.connectTo(retNode);
       }
@@ -418,7 +424,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Trait>();
         cnstr.ty = lhsNode.ty;
         cnstr.tb = traitBound;
-        cnstr.desc.maybeSpan(e.span, "compared here");
+        cnstr.desc.maybeSpan(e.span, "comparison here");
         lhsNode.connectTo(cnstr);
         rhsNode.connectTo(cnstr);
       }
@@ -426,7 +432,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Concrete>();
         cnstr.tyA = boolType();
         cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "result of comparison");
+        cnstr.desc.maybeSpan(e.span, "result of this comparison");
         cnstr.connectTo(retNode);
       }
       return &retNode;
@@ -439,7 +445,7 @@ namespace hir::infer {
       {
         tCnstr.ty = exprNode.ty;
         tCnstr.tb = traitBound;
-        tCnstr.desc.maybeSpan(e.span, "negated here");
+        tCnstr.desc.maybeSpan(e.span, "negation here");
         exprNode.connectTo(tCnstr);
       }
       {
@@ -469,7 +475,7 @@ namespace hir::infer {
       {
         tCnstr.ty = funcNode.ty;
         tCnstr.tb = traitBound;
-        tCnstr.desc.maybeSpan(e.span, "called here");
+        tCnstr.desc.maybeSpan(e.span, "call here");
       }
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
@@ -487,7 +493,7 @@ namespace hir::infer {
       TVar &varNode = *varNodes.at(e.idx);
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.desc.maybeSpan(e.span, "defined here");
+        cnstr.desc.maybeSpan(e.span, "definition here");
         cnstr.tyA = varNode.ty;
         cnstr.tyB = exprNode.ty;
         exprNode.connectTo(cnstr);
@@ -495,7 +501,7 @@ namespace hir::infer {
       }
       {
         auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.desc.maybeSpan(e.span, "is definition");
+        cnstr.desc.maybeSpan(e.span, "being a definition");
         cnstr.tyA = unitType();
         cnstr.tyB = retNode.ty;
         cnstr.connectTo(retNode);
@@ -515,7 +521,7 @@ namespace hir::infer {
       {
         cnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
         cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "constructed here");
+        cnstr.desc.maybeSpan(e.span, "construction here");
         cnstr.connectTo(retNode);
       }
       return &retNode;
@@ -549,7 +555,7 @@ namespace hir::infer {
       }
       TVar &gottenNode = ig.add(tcx, counter);
       {
-        cnstr.fromTy = objTy.ty;
+        cnstr.fromTy.insert(objTy.ty);
         cnstr.toTy = gottenNode.ty;
         objTy.connectTo(gottenNode);
         gottenNode.connectTo(cnstr);
@@ -559,7 +565,7 @@ namespace hir::infer {
         auto &cCnstr = ig.add<Constraint::Concrete>();
         cCnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
         cCnstr.tyB = gottenNode.ty;
-        cCnstr.desc.maybeSpan(e.span, "field is taken");
+        cCnstr.desc.maybeSpan(e.span, "field being taken");
         cCnstr.connectTo(gottenNode);
       }
       return &retNode;

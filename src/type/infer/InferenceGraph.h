@@ -63,7 +63,8 @@ namespace type::infer {
   };
 
   struct Constraint::Assigned : Node, Constraint {
-    Tp toTy, fromTy;
+    Tp toTy;
+    std::set<Tp> fromTy;
     NodeVariant asVariant() const override;
   };
 

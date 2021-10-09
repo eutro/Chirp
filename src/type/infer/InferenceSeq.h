@@ -14,7 +14,8 @@ namespace type::infer {
       Tp tyA, tyB;
     };
     struct Assign {
-      Tp toTy, fromTy;
+      Tp toTy;
+      std::set<Tp> fromTy;
     };
     struct ImplTrait {
       Tp ty;

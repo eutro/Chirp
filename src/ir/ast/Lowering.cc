@@ -662,6 +662,7 @@ namespace ast::lower {
           return tmpIdx;
         };
 
+        loc::SrcLoc lastLoc;
         std::function<Eptr(Idx, hir::DefIdx)> addRhs =
           [&](Idx i, hir::DefIdx lastVar) -> Eptr {
             auto &term = it.terms.at(i);
@@ -692,7 +693,8 @@ namespace ast::lower {
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);
             hir::DefIdx thisVar = addTemp(*predE, *term.expr);
             {
-              auto cmpE = withSpan<hir::CmpExpr>(std::nullopt);
+              auto cmpE = withSpan<hir::CmpExpr>(loc::Span(lastLoc, term.expr->span.hi));
+              lastLoc = term.expr->span.lo;
               {
                 auto lhsE = withSpan<hir::VarExpr>(std::nullopt);
                 lhsE->ref = lastVar;
@@ -717,6 +719,7 @@ namespace ast::lower {
             }
           };
         hir::DefIdx lhsVar = addTemp(*blockE, *it.lhs);
+        lastLoc = it.lhs->span.lo;
         blockE->block.body.push_back(addRhs(0, lhsVar));
         return blockE;
       }

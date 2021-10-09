@@ -21,6 +21,7 @@ namespace type::infer {
     case util::index_of_type_v<Ty::Bool, VTy>:
     case util::index_of_type_v<Ty::String, VTy>:
     case util::index_of_type_v<Ty::FfiFn, VTy>:
+    case util::index_of_type_v<Ty::Never, VTy>:
       // all of these have the same arity and base type
       return false;
     case util::index_of_type_v<Ty::Int, VTy>:
@@ -32,7 +33,6 @@ namespace type::infer {
     case util::index_of_type_v<Ty::Cyclic, VTy>:
     case util::index_of_type_v<Ty::CyclicRef, VTy>:
     case util::index_of_type_v<Ty::Placeholder, VTy>:
-    case util::index_of_type_v<Ty::Dyn, VTy>:
     case util::index_of_type_v<Ty::TraitRef, VTy>:
       // all of these are illegal at this time
       throw 0;
@@ -61,12 +61,12 @@ namespace type::infer {
     case util::index_of_type_v<Ty::Int, VTy>:
     case util::index_of_type_v<Ty::UInt, VTy>:
     case util::index_of_type_v<Ty::Float, VTy>:
+    case util::index_of_type_v<Ty::Never, VTy>:
       // 0 arity
       return;
     case util::index_of_type_v<Ty::Cyclic, VTy>:
     case util::index_of_type_v<Ty::CyclicRef, VTy>:
     case util::index_of_type_v<Ty::Placeholder, VTy>:
-    case util::index_of_type_v<Ty::Dyn, VTy>:
     case util::index_of_type_v<Ty::TraitRef, VTy>:
       // all of these are illegal at this time
       throw 0;
@@ -80,8 +80,8 @@ namespace type::infer {
     case util::index_of_type_v<Ty::ADT, VTy>: {
       // variadic
       auto &v = std::get<Ty::ADT>(ty->v);
-      for (Tp ty : v.s) {
-        c.push_back(ty);
+      for (Tp sTy : v.s) {
+        c.push_back(sTy);
       }
       return;
     }
