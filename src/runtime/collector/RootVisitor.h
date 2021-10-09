@@ -28,6 +28,6 @@ typedef struct StackEntry {
   void *roots[];           // Stack roots (in-place array, so we pretend).
 } StackEntry;
 
-StackEntry *llvm_gc_root_chain;
+extern StackEntry *llvm_gc_root_chain;
 
 void chirpVisitRoots(VisitFn visitor);
