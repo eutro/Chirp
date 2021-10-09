@@ -7,6 +7,8 @@
 #include <variant>
 #include <sstream>
 
+#define CHIRP_VM_DEBUG_STACKTRACES 0
+
 namespace type::infer {
   Env::Frame::~Frame() {
     for (auto &p : vars) {
@@ -41,7 +43,7 @@ namespace type::infer {
         env.mapping.erase(found);
       }
     }
-    vars[var] = value;
+    vars.try_emplace(var, value);
   }
 
   void addBacktrace(Env &env, err::Location &err) {
@@ -104,6 +106,13 @@ namespace type::infer {
     if (isFree) {
       setTy = ctx.ttcx.tcx.intern(Ty::Cyclic{setTy});
     }
+#if (CHIRP_VM_DEBUG_STACKTRACES)
+    {
+      std::stringstream ss;
+      ss << var << " set to " << setTy;
+      addBacktrace(env, ctx.ecx.err().msg(ss.str()));
+    }
+#endif
     frame.assoc(var, setTy);
   }
 
@@ -247,8 +256,15 @@ namespace type::infer {
     const InferenceSeq &seq,
     Instantiation &inst
   ) {
+#if (CHIRP_VM_DEBUG_STACKTRACES)
+    ctx.ecx.err().msg("PUSH{");
+#endif
     for (auto &step : seq.steps) {
+#if (CHIRP_VM_DEBUG_STACKTRACES)
+      static Idx idx = 0;
       env.backtrace.emplace_back().msg("caused by").chain(step.desc);
+      addBacktrace(env, ctx.ecx.err().msg("Stack dump " + std::to_string(++idx)));
+#endif
       switch (step.v.index()) {
       case util::index_of_type_v<Step::Unify, decltype(step.v)>: {
         auto &s = std::get<Step::Unify>(step.v);
@@ -275,9 +291,6 @@ namespace type::infer {
         TraitBound *trait = appRepl(ctx, env, s.trait);
         args.push_back(recTy);
         std::copy(trait->s.begin(), trait->s.end(), std::back_inserter(args));
-        for (Tp &arg : args) {
-          arg = appRepl(ctx, env, arg);
-        }
         if (isComplete(args) /* otherwise propagate error */) {
           if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i]
               .find(ctx.ttcx, {args.front()/*TODO dispatch on args too*/})) {
@@ -308,8 +321,13 @@ namespace type::infer {
         }
         break;
       }
+#if (CHIRP_VM_DEBUG_STACKTRACES)
       env.backtrace.pop_back();
+#endif
     }
+#if (CHIRP_VM_DEBUG_STACKTRACES)
+    ctx.ecx.err().msg("}POP");
+#endif
 
     for (auto &tv : seq.vars) {
       inst.typeVars.emplace_hint(

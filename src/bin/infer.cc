@@ -45,13 +45,62 @@ void printBlock(
   if (found == icx.insts.end()) return;
   Idx instNo = 1;
   for (auto &inst : found->second) {
-    std::cerr << "** Instantiation #" << instNo++ << "\n";
+    std::cerr << "*** Instantiation #" << instNo++ << "\n";
     Idx counter = 0;
     TyPrinter tp;
     tp.visitBlock(block, inst.second, counter);
     for (auto &loc : tp.ecx.errors) {
       epc << loc;
     }
+  }
+}
+
+struct LinkFor {
+  type::Ty *ty;
+  LinkFor(type::Ty *ty) : ty(ty) {}
+  friend std::ostream &operator<<(std::ostream &os, const LinkFor &it) {
+    if (std::holds_alternative<type::Ty::Placeholder>(it.ty->v)) {
+      os << "[[Var " << it.ty << "][" << it.ty << "]]";
+    } else {
+      os << it.ty;
+    }
+    return os;
+  }
+};
+
+void printStep(err::ErrorPrintContext &epc, const Step &step) {
+  std::visit(overloaded{
+      [](const Step::Assign &it) {
+        std::cerr << "Assigned:\n";
+        std::cerr << LinkFor(it.toTy);
+        for (auto ty : it.fromTy) {
+          std::cerr << " <- " << LinkFor(ty) << "\n";
+        }
+      },
+      [](const Step::Unify &it) {
+        std::cerr << "Concrete:\n";
+        std::cerr << LinkFor(it.tyA) << " == " << LinkFor(it.tyB) << "\n";
+      },
+      [](const Step::ImplTrait &it) {
+        std::cerr << "Trait:\n";
+        std::cerr << LinkFor(it.ty) << " => " << it.trait << "\n";
+      },
+  }, step.v);
+  epc << step.desc;
+}
+
+void printSeq(err::ErrorPrintContext &epc, InferenceSeq &seq) {
+  std::cerr << "*** Vars\n";
+  for (const auto &var : seq.vars) {
+    std::cerr << "**** Var " << var.second.ty << "\n";
+    epc << var.second.desc;
+  }
+  Idx idx = 1;
+  std::cerr << "*** Steps\n";
+  for (const auto &step : seq.steps) {
+    std::cerr << "**** Step " << idx++ << "\n";
+    printStep(epc, step);
+    idx++;
   }
 }
 
@@ -65,6 +114,13 @@ int main() {
   type::TTcx ttcx;
   auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
 
+  std::cerr << "* Steps\n";
+  for (const auto &seq : types.seqs) {
+    std::cerr << "** Seq\n";
+    printSeq(epc, *seq);
+  }
+
+  std::cerr << "* Errors\n";
   type::infer::InferContext icx(ttcx);
   icx.traits = std::move(types.traits);
   type::infer::Env env;
@@ -73,10 +129,11 @@ int main() {
   err::printErrors(epc, icx.ecx);
 
   auto seqI = types.seqs.begin();
-  std::cerr << "* Top\n";
+  std::cerr << "* Types\n";
+  std::cerr << "** Top\n";
   printBlock(epc, icx, seqI++->get(), hir.program.topLevel);
   for (auto &ti : hir.program.traitImpls) {
-    std::cerr << "* Trait\n";
+    std::cerr << "** Trait\n";
     for (auto &m : ti.methods) {
       printBlock(epc, icx, seqI++->get(), m);
     }
