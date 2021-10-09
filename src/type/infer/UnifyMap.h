@@ -78,22 +78,22 @@ namespace type::infer {
         if (!newNode && tys.size() != node->mask.size()) {
           throw std::runtime_error("Bad arity in insert");
         }
-        std::vector<bool> mask(tys.size(), true);
+        std::vector<bool> thisMask(tys.size(), true);
         size_t maskArity = 0;
         for (Idx i = 0; i < tys.size(); ++i) {
           Tp &ty = tys[i];
           ty = uncycle(ttcx, ty);
           if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-            mask[i] = false;
+            thisMask[i] = false;
           } else {
             ++maskArity;
           }
         }
         if (newNode) {
-          node->mask = mask;
+          node->mask = thisMask;
           node->maskedArity = maskArity;
         } else {
-          if (mask != node->mask) {
+          if (thisMask != node->mask) {
             throw std::runtime_error("Mismatched masks");
           }
         }

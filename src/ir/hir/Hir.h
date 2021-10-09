@@ -20,6 +20,7 @@ namespace hir {
 
   class Type {
   public:
+    bool informative = false;
     std::optional<loc::Span> source;
     std::optional<DefIdx> base;
     std::vector<Type> params;
@@ -67,7 +68,7 @@ namespace hir {
   public:
     std::optional<loc::Span> span;
     Pos pos = Pos::Expr;
-    std::vector<Type> type;
+    std::vector<Type> hints;
 
     virtual ~Expr();
 

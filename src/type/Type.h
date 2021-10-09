@@ -288,4 +288,26 @@ namespace type {
     for (auto &s : tys) set.insert(replaceTy(tcx, tbcx, s, tr));
     return set;
   }
+
+  template <typename T>
+  bool isComplete(T ty) {
+    bool isComplete = true;
+    auto checker = overloaded {
+        [&](Tp ty) -> Tp {
+          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+        [&](Tp ty, type::PostWalk) -> Tp {
+          if (std::holds_alternative<Ty::Err>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+    };
+    TTcx ttcx;
+    replaceTy<true>(ttcx, ty, checker);
+    return isComplete;
+  }
 }

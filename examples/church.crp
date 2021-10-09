@@ -15,7 +15,8 @@ defn eight = exp(two, three)
 
 defn church2int(n) = n(\x.x + 1)(0)
 
-// defn putI(i: i64): #() = foreign
-// defn println(): #() = foreign
+defn putI(i: i64): #() = foreign
+defn println(): #() = foreign
 
-church2int(mul(eight, seven))
+putI(church2int(mul(eight, seven)))
+println()

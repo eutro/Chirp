@@ -258,7 +258,7 @@ namespace ast::lower {
       addBindingsToBlock(block);
       auto bodyE = visitExpr(body, hir::Pos::Expr);
       if (retHint) {
-        bodyE->type.push_back(visitType(*retHint->type));
+        bodyE->hints.push_back(visitType(*retHint->type));
       }
       block.body.push_back(std::move(bodyE));
       bindings.pop();
@@ -287,6 +287,7 @@ namespace ast::lower {
       fnImpl.params.reserve(closed.size() + arity);
 
       hir::Type &adtType = fnImpl.type;
+      adtType.informative = true;
       adtType.base = typeIdx;
       adtType.params.reserve(closed.size());
       for (auto &cv : closed) {
@@ -324,7 +325,7 @@ namespace ast::lower {
             DefType::Type{}
         });
       fnImpl.params.push_back(retIdx);
-      block.body.back()->type.emplace_back().base = retIdx;
+      block.body.back()->hints.emplace_back().base = retIdx;
 
       fnType.params = {fnArgsTy};
       hir::Type retTy;
@@ -413,8 +414,9 @@ namespace ast::lower {
       if (it.foreignToken) {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
+        hir::Type &fType = fe->hints.emplace_back();
+        fType.informative = true;
         if (it.arguments) {
-          hir::Type &fType = fe->type.emplace_back();
           fType.base = hir::FFIFN;
           fType.params.reserve(2);
           hir::Type &argTypes = fType.params.emplace_back();
@@ -424,6 +426,8 @@ namespace ast::lower {
             argTypes.params.push_back(visitHint(rb.typeHint));
           }
           fType.params.push_back(visitHint(it.typeHint));
+        } else {
+          fType = visitHint(it.typeHint);
         }
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
@@ -437,7 +441,7 @@ namespace ast::lower {
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
         if (it.typeHint) {
-          retExpr->type.push_back(visitHint(it.typeHint));
+          retExpr->hints.push_back(visitHint(it.typeHint));
         }
       }
       return retExpr;
@@ -812,7 +816,7 @@ namespace ast::lower {
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
       auto expr = visitExpr(*it.expr, pos);
-      expr->type.push_back(visitType(*it.hint.type));
+      expr->hints.push_back(visitType(*it.hint.type));
       return expr;
     }
   };

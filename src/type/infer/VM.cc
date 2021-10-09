@@ -51,27 +51,6 @@ namespace type::infer {
   }
 
   template <typename T>
-  bool isComplete(TTcx &ttcx, T ty) {
-    bool isComplete = true;
-    auto checker = overloaded {
-        [&](Tp ty) -> Tp {
-          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
-            isComplete = false;
-          }
-          return ty;
-        },
-        [&](Tp ty, type::PostWalk) -> Tp {
-          if (std::holds_alternative<Ty::Err>(ty->v)) {
-            isComplete = false;
-          }
-          return ty;
-        },
-    };
-    replaceTy<true>(ttcx, ty, checker);
-    return isComplete;
-  }
-
-  template <typename T>
   T appRepl(InferContext &ctx, Env &env, T ty) {
     std::function<Tp(Tp)> replacer = [&](Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
@@ -226,10 +205,7 @@ namespace type::infer {
     //
     // let in loop: loop()
     //              ~~~~~~ never
-    inst.outputs.resize(
-      outputs.size(),
-      ctx.ttcx.tcx.intern(Ty::Never{})
-    );
+    inst.outputs = outputs;
 
     Env::Frame frame(env);
     for (auto &bound : steps.vars) {
@@ -245,6 +221,13 @@ namespace type::infer {
 
     runInEnvWithFrame(ctx, env, frame, steps, inst);
     inst.outputs = appRepl(ctx, env, outputs);
+    for (Tp &out : inst.outputs) {
+      if (!isComplete(out)) {
+        Ty *never = ctx.ttcx.tcx.intern(Ty::Never{});
+        unify(ctx, env, frame, out, never);
+        out = never;
+      }
+    }
   }
 
   void runInEnv(
@@ -295,8 +278,9 @@ namespace type::infer {
         for (Tp &arg : args) {
           arg = appRepl(ctx, env, arg);
         }
-        if (isComplete(ctx.ttcx, args) /* otherwise propagate error */) {
-          if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i].find(ctx.ttcx, args)) {
+        if (isComplete(args) /* otherwise propagate error */) {
+          if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i]
+              .find(ctx.ttcx, {args.front()/*TODO dispatch on args too*/})) {
             auto &memos = ctx.insts[&impl->steps];
             auto iter = memos.lower_bound(args);
             if (iter == memos.end() || iter->first != args) {
@@ -306,8 +290,19 @@ namespace type::infer {
             }
             inst.traitImpls.emplace(s.idx, std::make_pair(&impl->steps, &iter->second));
           } else {
-            addBacktrace(env, ctx.ecx.err()
-                .msg("trait not implemented"));
+            err::Location &err = ctx.ecx.err()
+                .msg("trait not implemented");
+            {
+              std::stringstream ss;
+              ss << trait;
+              err.msg(ss.str()).msg("on type");
+            }
+            {
+              std::stringstream ss;
+              ss << recTy;
+              err.msg(ss.str());
+            }
+            addBacktrace(env, err);
             // implicitly poisoned
           }
         }

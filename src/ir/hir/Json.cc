@@ -72,7 +72,7 @@ namespace nlohmann {
         j = hir::json::JsonExprVisitor().visitExpr(*v);
         j["span"] = v->span;
         j["pos"] = v->pos;
-        j["type"] = v->type;
+        j["hints"] = v->hints;
       } else {
         j = nullptr;
       }
@@ -107,7 +107,7 @@ namespace nlohmann {
       }
       j.at("span").get_to(opt->span);
       j.at("pos").get_to(opt->pos);
-      j.at("type").get_to(opt->type);
+      j.at("hints").get_to(opt->hints);
     }
   };
 }

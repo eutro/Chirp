@@ -35,10 +35,69 @@ namespace hir::infer {
     std::map<DefIdx, TVar*> varNodes;
     std::map<DefIdx, Tp> definedTys;
     Idx counter = 0;
+    
+    void addBuiltins(InferResult &res) {
+      auto implBinOp = [&](Tp ty, Idx trait) {
+        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        ati.inputs = {ty, ty};
+        ati.outputs = {ty};
+        res.traits[trait].insert(ttcx, {ty}, std::move(ati));
+      };
+      auto implNeg = [&](Tp ty) {
+        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        ati.inputs = {ty};
+        ati.outputs = {ty};
+        res.traits[Neg].insert(ttcx, {ty}, std::move(ati));
+      };
+      auto implEq = [&](Tp ty) {
+        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        ati.inputs = {ty, ty};
+        res.traits[Eq].insert(ttcx, {ty}, std::move(ati));
+      };
+      auto implCmp = [&](Tp ty) {
+        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        ati.inputs = {ty, ty};
+        res.traits[Cmp].insert(ttcx, {ty}, std::move(ati));
+      };
+
+      for (type::IntSize is : type::INT_SIZE_FIXED) {
+        Tp i = tcx.intern(Ty::Int{is});
+        Tp u = tcx.intern(Ty::UInt{is});
+        for (Tp ty : {i, u}) {
+          for (Builtins bt : {Add, Sub, Mul, Div, Rem, BitOr, BitAnd}) {
+            implBinOp(ty, bt);
+          }
+          implEq(ty);
+          implCmp(ty);
+        }
+        implNeg(i);
+      }
+      for (type::FloatSize fs : type::FLOAT_SIZE_VALUES) {
+        Tp ty = tcx.intern(Ty::Float{fs});
+        for (Builtins bt : {Add, Sub, Mul, Div, Rem}) {
+          implBinOp(ty, bt);
+        }
+        implNeg(ty);
+        implEq(ty);
+        implCmp(ty);
+      }
+      implBinOp(boolType(), BitAnd);
+      implBinOp(boolType(), BitOr);
+
+      {
+        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        auto args = tcx.intern(Ty::Placeholder{counter++});
+        auto ret = tcx.intern(Ty::Placeholder{counter++});
+        auto fnTy = tcx.intern(Ty::FfiFn{args, ret});
+        ati.inputs = {fnTy, args};
+        ati.outputs = {ret};
+        res.traits[Fn].insert(ttcx, {fnTy}, std::move(ati));
+      }
+    }
 
     InferResult visitProgram(Program &p) override {
-      program = &p;
       InferResult res;
+      program = &p;
 
       std::vector<InferenceGraph> graphs;
       std::vector<std::vector<TVar *>> tvs;
@@ -77,9 +136,10 @@ namespace hir::infer {
             graphI++;
           }
           ati.steps = ig;
-          map.insert(ttcx, tys, std::move(ati));
+          map.insert(ttcx, {tys.front()}, std::move(ati));
         }
       }
+      addBuiltins(res);
       return res;
     }
 
@@ -197,7 +257,11 @@ namespace hir::infer {
         } else {
           cnstr.desc.msg("implicit type hint");
         }
-        target.connectTo(cnstr);
+        if (hint.informative) {
+          cnstr.connectTo(target);
+        } else {
+          target.connectTo(cnstr);
+        }
         return;
       }
 
@@ -257,7 +321,7 @@ namespace hir::infer {
     RET_T visitExpr ARGS(Expr) override {
       TVar &n = *ExprVisitor::visitExpr(e PASS_ARGS);
       n.desc.maybeSpan(e.span, "type of this expression");
-      for (auto &hint : e.type) {
+      for (auto &hint : e.hints) {
         parseTypeHint(ig, n, hint);
       }
       return &n;
@@ -326,7 +390,7 @@ namespace hir::infer {
     }
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
       TVar &retNode = **tvi++;
-      auto &hints = dynamic_cast<Expr&>(e).type;
+      auto &hints = e.hints;
       auto ty = ([&]() {
         switch (e.type) {
         case LiteralExpr::Int:
@@ -571,7 +635,8 @@ namespace hir::infer {
       return &retNode;
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
-      return &**tvi++; // should be never type
+      TVar &retNode = **tvi++;
+      return &retNode;
     }
     RET_T visitDummyExpr ARGS(DummyExpr) override {
       TVar &n = **tvi++; // propagate error
