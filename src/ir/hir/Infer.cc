@@ -5,6 +5,7 @@
 #include "../../type/infer/InferenceGraph.h"
 #include "RecurVisitor.h"
 
+#include <limits>
 #include <sstream>
 #include <cstddef>
 #include <deque>
@@ -35,7 +36,7 @@ namespace hir::infer {
     std::map<DefIdx, TVar*> varNodes;
     std::map<DefIdx, Tp> definedTys;
     Idx counter = 0;
-    
+
     void addBuiltins(InferResult &res) {
       auto implBinOp = [&](Tp ty, Idx trait) {
         AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
@@ -152,7 +153,7 @@ namespace hir::infer {
       InferenceGraph &graph = graphs.emplace_back();
       graph.index = index;
       TVarVisitor(graph, tcx, counter, tvs).visitBlock(block);
-      std::set<Idx> defs;
+      std::vector<Idx> defs;
       DefinitionVisitor().visitBlock(block, defs);
       for (Idx def : defs) {
         varNodes[def] = &graph.add(tcx, counter);
@@ -179,11 +180,11 @@ namespace hir::infer {
       }
     };
 
-    class DefinitionVisitor : public RecurVisitor<std::monostate, std::set<Idx>> {
+    class DefinitionVisitor : public RecurVisitor<std::monostate, std::vector<Idx>> {
     public:
-      void visitBlock(Block &it, std::set<Idx> &vars) override {
+      void visitBlock(Block &it, std::vector<Idx> &vars) override {
         for (auto b : it.bindings) {
-          vars.insert(b);
+          vars.push_back(b);
         }
         RecurVisitor::visitBlock(it, vars);
       }
@@ -271,6 +272,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Trait>();
         cnstr.ty = target.ty;
         cnstr.tb = parseTb(ig, hint);
+        cnstr.idx = std::numeric_limits<Idx>::max();
         cnstr.desc.maybeSpan(hint.source, "from trait hint");
         target.connectTo(cnstr);
       } else {
@@ -464,6 +466,7 @@ namespace hir::infer {
       {
         tCnstr.ty = lhsNode.ty;
         tCnstr.tb = traitBound;
+        tCnstr.idx = retNode.ref.index;
         tCnstr.desc.maybeSpan(e.span, "binary expression here");
         lhsNode.connectTo(tCnstr);
         rhsNode.connectTo(tCnstr);
@@ -488,6 +491,7 @@ namespace hir::infer {
         auto &cnstr = ig.add<Constraint::Trait>();
         cnstr.ty = lhsNode.ty;
         cnstr.tb = traitBound;
+        cnstr.idx = retNode.ref.index;
         cnstr.desc.maybeSpan(e.span, "comparison here");
         lhsNode.connectTo(cnstr);
         rhsNode.connectTo(cnstr);
@@ -509,6 +513,7 @@ namespace hir::infer {
       {
         tCnstr.ty = exprNode.ty;
         tCnstr.tb = traitBound;
+        tCnstr.idx = retNode.ref.index;
         tCnstr.desc.maybeSpan(e.span, "negation here");
         exprNode.connectTo(tCnstr);
       }
@@ -526,6 +531,7 @@ namespace hir::infer {
       TVar &retNode = **tvi++;
       TVar &funcNode = *visitExpr(*e.func PASS_ARGS);
       auto &tCnstr = ig.add<Constraint::Trait>();
+      tCnstr.idx = retNode.ref.index;
       funcNode.connectTo(tCnstr);
       std::vector<Tp> argTys;
       argTys.reserve(e.args.size());

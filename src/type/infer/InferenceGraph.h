@@ -59,6 +59,7 @@ namespace type::infer {
   struct Constraint::Trait : Node, Constraint {
     Tp ty;
     TraitBound *tb;
+    Idx idx;
     NodeVariant asVariant() const override;
   };
 

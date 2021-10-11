@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Infer.h"
+#include "Hir.h"
 #include "../lir/Lir.h"
 
 namespace hir::lower {
@@ -11,5 +11,5 @@ namespace hir::lower {
   class AbstractLoweringVisitor : public ProgramVisitor<LowerResult> {
   };
 
-  std::unique_ptr<AbstractLoweringVisitor> loweringVisitor(infer::InferResult &inferResult);
+  std::unique_ptr<AbstractLoweringVisitor> loweringVisitor();
 }
