@@ -83,7 +83,7 @@ namespace type::infer {
           return &seq.steps.emplace_back(Step::Unify{c->tyA, c->tyB}).desc;
         },
         [&](const Constraint::Trait *c) {
-          return &seq.steps.emplace_back(Step::ImplTrait{c->ty, c->tb, c->ref.index}).desc;
+          return &seq.steps.emplace_back(Step::ImplTrait{c->ty, c->tb, c->idx}).desc;
         },
         [&](const Constraint::Assigned *c) {
           return &seq.steps.emplace_back(Step::Assign{c->toTy, c->fromTy}).desc;

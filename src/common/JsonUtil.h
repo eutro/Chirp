@@ -36,18 +36,20 @@ namespace nlohmann {
     }
 
     template <std::size_t Idx>
-    static bool from_json_idx(const json &j, std::variant<T...> &v) {
+    static bool try_from_json(const json &j, std::variant<T...> &v, std::size_t idx) {
       using Ty = std::variant_alternative_t<Idx, std::variant<T...>>;
-      from_json_idx_ty<Idx, Ty>(j, v);
-      return true;
+      if (idx == Idx) {
+        from_json_idx_ty<Idx, Ty>(j, v);
+        return true;
+      }
+      return false;
     }
 
     template<std::size_t... Idx>
     static void from_json(const json &j, std::variant<T...> &v,
                           std::size_t idx,
                           std::integer_sequence<std::size_t, Idx...>) {
-      if (!((idx == Idx && from_json_idx<Idx>(j, v))
-            || ...)) {
+      if (!(try_from_json<Idx>(j, v, idx) || ...)) {
         throw std::bad_variant_access();
       }
     }

@@ -1,6 +1,5 @@
 #include "../ir/tok/Parser.h"
 #include "../ir/ast/Lowering.h"
-#include "../ir/hir/Infer.h"
 #include "../ir/hir/Lowering.h"
 #include "../ir/lir/Disas.h"
 
@@ -13,8 +12,6 @@ int main() {
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
-  auto types = hir::infer::inferenceVisitor()->visitProgram(hir.program);
-  err::maybeAbort(epc, types.errors);
-  auto lir = hir::lower::loweringVisitor(types)->visitProgram(hir.program);
+  auto lir = hir::lower::loweringVisitor()->visitProgram(hir.program);
   lir::disas::disassemble(lir.module, std::cerr);
 }
