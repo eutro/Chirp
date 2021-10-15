@@ -18,7 +18,7 @@ namespace lir::codegen {
                  std::vector<Tp> &&params,
                  EmitFn fn) {
     auto tb = cc.tbcx.intern(type::TraitBound{trait, std::move(params)});
-    cc.emitCall[{ty, tb}] = fn;
+    // TODO cc.emitCall[{ty, tb}] = fn;
   }
 
   template <std::size_t Arity, typename T, typename C, typename... Args>

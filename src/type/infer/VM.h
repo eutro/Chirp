@@ -6,14 +6,12 @@
 #include <deque>
 
 namespace type::infer {
+  struct Instantiation;
+  using InstPair = std::pair<const InferenceSeq *, Instantiation *>;
+
   struct Instantiation {
     std::map<Idx, Tp> typeVars;
-    std::map<
-      Idx,
-      std::pair<
-        const InferenceSeq *,
-        Instantiation *>
-      > traitImpls;
+    std::map<Idx, InstPair> traitImpls;
     std::vector<Tp> outputs;
   };
 

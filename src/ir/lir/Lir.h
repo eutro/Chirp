@@ -128,11 +128,6 @@ namespace lir {
     }
   };
 
-  struct Instantiation {
-    std::vector<type::TraitBound *> traits;
-    std::vector<type::Ty *> types;
-  };
-
   struct TraitImpl {
     std::vector<BlockList> methods;
   };

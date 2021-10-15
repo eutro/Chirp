@@ -2,6 +2,7 @@
 
 #include "../Lir.h"
 #include "../../../common/Arena.h"
+#include "../../../type/infer/VM.h"
 
 #include <array>
 #include <functional>
@@ -21,6 +22,7 @@
 
 namespace lir::codegen {
   using type::Ty;
+  using type::infer::InstPair;
   using Tp = Ty *;
   struct LocalCC;
   struct CC;
@@ -56,6 +58,11 @@ namespace lir::codegen {
     {}
   };
 
+  struct Instantiation {
+    std::map<Idx, type::infer::InstPair> traits;
+    std::vector<type::Ty *> types;
+  };
+
   struct CC {
     arena::InternArena<Ty> &tcx;
     arena::InternArena<type::TraitBound> &tbcx;
@@ -65,7 +72,7 @@ namespace lir::codegen {
     llvm::DIBuilder &db;
     llvm::DICompileUnit *cu;
 
-    std::map<TraitImpl::For, EmitFn> emitCall;
+    std::map<InstPair, EmitFn> emitCall;
     std::map<type::Ty *, TyTuple> tyCache;
 
     std::map<Idx, Value> vars;
@@ -82,7 +89,7 @@ namespace lir::codegen {
 
     llvm::IRBuilder<> &ib;
     llvm::Function *func;
-    lir::Instantiation &inst;
+    Instantiation &inst;
 
     std::map<Idx, Value> vars;
     std::map<Insn *, Value> vals;

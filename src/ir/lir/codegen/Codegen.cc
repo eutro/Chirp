@@ -110,23 +110,7 @@ namespace lir::codegen {
         },
 
         [&](Insn::CallTrait &i) -> Value {
-          TraitImpl::For tFor {
-            .ty = lcc.inst.types.at(i.obj->ty),
-            .tb = lcc.inst.traits.at(i.trait),
-          };
-          llvm::Value *value;
-          if (std::holds_alternative<Ty::FfiFn>(tFor.ty->v)) {
-            // hack for FFI
-            std::vector<llvm::Value *> args;
-            args.reserve(i.args.size());
-            for (auto &arg : i.args) {
-              args.push_back(lcc.load(arg));
-            }
-            llvm::FunctionType *fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(tFor.ty->v));
-            value = lcc.ib.CreateCall(fnTy, lcc.load(i.obj), args);
-          } else {
-            value = cc.emitCall.at(tFor)(insn, i, cc, lcc);
-          }
+          llvm::Value *value = cc.emitCall.at(lcc.inst.traits.at(i.trait))(insn, i, cc, lcc);
           if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
               std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
             if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
@@ -423,6 +407,7 @@ namespace lir::codegen {
 
   CodegenResult generate(type::Tcx &tcx,
                          type::Tbcx &tbcx,
+                         type::infer::InferContext &icx,
                          Module &mod,
                          const std::string &fileName,
                          const std::string &fileDir) {
@@ -444,7 +429,7 @@ namespace lir::codegen {
     std::vector<std::unique_ptr<std::vector<llvm::Function *>>> traitMethods;
 
     for (auto &trait : mod.traitImpls) {
-      for (auto &entry : trait.instantiations) {
+      for (auto &method : trait.methods) {
         std::vector<llvm::Function *> &funcs = *traitMethods.emplace_back(std::make_unique<std::vector<llvm::Function*>>());
         funcs.reserve(trait.methods.size());
         for (const BlockList &bl : trait.methods) {
