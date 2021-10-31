@@ -429,7 +429,7 @@ namespace lir::codegen {
     Idx blockIdx = 0;
     for (auto &trait : mod.traitImpls) {
       blockIdx++;
-      auto emitCalls = cc.emitCall.emplace_back();
+      auto &emitCalls = cc.emitCall.emplace_back();
       auto &insts = sys.seqs.at(blockIdx).insts;
       for (Idx instIdx = 0; instIdx < insts.size(); ++instIdx) {
         // only one method is actually supported
@@ -457,7 +457,11 @@ namespace lir::codegen {
     auto unitTyPair = getTyTuple(cc, tcx.intern(Ty::Tuple{{}}));
     auto unitThunkTy = llvm::FunctionType::get(std::get<0>(unitTyPair), false);
     auto crpMainFunc = llvm::Function::Create(
-        unitThunkTy, llvm::GlobalValue::PrivateLinkage, "crpMain", cc.mod);
+      unitThunkTy,
+      llvm::GlobalValue::PrivateLinkage,
+      "crpMain",
+      cc.mod
+    );
     {
       crpMainFunc->setGC(GC_METHOD);
       crpMainFunc->setSubprogram(cc.db.createFunction(

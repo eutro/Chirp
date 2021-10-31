@@ -374,6 +374,10 @@ namespace ast::lower {
           auto thisE = withSpan<hir::VarExpr>(std::nullopt);
           thisE->ref = thisIdx;
           getE->value = std::move(thisE);
+
+          getE->span = varE.span;
+          getE->pos = varE.pos;
+          getE->hints = std::move(varE.hints);
           return getE;
         }
         return nullptr;

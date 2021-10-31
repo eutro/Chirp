@@ -100,9 +100,7 @@ namespace type::infer {
           const Node &node = *graph.nodes.ptrs.at(index);
           auto variant = node.asVariant();
           if (std::holds_alternative<const Constraint::Trait*>(variant)) {
-            throw err::Location()
-              .msg("illegal trait constraint within constraint cycle:")
-              .chain(node.desc);
+            throw std::runtime_error("illegal trait constraint within constraint cycle");
           }
         }
       }
