@@ -81,7 +81,7 @@ namespace hir::infer {
         }
         implNeg(i);
       }
-      Tp boolTy = boolType();;
+      Tp boolTy = boolType();
       implBinOp(boolTy, BitOr);
       implBinOp(boolTy, BitAnd);
 

@@ -44,7 +44,7 @@ namespace lir::codegen {
 
 #define FIELD_GEP \
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);                  \
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(i.obj->ty)->v)); \
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.typeVars.at(i.obj->ty)->v)); \
           auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo()); \
           auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {                \
               llvm::ConstantInt::get(i32Ty, 0),                         \
@@ -98,7 +98,7 @@ namespace lir::codegen {
             return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
           }
           auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.types.at(insn.ty)->v));
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.typeVars.at(insn.ty)->v));
           auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
           auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
           auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
@@ -110,7 +110,8 @@ namespace lir::codegen {
         },
 
         [&](Insn::CallTrait &i) -> Value {
-          llvm::Value *value = cc.emitCall.at(lcc.inst.traits.at(i.trait))(insn, i, cc, lcc);
+          auto impl = lcc.inst.traitImpls.at(i.trait);
+          llvm::Value *value = cc.emitCall.at(impl.block).at(impl.inst)(insn, i, cc, lcc);
           if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
               std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
             if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
@@ -170,7 +171,7 @@ namespace lir::codegen {
           }
         },
         [&](Insn::ForeignRef &i) -> Value {
-          auto crpTy = lcc.inst.types.at(insn.ty);
+          auto crpTy = lcc.inst.typeVars.at(insn.ty);
           if (std::holds_alternative<Ty::FfiFn>(crpTy->v)) {
             auto fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(crpTy->v));
             auto modFn = cc.mod.getOrInsertFunction(i.symbol, fnTy);
@@ -183,7 +184,7 @@ namespace lir::codegen {
           }
         },
         [&](Insn::LiteralString &i) -> Value {
-          auto cTy = lcc.inst.types.at(insn.ty);
+          auto cTy = lcc.inst.typeVars.at(insn.ty);
           bool nulTerminate = std::get<Ty::String>(cTy->v).nul;
           size_t len = i.value.size() + nulTerminate;
           auto charTy = llvm::Type::getInt8Ty(cc.ctx);
@@ -216,7 +217,7 @@ namespace lir::codegen {
           return {constant, stringStructTy, Value::Direct};
         },
         [&](Insn::LiteralInt &i) -> Value {
-          Ty *cTy = lcc.inst.types.at(insn.ty);
+          Ty *cTy = lcc.inst.typeVars.at(insn.ty);
           auto ty = getTy(cc, cTy);
           llvm::IntegerType *intTy = llvm::cast<llvm::IntegerType>(ty);
           return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};
@@ -300,7 +301,7 @@ namespace lir::codegen {
   }
 
   void emitVar(Idx idx, Decl &i, CC &cc, LocalCC &lcc, bool topLevel) {
-    auto tyTup = getTyTuple(cc, lcc.inst.types.at(i.ty));
+    auto tyTup = getTyTuple(cc, lcc.inst.typeVars.at(i.ty));
     llvm::Type *ty = std::get<0>(tyTup);
     const auto &gcData = std::get<2>(tyTup);
     if (topLevel) {
@@ -383,10 +384,10 @@ namespace lir::codegen {
     const std::string &name = receiver.name;
     const std::optional<loc::Span> &span = receiver.span;
     Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
-    auto &retPair = getTyTuple(cc, inst.types.at(retIdx));
+    auto &retPair = getTyTuple(cc, inst.typeVars.at(retIdx));
     diTys.push_back(std::get<1>(retPair));
     for (auto e : bl.params) {
-      auto argPair = getTyTuple(cc, inst.types.at(e.second.ty));
+      auto argPair = getTyTuple(cc, inst.typeVars.at(e.second.ty));
       argTys.push_back(std::get<0>(argPair));
       diTys.push_back(std::get<1>(argPair));
     }
@@ -405,9 +406,8 @@ namespace lir::codegen {
     return func;
   }
 
-  CodegenResult generate(type::Tcx &tcx,
-                         type::Tbcx &tbcx,
-                         type::infer::InferContext &icx,
+  CodegenResult generate(type::Tcx &tcx, type::Tbcx &tbcx,
+                         type::infer::System &sys,
                          Module &mod,
                          const std::string &fileName,
                          const std::string &fileDir) {
@@ -424,18 +424,21 @@ namespace lir::codegen {
     llvmMod->addModuleFlag(llvm::Module::Warning, "Dwarf Version", llvm::dwarf::DWARF_VERSION);
     CC cc { tcx, tbcx, *llvmMod, *llvmCtx, db, cu };
 
-    addIntrinsics(cc);
-
     std::vector<std::unique_ptr<std::vector<llvm::Function *>>> traitMethods;
-
+    cc.emitCall.emplace_back(); // block 0 is main
+    Idx blockIdx = 0;
     for (auto &trait : mod.traitImpls) {
-      for (auto &method : trait.methods) {
+      blockIdx++;
+      auto emitCalls = cc.emitCall.emplace_back();
+      auto &insts = sys.seqs.at(blockIdx).insts;
+      for (Idx instIdx = 0; instIdx < insts.size(); ++instIdx) {
+        // only one method is actually supported
+        // for (auto &method : trait.methods) {
         std::vector<llvm::Function *> &funcs = *traitMethods.emplace_back(std::make_unique<std::vector<llvm::Function*>>());
-        funcs.reserve(trait.methods.size());
         for (const BlockList &bl : trait.methods) {
-          funcs.push_back(getBbFunc(bl, entry.second, cc));
+          funcs.push_back(getBbFunc(bl, sys[{blockIdx, instIdx}], cc));
         }
-        cc.emitCall[entry.first] = [&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
+        emitCalls.push_back([&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
           auto func = funcs.at(ct.method);
           std::vector<llvm::Value *> args;
           args.reserve(ct.args.size() + 1 /* receiver */);
@@ -444,9 +447,10 @@ namespace lir::codegen {
           }
           args.push_back(lcc.load(ct.obj));
           return lcc.ib.CreateCall(func->getFunctionType(), func, args);
-        };
+        });
       }
     }
+    addIntrinsics(cc, sys);
 
     llvm::IRBuilder<> ib(cc.ctx);
 
@@ -467,7 +471,7 @@ namespace lir::codegen {
           .cc = cc,
           .ib = ib,
           .func = crpMainFunc,
-          .inst = mod.instantiation,
+          .inst = sys.seqs.front().insts.front(),
       };
       emitBlockList(mod.topLevel, cc, lcc, true);
     }
@@ -489,8 +493,11 @@ namespace lir::codegen {
 
     {
       auto tIt = traitMethods.begin();
+      blockIdx = 0;
       for (auto &trait : mod.traitImpls) {
-        for (auto &entry : trait.instantiations) {
+        blockIdx++;
+        auto &insts = sys.seqs.at(blockIdx).insts;
+        for (auto &inst : insts) {
           std::vector<llvm::Function *> &funcs = **tIt++;
           auto fIt = funcs.begin();
           for (BlockList &bl : trait.methods) {
@@ -498,7 +505,7 @@ namespace lir::codegen {
                 .cc = cc,
                 .ib = ib,
                 .func = *fIt++,
-                .inst = entry.second,
+                .inst = inst,
             };
             emitBlockList(bl, cc, lcc, false);
           }
