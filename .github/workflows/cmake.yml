@@ -21,7 +21,7 @@ jobs:
     steps:
     - name: Install LLVM
       if: matrix.running-on != 'windows-latest'
-      uses: KyleMayes/install-llvm-action@v1.5.0
+      uses: KyleMayes/install-llvm-action@v1.4.1
       with:
         version: ${{env.LLVM_VERSION}}
 
