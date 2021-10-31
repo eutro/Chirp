@@ -227,9 +227,12 @@ namespace ast::lower {
                 std::vector<Param> &params,
                 const loc::Span &source,
                 Expr &body) {
+      std::set<hir::DefIdx> globalRefs;
       std::set<hir::DefIdx> closed;
       bindings.push([&](hir::DefIdx vr) {
-        if (!std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+        if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+          globalRefs.insert(vr);
+        } else {
           closed.insert(vr);
         }
       });
@@ -336,6 +339,7 @@ namespace ast::lower {
       fnImpl.types.push_back(retTy);
 
       auto expr = withSpan<hir::NewExpr>(source);
+      expr->globalRefs = std::move(globalRefs);
       expr->adt = typeIdx;
       expr->variant = 0;
       expr->values.reserve(closed.size());

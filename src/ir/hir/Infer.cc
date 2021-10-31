@@ -603,6 +603,9 @@ namespace hir::infer {
         argTys.push_back(argNode.ty);
         argNode.connectTo(cnstr);
       }
+      for (Idx globalRef : e.globalRefs) {
+        varNodes.at(globalRef)->connectTo(cnstr);
+      }
       {
         cnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
         cnstr.tyB = retNode.ty;
