@@ -8,7 +8,7 @@ on:
 
 env:
   BUILD_TYPE: Release
-  LLVM_VERSION: 12.0.1
+  LLVM_VERSION: 12.0
 
 jobs:
   build:
@@ -21,7 +21,7 @@ jobs:
     steps:
     - name: Install LLVM
       if: matrix.running-on != 'windows-latest'
-      uses: KyleMayes/install-llvm-action@v1.4.1
+      uses: KyleMayes/install-llvm-action@v1.5.0
       with:
         version: ${{env.LLVM_VERSION}}
 
