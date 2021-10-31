@@ -27,6 +27,7 @@ jobs:
 
     - name: Cache LLVM
       if: matrix.running-on == 'windows-latest'
+      uses: actions/cache@v2.1.6
       with:
         path: C:\Program Files\LLVM
         key: llvm-${{env.LLVM_VERSION}}
