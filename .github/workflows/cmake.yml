@@ -19,8 +19,20 @@ jobs:
     runs-on: ${{matrix.running-on}}
 
     steps:
+    - name: Install LLVM
+      if: matrix.running-on != 'windows-latest'
+      uses: KyleMayes/install-llvm-action@v1.5.0
+      with:
+        version: ${{env.LLVM_VERSION}}
+
+    - name: Cache LLVM
+      if: matrix.running-on == 'windows-latest'
+      with:
+        path: C:\Program Files\LLVM
+        key: llvm-${{env.LLVM_VERSION}}
 
     - name: Checkout LLVM
+      if: matrix.running-on == 'windows-latest' && steps.cache-llvm.outputs.cache-hit != 'true'
       uses: actions/checkout@v2
       with:
         repository: llvm/llvm-project
@@ -28,6 +40,7 @@ jobs:
         path: llvm
 
     - name: Build LLVM
+      if: matrix.running-on == 'windows-latest' && steps.cache-llvm.outputs.cache-hit != 'true'
       run: |
         cmake -B ${{github.workspace}}/llvm/llvm/build -DCMAKE_BUILD_TYPE=Release ${{github.workspace}}/llvm/llvm/
         cmake --build ${{github.workspace}}/llvm/llvm/build
