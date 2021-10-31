@@ -1,26 +1,32 @@
 #pragma once
 
 #include "InferenceSeq.h"
-#include "UnifyMap.h"
+#include "InferenceSystem.h"
 
 #include <deque>
 
 namespace type::infer {
-  struct Instantiation;
-  using InstPair = std::pair<const InferenceSeq *, Instantiation *>;
+  using InferContext = System;
 
-  struct Instantiation {
-    std::map<Idx, Tp> typeVars;
-    std::map<Idx, InstPair> traitImpls;
-    std::vector<Tp> outputs;
-  };
-
+  /**
+   * The runtime state of the VM.
+   */
   struct Env {
     std::map<Tp, Tp> mapping;
+    err::ErrorContext &ecx;
+    TTcx &ttcx;
     std::deque<err::Location> backtrace;
     std::map<
       std::pair<Tp, TraitBound *>,
-      Instantiation *> traits;
+      InstRef
+      > traits;
+    std::map<
+      Idx, // block id
+      std::map<
+        std::vector<Tp>, // inputs
+        InstRef> // instantiation
+      > instMap;
+    Env(TTcx &ttcx, err::ErrorContext &ecx): ecx(ecx), ttcx(ttcx) {}
     struct Frame {
       Env &env;
       std::map<Tp, Tp> vars;
@@ -30,39 +36,18 @@ namespace type::infer {
     };
   };
 
-  struct InferContext;
-
-  struct AbstractTraitImpl {
-    InferenceSeq &steps;
-    std::vector<Tp> inputs, outputs;
-
-    AbstractTraitImpl(InferenceSeq &steps): steps(steps) {}
-
-    void operator()(
-      InferContext &ctx,
-      Env &env,
-      const std::vector<Tp> &args,
-      Instantiation &inst
-    ) const;
-  };
-
-  struct InferContext {
-    TTcx &ttcx;
-    err::ErrorContext ecx;
-    std::map<Idx, UnifyMap<AbstractTraitImpl>> traits;
-    std::map<
-      const InferenceSeq *,
-      std::map<
-        std::vector<Tp>,
-        Instantiation>
-      > insts;
-    InferContext(TTcx &ttcx): ttcx(ttcx) {}
-  };
-
   void runInEnv(
     InferContext &ctx,
     Env &env,
     const InferenceSeq &seq,
-    Instantiation &inst
+    InstRef inst
+  );
+
+  void instAti(
+    const AbstractTraitImpl &ati,
+    InferContext &ctx,
+    Env &env,
+    const std::vector<Tp> &args,
+    InstRef inst
   );
 }

@@ -58,24 +58,25 @@ namespace type::infer {
       if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
         auto found = env.mapping.find(ty);
         if (found != env.mapping.end()) {
-          return found->second = replaceTy(ctx.ttcx, found->second, replacer);
+          return found->second = replaceTy(env.ttcx, found->second, replacer);
         }
       } else if (std::holds_alternative<Ty::TraitRef>(ty->v)) {
         auto &tr = std::get<Ty::TraitRef>(ty->v);
-        auto recTy = replaceTy(ctx.ttcx, tr.ty, replacer);
-        auto trait = replaceTy(ctx.ttcx, tr.trait, replacer);
+        auto recTy = replaceTy(env.ttcx, tr.ty, replacer);
+        auto trait = replaceTy(env.ttcx, tr.trait, replacer);
         auto found = env.traits.find({recTy, trait});
-        if (found == env.traits.end() || found->second->outputs.size() <= tr.ref) {
+        if (found == env.traits.end() ||
+            ctx[found->second].outputs.size() <= tr.ref) {
           // propagate error
           // TraitRef usages are dominated by their relevant trait constraints,
           // so reaching here always means that the trait constraint was tried and failed
-          return ctx.ttcx.tcx.intern(Ty::Err{});
+          return env.ttcx.tcx.intern(Ty::Err{});
         }
-        return found->second->outputs[tr.ref];
+        return ctx[found->second].outputs[tr.ref];
       }
       return ty;
     };
-    return replaceTy(ctx.ttcx, ty, replacer);
+    return replaceTy(env.ttcx, ty, replacer);
   }
 
   void setVar(InferContext &ctx, Env &env, Env::Frame &frame, Tp var, Tp value) {
@@ -85,7 +86,7 @@ namespace type::infer {
       [&](Tp ty) {
         if (ty == var) {
           isFree = true;
-          return ctx.ttcx.tcx.intern(Ty::CyclicRef{depth});
+          return env.ttcx.tcx.intern(Ty::CyclicRef{depth});
         }
         return ty;
       },
@@ -102,15 +103,15 @@ namespace type::infer {
         return ty;
       },
     };
-    Tp setTy = replaceTy(ctx.ttcx, value, checkFree);
+    Tp setTy = replaceTy(env.ttcx, value, checkFree);
     if (isFree) {
-      setTy = ctx.ttcx.tcx.intern(Ty::Cyclic{setTy});
+      setTy = env.ttcx.tcx.intern(Ty::Cyclic{setTy});
     }
 #if (CHIRP_VM_DEBUG_STACKTRACES)
     {
       std::stringstream ss;
       ss << var << " set to " << setTy;
-      addBacktrace(env, ctx.ecx.err().msg(ss.str()));
+      addBacktrace(env, env.ecx.err().msg(ss.str()));
     }
 #endif
     frame.assoc(var, setTy);
@@ -119,8 +120,8 @@ namespace type::infer {
   void unify(InferContext &ctx, Env &env, Env::Frame &frame, Tp tyA, Tp tyB) {
     std::set<std::pair<Tp, Tp>> seen;
     std::function<bool(Tp&, Tp&)> innerUnify = [&](Tp &tyA, Tp &tyB) {
-      tyA = uncycle(ctx.ttcx, appRepl(ctx, env, tyA));
-      tyB = uncycle(ctx.ttcx, appRepl(ctx, env, tyB));
+      tyA = uncycle(env.ttcx, appRepl(ctx, env, tyA));
+      tyB = uncycle(env.ttcx, appRepl(ctx, env, tyB));
       if (tyA == tyB || !seen.insert({tyA, tyB}).second) {
         return true; // already seen
       } else if (std::holds_alternative<Ty::Placeholder>(tyA->v)) {
@@ -146,7 +147,7 @@ namespace type::infer {
       return true;
     };
     if (!innerUnify(tyA, tyB)) {
-      err::Location &err = ctx.ecx.err()
+      err::Location &err = env.ecx.err()
           .msg("mismatched types");
       {
         std::stringstream ss;
@@ -179,7 +180,7 @@ namespace type::infer {
     Env &env,
     Env::Frame &frame,
     const InferenceSeq &seq,
-    Instantiation &inst
+    InstRef inst
   );
 
 #ifndef CHIRP_INFER_MAX_DEPTH
@@ -189,16 +190,17 @@ namespace type::infer {
 #define CHIRP_TOK_TO_STR(TOK) CHIRP_TOK_TO_STR0(TOK)
 #define CHIRP_INFER_MAX_DEPTH_STR CHIRP_TOK_TO_STR(CHIRP_INFER_MAX_DEPTH)
 
-  void AbstractTraitImpl::operator()(
+  void instAti(
+    const AbstractTraitImpl &ati,
     InferContext &ctx,
     Env &env,
     const std::vector<Tp> &args,
-    Instantiation &inst
-  ) const {
+    InstRef inst
+  ) {
     if (env.backtrace.size() > CHIRP_INFER_MAX_DEPTH) {
       throw std::runtime_error("Past recursion limit: " CHIRP_INFER_MAX_DEPTH_STR);
     }
-    if (inputs.size() != args.size()) {
+    if (ati.inputs.size() != args.size()) {
       throw std::runtime_error("ICE - Bad arity to trait impl");
     }
 
@@ -214,25 +216,25 @@ namespace type::infer {
     //
     // let in loop: loop()
     //              ~~~~~~ never
-    inst.outputs = outputs;
+    ctx[inst].outputs = ati.outputs;
 
     Env::Frame frame(env);
+    auto &steps = ctx.seqs.at(ati.blockIdx).seq;
     for (auto &bound : steps.vars) {
       frame.assoc(bound.second.ty, nullptr);
     }
     {
-      auto ii = inputs.begin();
+      auto ii = ati.inputs.begin();
       auto ai = args.begin();
-      while (ii != inputs.end()) {
+      while (ii != ati.inputs.end()) {
         unify(ctx, env, frame, *ii++, *ai++);
       }
     }
-
     runInEnvWithFrame(ctx, env, frame, steps, inst);
-    inst.outputs = appRepl(ctx, env, outputs);
-    for (Tp &out : inst.outputs) {
+    ctx[inst].outputs = appRepl(ctx, env, ati.outputs);
+    for (Tp &out : ctx[inst].outputs) {
       if (!isComplete(out)) {
-        Ty *never = ctx.ttcx.tcx.intern(Ty::Never{});
+        Ty *never = env.ttcx.tcx.intern(Ty::Never{});
         unify(ctx, env, frame, out, never);
         out = never;
       }
@@ -243,7 +245,7 @@ namespace type::infer {
     InferContext &ctx,
     Env &env,
     const InferenceSeq &seq,
-    Instantiation &inst
+    InstRef inst
   ) {
     Env::Frame frame(env);
     runInEnvWithFrame(ctx, env, frame, seq, inst);
@@ -254,16 +256,16 @@ namespace type::infer {
     Env &env,
     Env::Frame &frame,
     const InferenceSeq &seq,
-    Instantiation &inst
+    InstRef inst
   ) {
 #if (CHIRP_VM_DEBUG_STACKTRACES)
-    ctx.ecx.err().msg("PUSH{");
+    env.ecx.err().msg("PUSH{");
 #endif
     for (auto &step : seq.steps) {
 #if (CHIRP_VM_DEBUG_STACKTRACES)
       static Idx idx = 0;
       env.backtrace.emplace_back().msg("caused by").chain(step.desc);
-      addBacktrace(env, ctx.ecx.err().msg("Stack dump " + std::to_string(++idx)));
+      addBacktrace(env, env.ecx.err().msg("Stack dump " + std::to_string(++idx)));
 #endif
       switch (step.v.index()) {
       case util::index_of_type_v<Step::Unify, decltype(step.v)>: {
@@ -293,17 +295,23 @@ namespace type::infer {
         std::copy(trait->s.begin(), trait->s.end(), std::back_inserter(args));
         if (isComplete(args) /* otherwise propagate error */) {
           if (const AbstractTraitImpl *impl = ctx.traits[s.trait->i]
-              .find(ctx.ttcx, {args.front()/*TODO dispatch on args too*/})) {
-            auto &memos = ctx.insts[&impl->steps];
+              .find(env.ttcx, {args.front()/*TODO dispatch on args too*/})) {
+            auto &memos = env.instMap[impl->blockIdx];
             auto iter = memos.lower_bound(args);
             if (iter == memos.end() || iter->first != args) {
-              iter = memos.insert(iter, std::make_pair(args, Instantiation{}));
-              env.traits.emplace(std::make_pair(recTy, trait), &iter->second);
-              (*impl)(ctx, env, args, iter->second);
+              auto &insts = ctx.seqs.at(impl->blockIdx).insts;
+              iter = memos.emplace_hint(
+                iter,
+                args,
+                InstRef{impl->blockIdx, (Idx) insts.size()}
+              );
+              env.traits.emplace(std::make_pair(recTy, trait), iter->second);
+              insts.emplace_back();
+              instAti(*impl, ctx, env, args, iter->second);
             }
-            inst.traitImpls.emplace(s.idx, std::make_pair(&impl->steps, &iter->second));
+            ctx[inst].traitImpls.emplace(s.idx, iter->second);
           } else {
-            err::Location &err = ctx.ecx.err()
+            err::Location &err = env.ecx.err()
                 .msg("trait not implemented");
             {
               std::stringstream ss;
@@ -326,12 +334,13 @@ namespace type::infer {
 #endif
     }
 #if (CHIRP_VM_DEBUG_STACKTRACES)
-    ctx.ecx.err().msg("}POP");
+    env.ecx.err().msg("}POP");
 #endif
 
+    auto &tvs = ctx[inst].typeVars;
     for (auto &tv : seq.vars) {
-      inst.typeVars.emplace_hint(
-        inst.typeVars.end(),
+      tvs.emplace_hint(
+        tvs.end(),
         tv.first,
         appRepl(ctx, env, tv.second.ty)
       );

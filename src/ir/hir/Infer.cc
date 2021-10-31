@@ -37,28 +37,36 @@ namespace hir::infer {
     std::map<DefIdx, Tp> definedTys;
     Idx counter = 0;
 
-    void addBuiltins(InferResult &res) {
+    void addBuiltins(System &sys) {
       auto implBinOp = [&](Tp ty, Idx trait) {
-        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        AbstractTraitImpl ati;
+        ati.blockIdx = sys.seqs.size();
+        sys.seqs.emplace_back();
         ati.inputs = {ty, ty};
         ati.outputs = {ty};
-        res.traits[trait].insert(ttcx, {ty}, std::move(ati));
+        sys.traits[trait].insert(ttcx, {ty}, std::move(ati));
       };
       auto implNeg = [&](Tp ty) {
-        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        AbstractTraitImpl ati;
+        ati.blockIdx = sys.seqs.size();
+        sys.seqs.emplace_back();
         ati.inputs = {ty};
         ati.outputs = {ty};
-        res.traits[Neg].insert(ttcx, {ty}, std::move(ati));
+        sys.traits[Neg].insert(ttcx, {ty}, std::move(ati));
       };
       auto implEq = [&](Tp ty) {
-        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        AbstractTraitImpl ati;
+        ati.blockIdx = sys.seqs.size();
+        sys.seqs.emplace_back();
         ati.inputs = {ty, ty};
-        res.traits[Eq].insert(ttcx, {ty}, std::move(ati));
+        sys.traits[Eq].insert(ttcx, {ty}, std::move(ati));
       };
       auto implCmp = [&](Tp ty) {
-        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        AbstractTraitImpl ati;
+        ati.blockIdx = sys.seqs.size();
+        sys.seqs.emplace_back();
         ati.inputs = {ty, ty};
-        res.traits[Cmp].insert(ttcx, {ty}, std::move(ati));
+        sys.traits[Cmp].insert(ttcx, {ty}, std::move(ati));
       };
 
       for (type::IntSize is : type::INT_SIZE_FIXED) {
@@ -73,6 +81,10 @@ namespace hir::infer {
         }
         implNeg(i);
       }
+      Tp boolTy = boolType();;
+      implBinOp(boolTy, BitOr);
+      implBinOp(boolTy, BitAnd);
+
       for (type::FloatSize fs : type::FLOAT_SIZE_VALUES) {
         Tp ty = tcx.intern(Ty::Float{fs});
         for (Builtins bt : {Add, Sub, Mul, Div, Rem}) {
@@ -82,17 +94,17 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
-      implBinOp(boolType(), BitAnd);
-      implBinOp(boolType(), BitOr);
 
       {
-        AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+        AbstractTraitImpl ati;
+        ati.blockIdx = sys.seqs.size();
+        sys.seqs.emplace_back();
         auto args = tcx.intern(Ty::Placeholder{counter++});
         auto ret = tcx.intern(Ty::Placeholder{counter++});
         auto fnTy = tcx.intern(Ty::FfiFn{args, ret});
         ati.inputs = {fnTy, args};
         ati.outputs = {ret};
-        res.traits[Fn].insert(ttcx, {fnTy}, std::move(ati));
+        sys.traits[Fn].insert(ttcx, {fnTy}, std::move(ati));
       }
     }
 
@@ -115,12 +127,15 @@ namespace hir::infer {
       {
         tvIter = tvs.at(graphI).begin();
         visitBlock(p.topLevel, graphs.at(graphI), tvIter);
-        res.seqs.push_back(std::make_unique<InferenceSeq>(graphs.at(graphI)));
+        auto &topBlock = res.sys.seqs.emplace_back();
+        topBlock.seq = graphs.at(graphI);
         graphI++;
         for (auto &ti : p.traitImpls) {
-          auto &map = res.traits[*ti.trait.base];
+          auto &map = res.sys.traits[*ti.trait.base];
           auto &ig = graphs.at(graphI);
-          AbstractTraitImpl ati(*res.seqs.emplace_back(std::make_unique<InferenceSeq>()));
+          AbstractTraitImpl ati;
+          ati.blockIdx = res.sys.seqs.size();
+          auto &block = res.sys.seqs.emplace_back();
           for (Idx param : ti.params) {
             definedTys[param] = ig.add(tcx, counter).ty;
           }
@@ -136,11 +151,11 @@ namespace hir::infer {
             visitBlock(m, ig, tvIter);
             graphI++;
           }
-          ati.steps = ig;
+          block.seq = ig;
           map.insert(ttcx, {tys.front()}, std::move(ati));
         }
       }
-      addBuiltins(res);
+      addBuiltins(res.sys);
       return res;
     }
 

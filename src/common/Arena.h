@@ -47,20 +47,9 @@ namespace arena {
 
     template <typename ...Args>
     T *intern(Args &&...args) {
-      auto value = std::make_unique<T>(std::forward<Args>(args)...);
-      auto found = interned.find(value);
-      if (found == interned.end()) {
-#ifdef ARENA_LOGGING
-        std::cerr << "[ARENA] miss\n";
-#endif
-        found = interned.insert(std::move(value)).first;
-      }
-#ifdef ARENA_LOGGING
-      else {
-        std::cerr << "[ARENA] hit\n";
-      }
-#endif
-      return found->get();
+      return interned.insert(
+        std::make_unique<T>(std::forward<Args>(args)...)
+      ).first->get();
     }
   };
 }

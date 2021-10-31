@@ -102,7 +102,7 @@ namespace ast::lower {
         });
     }
 
-    LoweringVisitor() {
+    void addBuiltins() {
       builtinType("Fn", DefType::Trait{});
       builtinType("Add", DefType::Trait{});
       builtinType("Sub", DefType::Trait{});
@@ -137,7 +137,10 @@ namespace ast::lower {
       builtinType("ffifn", DefType::Type{});
       builtinType("string", DefType::Type{});
       builtinType("cstr", DefType::Type{});
+    }
 
+    LoweringVisitor() {
+      addBuiltins();
       typeBindings.push();
     }
 
