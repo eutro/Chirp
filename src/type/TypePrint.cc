@@ -31,7 +31,6 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
         },
         [&](Ty::Placeholder &t) {
           Idx i = t.i;
-          os << "tv::";
           while (true) {
             os << (char) ('A' + (i % 26));
             if (i <= 25) return;
@@ -40,28 +39,23 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
         },
         [&](Ty::ADT &t) {
           os << "adt[" << t.i << "]";
-          os << "{";
-          for (auto &v : t.v) {
-            os << v << ",";
+          if (!t.s.empty()) {
+            os << "<";
+            for (auto iter = t.s.begin(); iter != t.s.end();) {
+              os << *iter;
+              if (++iter != t.s.end()) os << ",";
+            }
+            os << ">";
           }
-          os << "}";
-          os << "<";
-          for (auto &s : t.s) {
-            os << s << ",";
-          }
-          os << ">";
         },
-        [&](Ty::Dyn &t) {
-          os << "dyn{";
-          for (auto &tb : t.t) {
-            os << tb << ",";
-          }
-          os << "}";
+        [&](Ty::Never &t) {
+          os << "!";
         },
         [&](Ty::Tuple &t) {
-          os << "(";
-          for (auto &t : t.t) {
-            os << t << ",";
+          os << "#(";
+          for (auto iter = t.t.begin(); iter != t.t.end();) {
+            os << *iter;
+            if (++iter != t.t.end()) os << ",";
           }
           os << ")";
         },
@@ -87,11 +81,14 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
 
 std::ostream &operator<<(std::ostream &os, type::TraitBound *tb) {
   os << "trait[" << tb->i << "]";
-  os << "<";
-  for (auto &s : tb->s) {
-    os << s << ",";
+  if (!tb->s.empty()) {
+    os << "<";
+    for (auto iter = tb->s.begin(); iter != tb->s.end();) {
+      os << *iter;
+      if (++iter != tb->s.end()) os << ",";
+    }
+    os << ">";
   }
-  os << ">";
   return os;
 }
 

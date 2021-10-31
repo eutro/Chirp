@@ -212,7 +212,7 @@ namespace fsm {
       for (size_t state : cur) {
         Finished<F>().merge(dfa.states[curState].finished,
                             states[state].finished);
-        for (const std::pair<S, std::set<size_t>> &transition : states[state].transitions) {
+        for (const auto &transition : states[state].transitions) {
           allOut[transition.first].insert(transition.second.begin(), transition.second.end());
         }
       }

@@ -44,5 +44,6 @@ namespace err {
     Location &err();
   };
 
+  void printErrors(ErrorPrintContext &epc, ErrorContext &ec);
   void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec);
 }

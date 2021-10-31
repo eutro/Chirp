@@ -76,30 +76,11 @@ namespace lir::disas {
     }
   }
 
-  void disassemble(const Instantiation &inst, std::ostream &os) {
-    os << "Traits:\n";
-    Idx i = 0;
-    for (auto tr : inst.traits) {
-      os << "  " << i++ << ": " << tr << "\n";
-    }
-    os << "Types:\n";
-    i = 0;
-    for (auto ty : inst.types) {
-      os << "  " << i++ << ": " << ty << "\n";
-    }
-  }
-
   void disassemble(const Module &mod, std::ostream &os) {
     os << "Top:\n";
-    disassemble(mod.instantiation, os);
     disassemble(mod.topLevel, os);
     for (auto &ti : mod.traitImpls) {
       os << "Trait:\n";
-      Idx idx = 0;
-      for (auto &i : ti.instantiations) {
-        os << "Instantiation " << idx++ << ":\n";
-        disassemble(i.second, os);
-      }
       for (auto &m : ti.methods) {
         disassemble(m, os);
       }

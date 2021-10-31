@@ -1,1 +1,8 @@
-fn foo(x) = foo(\.x)
+(fn foo(x) = foo(\.x))(1)
+
+(\.{
+  defn foo(x) = bar(10)
+  defn z = foo(10)
+  defn bar(x) = foo(z)
+  bar
+})()

@@ -120,13 +120,17 @@ namespace err {
                                        std::ostream &os) :
     sourceLines(sourceLines), os(os) {}
 
+  void printErrors(ErrorPrintContext &epc, ErrorContext &ec) {
+    for (auto &err : ec.errors) {
+      epc.os << "\nError:\n";
+      epc << err;
+    }
+  }
+
   void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec) {
     if (!ec.errors.empty()) {
       epc.os << "Aborting due to errors:\n";
-      for (auto &err : ec.errors) {
-        epc.os << "\nError:\n";
-        epc << err;
-      }
+      printErrors(epc, ec);
       std::exit(1);
     }
   }

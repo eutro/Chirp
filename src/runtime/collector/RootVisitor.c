@@ -1,5 +1,7 @@
 #include "RootVisitor.h"
 
+StackEntry *llvm_gc_root_chain;
+
 void chirpVisitRoots(VisitFn visitor) {
   for (StackEntry *r = llvm_gc_root_chain; r; r = r->next) {
     unsigned i = 0;

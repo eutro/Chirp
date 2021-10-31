@@ -1,6 +1,8 @@
 #include "Lowering.h"
 #include "Hir.h"
 #include "Infer.h"
+#include "RecurVisitor.h"
+#include <limits>
 
 namespace hir::lower {
   using namespace lir;
@@ -13,49 +15,56 @@ namespace hir::lower {
       public ExprVisitor<Insn *,
           BlockList &, Idx *, bool> {
   public:
-    infer::InferResult &infer;
-
-    LoweringVisitor(infer::InferResult &res) : infer(res) {}
-
-    Block *rootBlock = nullptr;
     Program *prog = nullptr;
 
     LowerResult visitProgram(Program &p) override {
       prog = &p;
       LowerResult ret;
-      ret.module.instantiation = instFromIdx(infer.insts.at(&p.topLevel), 0);
       ret.module.topLevel = visitRootBlock(p.topLevel, false);
-      for (auto &pair : infer.insts) {
-        Block *b = pair.first;
-        if (b == &p.topLevel) continue;
+      for (auto &ti : p.traitImpls) {
         lir::TraitImpl &trait = ret.module.traitImpls.emplace_back();
-        trait.methods.emplace_back(visitRootBlock(*b, true));
-        auto &bi = pair.second;
-        size_t instCount = bi.types.size();
-        for (size_t i = 0; i < instCount; ++i) {
-          trait.instantiations[lir::TraitImpl::For{
-              .ty = bi.types.at(i).at(0),
-              .tb = bi.traitBounds.at(i).at(0),
-          }] = instFromIdx(bi, i);
+        for (auto &m : ti.methods) {
+          trait.methods.emplace_back(visitRootBlock(m, true));
         }
       }
       return ret;
     }
 
-    Instantiation instFromIdx(infer::InferResult::BlockInstantiation &bi, size_t idx) {
-      Instantiation inst;
-      inst.types = bi.types.at(idx);
-      inst.traits = bi.traitBounds.at(idx);
-      return inst;
-    }
+    class TyCounter : public RecurVisitor<std::monostate, std::map<Expr*, Idx>, Idx> {
+      std::monostate visitExpr(Expr &it, std::map<Expr*, Idx> &exprTys, Idx &idx) override {
+        exprTys[&it] = idx++;
+        return RecurVisitor::visitExpr(it, exprTys, idx);
+      }
+    };
 
+    class DefCounter : public RecurVisitor<std::monostate, std::map<Idx, Idx>, Idx> {
+    public:
+      void visitBlock(Block &it, std::map<Idx, Idx> &defTys, Idx &idx) override {
+        for (auto &b : it.bindings) {
+          defTys[b] = idx++;
+        }
+        RecurVisitor::visitBlock(it, defTys, idx);
+      }
+    };
+
+    std::map<Expr*, Idx> exprTys;
+    std::map<Idx, Idx> defTys;
     BlockList visitRootBlock(Block &block, bool func) {
-      rootBlock = &block;
-      infer.insts.at(&block);
+      Idx counter = 0;
+      {
+        TyCounter tc;
+        exprTys.clear();
+        tc.visitBlock(block, exprTys, counter);
+      }
+      {
+        DefCounter dc;
+        defTys.clear();
+        dc.visitBlock(block, defTys, counter);
+      }
       BlockList l;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true, func);
-      return std::move(l);
+      return l;
     }
 
     Insn *voidValue(BlockList &l, Idx *bb) {
@@ -63,7 +72,7 @@ namespace hir::lower {
     }
 
     void setTyAndLoc(Expr &e, Insn *insn) {
-      insn->ty = infer.insts[rootBlock].exprTypes.at(&e);
+      insn->ty = exprTys.at(&e);
       insn->span = e.span;
     }
 
@@ -81,7 +90,7 @@ namespace hir::lower {
       for (auto &binding : e.bindings) {
         Definition &def = prog->bindings.at(binding);
         Decl &declare = (root ? l.params : l.vars)[binding];
-        declare.ty = infer.insts[rootBlock].varTypes.at(binding);
+        declare.ty = defTys.at(binding);
         declare.span = def.source;
         declare.name = def.name;
       }
@@ -91,7 +100,8 @@ namespace hir::lower {
           if (dynamic_cast<NewExpr *>(define->value.get())) {
             auto halloc = l[*bb].emplace_back(Insn::HeapAlloc{});
             setTyAndLoc(*define->value, halloc);
-            l[*bb].emplace_back<false>(Insn::SetVar{define->idx, halloc});
+            auto setVar = l[*bb].emplace_back<false>(Insn::SetVar{define->idx, halloc});
+            setTyAndLoc(*expr, setVar);
           }
         }
       }
@@ -130,9 +140,9 @@ namespace hir::lower {
           return voidValue(l, bb);
         } else {
           return l[*bb].emplace_back(Insn::PhiNode{{
-                                                       {thenV, &l[thenB]},
-                                                       {elseV, &l[elseB]},
-                                                   }});
+                {thenV, &l[thenB]},
+                {elseV, &l[elseB]},
+              }});
         }
       }
     }
@@ -199,13 +209,13 @@ namespace hir::lower {
     RET_T visitBinExpr ARGS(BinExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
-      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = exprTys.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
       auto receiver = visitExpr(*e.lhs, l, bb, false);
       std::vector<Insn *> args = {visitExpr(*e.rhs, l, bb, false)};
-      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = exprTys.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{
         receiver, args, trait,
         e.op <= CmpExpr::Eq ?
@@ -215,7 +225,7 @@ namespace hir::lower {
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
       auto receiver = visitExpr(*e.value, l, bb, false);
-      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = exprTys.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, {}, trait, 0});
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
@@ -225,7 +235,7 @@ namespace hir::lower {
       for (auto &expr : e.args) {
         args.push_back(visitExpr(*expr, l, bb, false));
       }
-      Idx trait = infer.insts[rootBlock].traitTypes.at(&e);
+      Idx trait = exprTys.at(&e);
       return l[*bb].emplace_back(Insn::CallTrait{receiver, args, trait, 0});
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {
@@ -271,7 +281,7 @@ namespace hir::lower {
     }
   };
 
-  std::unique_ptr<AbstractLoweringVisitor> loweringVisitor(infer::InferResult &inferResult) {
-    return std::make_unique<LoweringVisitor>(inferResult);
+  std::unique_ptr<AbstractLoweringVisitor> loweringVisitor() {
+    return std::make_unique<LoweringVisitor>();
   }
 }

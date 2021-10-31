@@ -17,9 +17,15 @@ template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace type {
   class Ty;
-  class TraitBound;
+  struct TraitBound;
   using Tcx = arena::InternArena<Ty>;
   using Tbcx = arena::InternArena<TraitBound>;
+
+  struct TTcx {
+    Tcx tcx;
+    Tbcx tbcx;
+  };
+
   using Tp = Ty *;
 
   enum class IntSize {
@@ -100,9 +106,8 @@ namespace type {
       Substs s;
       BIN_OPS(ADT)
     };
-    struct Dyn {
-      TraitBounds t;
-      BIN_OPS(Dyn)
+    struct Never {
+      BIN_OPS(Never)
     };
     struct Tuple {
       std::vector<Ty*> t;
@@ -139,7 +144,7 @@ namespace type {
       Float,
       Placeholder,
       ADT,
-      Dyn,
+      Never,
       Tuple,
       TraitRef,
       String,
@@ -176,9 +181,15 @@ ITER_HASH(std::set<Idx>)
 
 namespace type {
   Ty *uncycle(Tcx &, Tbcx &, Ty *);
+  Ty *uncycle(TTcx &, Ty *);
 
   struct PreWalk {};
   struct PostWalk {};
+
+  template <bool IGNORED = false, typename T, typename TR>
+  T replaceTy(TTcx &ttcx, T x, TR &tr) {
+    return replaceTy(ttcx.tcx, ttcx.tbcx, x, tr);
+  }
 
   template <bool IGNORED = false, typename TR>
   TraitBound *replaceTy(Tcx &tcx, Tbcx &tbcx, TraitBound *tb, TR &tr) {
@@ -194,13 +205,14 @@ namespace type {
     if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
       ty = tr(ty, PreWalk{});
     }
+    using VTy = decltype(ty->v);
     switch (ty->v.index()) {
-      case 5: // Placeholder
-      case 12: // CyclicRef
+      case util::index_of_type_v<Ty::Placeholder, VTy>:
+      case util::index_of_type_v<Ty::CyclicRef, VTy>:
         ty = tr(ty);
         break;
-      case 9: { // TraitRef
-        auto &trf = std::get<9>(ty->v);
+      case util::index_of_type_v<Ty::TraitRef, VTy>: {
+        auto &trf = std::get<Ty::TraitRef>(ty->v);
         auto uret = Ty::TraitRef{replaceTy<IGNORED>(tcx, tbcx, trf.ty, tr),
                                  replaceTy<IGNORED>(tcx, tbcx, trf.trait, tr),
                                  trf.ref};
@@ -211,48 +223,42 @@ namespace type {
         }
         break;
       }
-      case 6: { // ADT
-        auto &adt = std::get<6>(ty->v);
+      case util::index_of_type_v<Ty::ADT, VTy>: {
+        auto &adt = std::get<Ty::ADT>(ty->v);
         auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(tcx, tbcx, adt.s, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
-      case 7: { // Dyn
-        auto &dyn = std::get<7>(ty->v);
-        auto uret = Ty::Dyn{replaceTy<IGNORED>(tcx, tbcx, dyn.t, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case 8: { // Tuple
-        auto &tup = std::get<8>(ty->v);
+      case util::index_of_type_v<Ty::Tuple, VTy>: {
+        auto &tup = std::get<Ty::Tuple>(ty->v);
         auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tbcx, tup.t, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
-      case 11: { // Cyclic
-        auto &clc = std::get<11>(ty->v);
+      case util::index_of_type_v<Ty::Cyclic, VTy>: {
+        auto &clc = std::get<Ty::Cyclic>(ty->v);
         auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, tbcx, clc.ty, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
-      case 13: { // FfiFn
-        auto &ffifn = std::get<13>(ty->v);
+      case util::index_of_type_v<Ty::FfiFn, VTy>: {
+        auto &ffifn = std::get<Ty::FfiFn>(ty->v);
         auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, tbcx, ffifn.args, tr),
                               replaceTy<IGNORED>(tcx, tbcx, ffifn.ret, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
-      case 0: // Err
-      case 1: // Bool
-      case 2: // Int
-      case 3: // UInt
-      case 4: // Float
-      case 10: // String
+      case util::index_of_type_v<Ty::Err, VTy>:
+      case util::index_of_type_v<Ty::Bool, VTy>:
+      case util::index_of_type_v<Ty::Int, VTy>:
+      case util::index_of_type_v<Ty::UInt, VTy>:
+      case util::index_of_type_v<Ty::Float, VTy>:
+      case util::index_of_type_v<Ty::Never, VTy>:
+      case util::index_of_type_v<Ty::String, VTy>:
       default: break; // noop
     }
     if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
@@ -281,5 +287,27 @@ namespace type {
     std::set<T> set;
     for (auto &s : tys) set.insert(replaceTy(tcx, tbcx, s, tr));
     return set;
+  }
+
+  template <typename T>
+  bool isComplete(T ty) {
+    bool isComplete = true;
+    auto checker = overloaded {
+        [&](Tp ty) -> Tp {
+          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+        [&](Tp ty, type::PostWalk) -> Tp {
+          if (std::holds_alternative<Ty::Err>(ty->v)) {
+            isComplete = false;
+          }
+          return ty;
+        },
+    };
+    TTcx ttcx;
+    replaceTy<true>(ttcx, ty, checker);
+    return isComplete;
   }
 }

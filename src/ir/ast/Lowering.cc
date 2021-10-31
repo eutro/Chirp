@@ -102,7 +102,7 @@ namespace ast::lower {
         });
     }
 
-    LoweringVisitor() {
+    void addBuiltins() {
       builtinType("Fn", DefType::Trait{});
       builtinType("Add", DefType::Trait{});
       builtinType("Sub", DefType::Trait{});
@@ -137,7 +137,10 @@ namespace ast::lower {
       builtinType("ffifn", DefType::Type{});
       builtinType("string", DefType::Type{});
       builtinType("cstr", DefType::Type{});
+    }
 
+    LoweringVisitor() {
+      addBuiltins();
       typeBindings.push();
     }
 
@@ -224,9 +227,12 @@ namespace ast::lower {
                 std::vector<Param> &params,
                 const loc::Span &source,
                 Expr &body) {
+      std::set<hir::DefIdx> globalRefs;
       std::set<hir::DefIdx> closed;
       bindings.push([&](hir::DefIdx vr) {
-        if (!std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+        if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+          globalRefs.insert(vr);
+        } else {
           closed.insert(vr);
         }
       });
@@ -258,7 +264,7 @@ namespace ast::lower {
       addBindingsToBlock(block);
       auto bodyE = visitExpr(body, hir::Pos::Expr);
       if (retHint) {
-        bodyE->type.push_back(visitType(*retHint->type));
+        bodyE->hints.push_back(visitType(*retHint->type));
       }
       block.body.push_back(std::move(bodyE));
       bindings.pop();
@@ -287,6 +293,7 @@ namespace ast::lower {
       fnImpl.params.reserve(closed.size() + arity);
 
       hir::Type &adtType = fnImpl.type;
+      adtType.informative = true;
       adtType.base = typeIdx;
       adtType.params.reserve(closed.size());
       for (auto &cv : closed) {
@@ -324,12 +331,15 @@ namespace ast::lower {
             DefType::Type{}
         });
       fnImpl.params.push_back(retIdx);
-      block.body.back()->type.emplace_back().base = retIdx;
+      block.body.back()->hints.emplace_back().base = retIdx;
+
+      fnType.params = {fnArgsTy};
       hir::Type retTy;
       retTy.base = retIdx;
-      fnType.params = {fnArgsTy, retTy};
+      fnImpl.types.push_back(retTy);
 
-      auto expr = withSpan<hir::NewExpr>(std::nullopt);
+      auto expr = withSpan<hir::NewExpr>(source);
+      expr->globalRefs = std::move(globalRefs);
       expr->adt = typeIdx;
       expr->variant = 0;
       expr->values.reserve(closed.size());
@@ -364,6 +374,10 @@ namespace ast::lower {
           auto thisE = withSpan<hir::VarExpr>(std::nullopt);
           thisE->ref = thisIdx;
           getE->value = std::move(thisE);
+
+          getE->span = varE.span;
+          getE->pos = varE.pos;
+          getE->hints = std::move(varE.hints);
           return getE;
         }
         return nullptr;
@@ -411,8 +425,9 @@ namespace ast::lower {
       if (it.foreignToken) {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
+        hir::Type &fType = fe->hints.emplace_back();
+        fType.informative = true;
         if (it.arguments) {
-          hir::Type &fType = fe->type.emplace_back();
           fType.base = hir::FFIFN;
           fType.params.reserve(2);
           hir::Type &argTypes = fType.params.emplace_back();
@@ -422,6 +437,8 @@ namespace ast::lower {
             argTypes.params.push_back(visitHint(rb.typeHint));
           }
           fType.params.push_back(visitHint(it.typeHint));
+        } else {
+          fType = visitHint(it.typeHint);
         }
         retExpr->value = std::move(fe);
       } else if (it.arguments) {
@@ -435,7 +452,7 @@ namespace ast::lower {
       } else {
         retExpr->value = visitExpr(*it.value, hir::Pos::Expr);
         if (it.typeHint) {
-          retExpr->type.push_back(visitHint(it.typeHint));
+          retExpr->hints.push_back(visitHint(it.typeHint));
         }
       }
       return retExpr;
@@ -660,6 +677,7 @@ namespace ast::lower {
           return tmpIdx;
         };
 
+        loc::SrcLoc lastLoc;
         std::function<Eptr(Idx, hir::DefIdx)> addRhs =
           [&](Idx i, hir::DefIdx lastVar) -> Eptr {
             auto &term = it.terms.at(i);
@@ -690,7 +708,8 @@ namespace ast::lower {
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);
             hir::DefIdx thisVar = addTemp(*predE, *term.expr);
             {
-              auto cmpE = withSpan<hir::CmpExpr>(std::nullopt);
+              auto cmpE = withSpan<hir::CmpExpr>(loc::Span(lastLoc, term.expr->span.hi));
+              lastLoc = term.expr->span.lo;
               {
                 auto lhsE = withSpan<hir::VarExpr>(std::nullopt);
                 lhsE->ref = lastVar;
@@ -715,6 +734,7 @@ namespace ast::lower {
             }
           };
         hir::DefIdx lhsVar = addTemp(*blockE, *it.lhs);
+        lastLoc = it.lhs->span.lo;
         blockE->block.body.push_back(addRhs(0, lhsVar));
         return blockE;
       }
@@ -807,7 +827,7 @@ namespace ast::lower {
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
       auto expr = visitExpr(*it.expr, pos);
-      expr->type.push_back(visitType(*it.hint.type));
+      expr->hints.push_back(visitType(*it.hint.type));
       return expr;
     }
   };
