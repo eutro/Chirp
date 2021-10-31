@@ -13,7 +13,7 @@ jobs:
   build:
     strategy:
       matrix:
-        running-on: [ubuntu-latest, macos-latest]
+        running-on: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{matrix.running-on}}
 
     steps:
@@ -29,9 +29,3 @@ jobs:
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - name: Upload Binaries
-      uses: actions/upload-artifact@v2.2.4
-      with:
-        name: ${{matrix.running-on}}-binaries
-        path: ${{github.workspace}}/build/bin/targets/
