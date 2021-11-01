@@ -8,6 +8,9 @@ on:
 
 env:
   BUILD_TYPE: Release
+  UNIX_LLVM_VERSION: 12.0.0
+  WIN_LLVM_VERSION: 12.0.1
+  WIN_LLVM_VERSION_FULL: llvm-12.0.1-windows-amd64-msvc15-msvcrt
 
 jobs:
   build:
@@ -22,21 +25,33 @@ jobs:
       if: matrix.running-on != 'windows-latest'
       uses: KyleMayes/install-llvm-action@v1.5.0
       with:
-        version: "12.0.0"
+        version: ${{env.UNIX_LLVM_VERSION}}
 
     - name: Install LLVM (Windows)
       if: matrix.running-on == 'windows-latest'
       run: |
-        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-12.0.1/llvm-12.0.1-windows-amd64-msvc15-msvcrt.7z"
+        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.WIN_LLVM_VERSION}}/${{env.WIN_LLVM_VERSION_FULL}}.7z"
         7z x llvm.7z -ollvm-ex
-        setx LLVM_DIR "${{github.workspace}}\\llvm-ex\\llvm-12.0.1-windows-amd64-msvc15-msvcrt"
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
       with:
         path: chirp
 
-    - name: Build Chirp
+    - name: Setup Chirp (Unix)
+      if: matrix.running-on != 'windows-latest'
       run: |
-        cmake -B ${{github.workspace}}/chirp/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=targets ${{github.workspace}}/chirp/src
-        cmake --build ${{github.workspace}}/chirp/build
+        cmake -B ${{github.workspace}}/chirp/build \
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+              ${{github.workspace}}/chirp/src
+    
+    - name: Setup Chirp (Windows)
+      if: matrix.running-on == 'windows-latest'
+      run: |
+        cmake -B ${{github.workspace}}/chirp/build \
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+              -DLLVM_DIR="${{github.workspace}}\\llvm-ex\\${{env.WIN_LLVM_VERSION_FULL}}\\lib\\cmake\\llvm"
+              ${{github.workspace}}/chirp/src
+
+    - name: Build Chirp
+      run: cmake --build ${{github.workspace}}/chirp/build
