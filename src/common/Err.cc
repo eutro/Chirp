@@ -29,7 +29,7 @@ namespace err {
   };
 
   size_t getMargin(size_t line) {
-    return line < 100 ? 2 : std::ceil(std::log10(line));
+    return line < 100 ? 2 : (size_t) std::ceil(std::log10(line));
   }
 
   void writeLine(ErrorPrintContext &ec, size_t margin, size_t line) {

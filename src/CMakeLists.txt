@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.19)
 project(Chirp)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 11)
 
 find_package(LLVM 12 REQUIRED CONFIG)
 
@@ -27,7 +28,13 @@ if(NOT json_POPULATED)
 endif()
 
 if(MSVC)
-  add_compile_options(/W4)
+  add_compile_options(/W4
+    /wd4458 # declaration hides class member
+    /wd4100 # unused formal parameter
+    /wd4267 # lossy conversions
+    /wd4244 # also lossy conversions
+    /wd4996 # deprecations
+    )
 else()
   add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 endif()

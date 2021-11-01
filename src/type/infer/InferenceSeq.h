@@ -26,6 +26,7 @@ namespace type::infer {
     std::variant<Unify, Assign, ImplTrait> v;
     template<typename... Arg>
     Step(Arg &&... args): v(std::forward<Arg>(args)...) {}
+    Step(const Step &) = default;
   };
 
   struct VarInfo {

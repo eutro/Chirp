@@ -19,13 +19,13 @@ struct GCMeta {
 typedef struct FrameMap {
   int32_t numRoots; // Number of roots in stack frame.
   int32_t numMeta;  // Number of metadata descriptors. May be < NumRoots.
-  void *meta[];     // May be absent for roots without metadata.
+  void *meta[0];    // May be absent for roots without metadata.
 } FrameMap;
 
 typedef struct StackEntry {
   struct StackEntry *next; // Caller's stack entry.
   FrameMap *map;           // Pointer to constant FrameMap.
-  void *roots[];           // Stack roots (in-place array, so we pretend).
+  void *roots[0];          // Stack roots (in-place array, so we pretend).
 } StackEntry;
 
 extern StackEntry *llvm_gc_root_chain;
