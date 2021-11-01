@@ -1,5 +1,7 @@
 # Chirp
 
+[![Build](https://github.com/eutro/Chirp/actions/workflows/build.yml/badge.svg)](https://github.com/eutro/Chirp/actions/workflows/build.yml)
+
 Chirp is a functional, statically typed programming language, created for educational purposes.
 
 It is currently severely lacking features to make it convenient for general use,
