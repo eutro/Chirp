@@ -11,7 +11,7 @@
 typedef struct AllocMeta {
   struct AllocMeta *next;
   bool marked;
-  max_align_t value[0];
+  long double value[0]; // should be max_align_t but that's missing on MSVC
 } AllocMeta;
 
 static AllocMeta *allocated = NULL;
