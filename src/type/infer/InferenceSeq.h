@@ -22,12 +22,10 @@ namespace type::infer {
       TraitBound *trait;
       Idx idx; // for looking up later
     };
-    err::Location desc;
     std::variant<Unify, Assign, ImplTrait> v;
+    err::Location desc;
     template<typename... Arg>
-    Step(Arg &&... args): v(std::forward<Arg>(args)...) {}
-    Step(const Step &) = default;
-    Step(Step &&) = default;
+    Step(Arg &&... args): v(std::forward<Arg>(args)...), desc() {}
   };
 
   struct VarInfo {
