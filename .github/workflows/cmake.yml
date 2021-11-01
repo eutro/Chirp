@@ -8,28 +8,50 @@ on:
 
 env:
   BUILD_TYPE: Release
-  LLVM_VERSION: 12.0.0
+  UNIX_LLVM_VERSION: 12.0.0
+  WIN_LLVM_VERSION: 12.0.1
+  WIN_LLVM_VERSION_FULL: llvm-12.0.1-windows-amd64-msvc15-msvcrt
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        running-on: [ubuntu-latest, macos-10.15]
+        running-on: [ubuntu-latest, macos-10.15, windows-latest]
     runs-on: ${{matrix.running-on}}
 
     steps:
-    - name: Install LLVM
+    - name: Install LLVM (Unix)
+      if: matrix.running-on != 'windows-latest'
       uses: KyleMayes/install-llvm-action@v1.5.0
       with:
-        version: ${{env.LLVM_VERSION}}
+        version: ${{env.UNIX_LLVM_VERSION}}
+
+    - name: Install LLVM (Windows)
+      if: matrix.running-on == 'windows-latest'
+      run: |
+        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.WIN_LLVM_VERSION}}/${{env.WIN_LLVM_VERSION_FULL}}.7z"
+        7z x llvm.7z -ollvm-ex
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
       with:
         path: chirp
 
-    - name: Build Chirp
+    - name: Setup Chirp (Unix)
+      if: matrix.running-on != 'windows-latest'
       run: |
-        cmake -B ${{github.workspace}}/chirp/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=targets ${{github.workspace}}/chirp/src
-        cmake --build ${{github.workspace}}/chirp/build
+        cmake -B ${{github.workspace}}/chirp/build \
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+              ${{github.workspace}}/chirp/src
+    
+    - name: Setup Chirp (Windows)
+      if: matrix.running-on == 'windows-latest'
+      run: |
+        cmake -B ${{github.workspace}}/chirp/build `
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} `
+              -DLLVM_DIR="${{github.workspace}}\\llvm-ex\\${{env.WIN_LLVM_VERSION_FULL}}\\lib\\cmake\\llvm" `
+              ${{github.workspace}}/chirp/src
+
+    - name: Build Chirp
+      run: cmake --build ${{github.workspace}}/chirp/build
