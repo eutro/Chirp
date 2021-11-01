@@ -29,9 +29,9 @@ jobs:
       if: matrix.running-on == 'windows-latest'
       run: |
         set FULL_DESC="llvm-ex\\llvm-${{env.LLVM_VERSION}}-windows-amd64-msvc15-msvcrt"
-        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.LLVM_VERSION}}/$FULL_DESC.7z"
+        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.LLVM_VERSION}}/%FULL_DESC%.7z"
         7z x llvm.7z -ollvm-ex
-        setx LLVM_DIR "${{github.workspace}}/llvm-ex/$FULL_DESC"
+        setx LLVM_DIR "${{github.workspace}}/llvm-ex/%FULL_DESC%"
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
