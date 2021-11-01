@@ -27,6 +27,7 @@ namespace type::infer {
     template<typename... Arg>
     Step(Arg &&... args): v(std::forward<Arg>(args)...) {}
     Step(const Step &) = default;
+    Step(Step &&) = default;
   };
 
   struct VarInfo {
