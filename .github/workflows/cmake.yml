@@ -19,19 +19,19 @@ jobs:
     runs-on: ${{matrix.running-on}}
 
     steps:
-    - name: Install LLVM
+    - name: Install LLVM (Unix)
       if: matrix.running-on != 'windows-latest'
-      uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
+      uses: KyleMayes/install-llvm-action@v1.5.0
       with:
         version: ${{env.LLVM_VERSION}}
 
     - name: Install LLVM (Windows)
       if: matrix.running-on == 'windows-latest'
-      uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
-      with:
-        version: ${{env.LLVM_VERSION}}
-        directory: ./llvm
-        url: "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${version}/llvm-${version}-windows-amd64-msvc15-msvcrt.7z"
+      run: |
+        FULL_DESC="llvm-ex\\llvm-${{env.LLVM_VERSION}}-windows-amd64-msvc15-msvcrt"
+        wget --output-document llvm.7z "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.LLVM_VERSION}}/$FULL_DESC.7z"
+        7z x llvm.7z -o "llvm-ex"
+        setx LLVM_DIR "${{github.workspace}}/llvm-ex/$FULL_DESC"
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
