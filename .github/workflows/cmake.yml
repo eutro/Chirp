@@ -48,9 +48,9 @@ jobs:
     - name: Setup Chirp (Windows)
       if: matrix.running-on == 'windows-latest'
       run: |
-        cmake -B ${{github.workspace}}/chirp/build \
-              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-              -DLLVM_DIR="${{github.workspace}}\\llvm-ex\\${{env.WIN_LLVM_VERSION_FULL}}\\lib\\cmake\\llvm" \
+        cmake -B ${{github.workspace}}/chirp/build `
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} `
+              -DLLVM_DIR="${{github.workspace}}\\llvm-ex\\${{env.WIN_LLVM_VERSION_FULL}}\\lib\\cmake\\llvm" `
               ${{github.workspace}}/chirp/src
 
     - name: Build Chirp
