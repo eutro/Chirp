@@ -151,7 +151,7 @@ namespace tok::parser {
     }
 
     Token require(Tok type, const std::string &msg) {
-      return require((std::set<Tok>) {type}, msg);
+      return require(std::set<Tok>{type}, msg);
     }
   };
 
@@ -160,7 +160,7 @@ namespace tok::parser {
   }
 
   Identifier parseIdent(Token &&token) {
-    return {.ident = token};
+    return Identifier{token};
   }
 
   Identifier parseIdent(ParserStream &stream) {
@@ -635,9 +635,9 @@ namespace tok::parser {
     expr.lhs = std::move(lhs);
     expr.span.lo = expr.lhs->span.lo;
     do {
-      expr.terms.push_back((BinaryExpr::Rhs) {
-          .operatorToken = *opToken,
-          .expr = parseBinaryExpr(stream, index + 1)
+      expr.terms.push_back(BinaryExpr::Rhs{
+          *opToken,
+          parseBinaryExpr(stream, index + 1)
       });
       opToken = stream.optional(binaryOperators[index]);
     } while (opToken);

@@ -87,6 +87,13 @@ namespace lir::codegen {
     llvm::Function *func;
     Instantiation &inst;
 
+    LocalCC(
+      CC &cc,
+      llvm::IRBuilder<> &ib,
+      llvm::Function *func,
+      Instantiation &inst
+    ): cc(cc), ib(ib), func(func), inst(inst) {}
+
     std::map<Idx, Value> vars;
     std::map<Insn *, Value> vals;
 

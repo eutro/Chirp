@@ -17,7 +17,7 @@ Requirements:
 - CMake 3.19 or newer
 - LLVM 12
 
-For example, a simple build may be produced by:
+For example, a simple build on Linux may be produced by:
 ```bash
 mkdir build
 cd build
@@ -30,12 +30,22 @@ It can then be installed with:
 sudo cmake --install .
 ```
 
+## Windows
+
+The prebuilt Windows binaries that LLVM distributes do _not_
+include an `LLVMConfig.cmake` which is required for
+[`find_package`](https://cmake.org/cmake/help/latest/command/find_package.html)
+to find it.
+
+Thus, you will have to build LLVM from source yourself, or
+[find someone else who has done so for you](https://github.com/vovkos/llvm-package-windows).
+
 # Compiling something
 
 The `bin/chirp2llvm` target emits LLVM IR in plain text on input from stdin.
 
 This can then be compiled with [`llc`](https://llvm.org/docs/CommandGuide/llc.html)
-and linked with the runtime (the `crp` target) using your system's linker.
+and linked with the runtime (the `chirp_runtime` target) using your system's linker.
 
 For example, on Linux, to compile `prog.crp` (from the build folder),
 you can run:
@@ -44,7 +54,7 @@ you can run:
 ./bin/chirp2llvm < prog.crp > prog.ll
 llc prog.ll
 as -ad prog.ll -o prog.o
-cc --static -o prog prog.o -L. -lcrp
+cc --static -o prog prog.o -L. -lchirp_runtime
 ```
 
 This will output the `prog` executable.

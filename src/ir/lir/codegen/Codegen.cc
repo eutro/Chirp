@@ -471,12 +471,7 @@ namespace lir::codegen {
           1,
           llvm::DINode::FlagPrivate, llvm::DISubprogram::SPFlagDefinition
       ));
-      LocalCC lcc{
-          .cc = cc,
-          .ib = ib,
-          .func = crpMainFunc,
-          .inst = sys.seqs.front().insts.front(),
-      };
+      LocalCC lcc(cc, ib, crpMainFunc, sys.seqs.front().insts.front());
       emitBlockList(mod.topLevel, cc, lcc, true);
     }
 
@@ -505,12 +500,7 @@ namespace lir::codegen {
           std::vector<llvm::Function *> &funcs = **tIt++;
           auto fIt = funcs.begin();
           for (BlockList &bl : trait.methods) {
-            LocalCC lcc{
-                .cc = cc,
-                .ib = ib,
-                .func = *fIt++,
-                .inst = inst,
-            };
+            LocalCC lcc(cc, ib, *fIt++, inst);
             emitBlockList(bl, cc, lcc, false);
           }
         }
