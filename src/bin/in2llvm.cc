@@ -14,11 +14,11 @@ int main() {
   auto parsed = tok::parser::parseProgram(lexed);
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
-  err::maybeAbort(epc, hir.errors);
+  err::maybeAbrt(epc, hir.errors);
   type::TTcx ttcx;
   auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
   type::infer::SolveCtx icx(ttcx);
-  type::infer::solveSystem(types.sys, icx, {0});
+  type::infer::solveSystem(types.sys, icx);
   err::maybeAbort(epc, icx.ecx);
   auto lir = hir::lower::loweringVisitor()->visitProgram(hir.program);
   char *fileName = std::getenv("CRP_FILENAME");
