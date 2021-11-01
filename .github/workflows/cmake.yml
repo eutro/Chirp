@@ -15,14 +15,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        running-on: [ubuntu-latest, macos-10.15]
+        running-on: [ubuntu-latest, macos-10.15, windows-latest]
     runs-on: ${{matrix.running-on}}
 
     steps:
     - name: Install LLVM
-      uses: KyleMayes/install-llvm-action@v1.5.0
+      if: ${{matrix.running-on}} != "windows-latest"
+      uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
       with:
         version: ${{env.LLVM_VERSION}}
+
+    - name: Install LLVM (Windows)
+      if: ${{matrix.running-on}} == "windows-latest"
+      uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
+      with:
+        version: ${{env.LLVM_VERSION}}
+        url: "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${version}/llvm-${version}-windows-amd64-msvc15-msvcrt.7z"
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
