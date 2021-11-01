@@ -8,7 +8,6 @@ on:
 
 env:
   BUILD_TYPE: Release
-  LLVM_VERSION: 12.0.0
 
 jobs:
   build:
@@ -23,15 +22,15 @@ jobs:
       if: matrix.running-on != 'windows-latest'
       uses: KyleMayes/install-llvm-action@v1.5.0
       with:
-        version: ${{env.LLVM_VERSION}}
+        version: "12.0.0"
 
     - name: Install LLVM (Windows)
       if: matrix.running-on == 'windows-latest'
       run: |
-        set FULL_DESC="llvm-ex\\llvm-${{env.LLVM_VERSION}}-windows-amd64-msvc15-msvcrt"
-        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.LLVM_VERSION}}/%FULL_DESC%.7z"
+        set FULL_DESC="llvm-12.0.1-windows-amd64-msvc15-msvcrt"
+        Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-12.0.1/%FULL_DESC%.7z"
         7z x llvm.7z -ollvm-ex
-        setx LLVM_DIR "${{github.workspace}}/llvm-ex/%FULL_DESC%"
+        setx LLVM_DIR "${{github.workspace}}\\llvm-ex\\%FULL_DESC%"
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
