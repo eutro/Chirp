@@ -1,0 +1,48 @@
+// Implementation of the Rule 110 cellular automation,
+// which is known to be Turing complete.
+
+// Yes, this is just a lambda calculus implementation of Rule 110,
+// but this is all handled by the type system at compile time.
+// Note that there is a hard limit on max recursion depth, though.
+
+defn tru(x, y) = x
+defn fls(x, y) = y
+
+defn cons(x, y) = \ifpair,ifnull.ifpair(x, y)
+defn nil = \ifpair,ifnull.ifnull()
+
+/*
+Current pattern           111 110 101 100 011 010 001 000
+New state for center cell  0   1   1   0   1   1   1   0
+*/
+defn stepabc(a, b, c) =
+  a(b(c(fls, tru), c(tru, fls)), b(c(tru, tru), c(tru, fls)))
+
+defn steplist(l, tail) =
+  tail(
+    \m,rtail.cons(
+      stepabc(l,m,rtail(\r,i.r, \.fls)),
+      steplist(m, rtail)
+    ),
+    \.nil
+  )
+
+defn step(list) =
+  steplist(fls, cons(fls, list))
+
+// io
+defn putI(i: i64): #() = foreign
+defn println(): #() = foreign
+defn printB(b) = putI(b(1, 0))
+defn printL(list) =
+  list(\l,tail.{printB(l),printL(tail)}, println)
+defn printAndStep(list) = {printL(list), step(list)}
+
+printL(//
+(\f.\x.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(//
+
+// specify the pattern
+cons(tru,
+//
+
+nil)))
