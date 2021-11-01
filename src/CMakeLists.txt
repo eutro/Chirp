@@ -4,6 +4,7 @@ project(Chirp)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 
 find_package(LLVM 12 REQUIRED CONFIG)
 
@@ -33,7 +34,9 @@ if(MSVC)
     /wd4100 # unused formal parameter
     /wd4267 # lossy conversions
     /wd4244 # also lossy conversions
+    /wd4245 # also lossy conversions
     /wd4996 # deprecations
+    /wd4624 # destructor implicitly marked as deleted
     )
 else()
   add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
