@@ -20,13 +20,13 @@ jobs:
 
     steps:
     - name: Install LLVM
-      if: ${{matrix.running-on}} != "windows-latest"
+      if: matrix.running-on != 'windows-latest'
       uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
       with:
         version: ${{env.LLVM_VERSION}}
 
     - name: Install LLVM (Windows)
-      if: ${{matrix.running-on}} == "windows-latest"
+      if: matrix.running-on == 'windows-latest'
       uses: eutro/install-llvm-action@82c57a1e923a6b5847bde9b5f46321b9efc89db5
       with:
         version: ${{env.LLVM_VERSION}}
