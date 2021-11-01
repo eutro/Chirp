@@ -8,9 +8,11 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <stdalign.h>
 #include <stdio.h>
 #include <string.h>
+
+// portable^tm alignof because MSVC can't behave and use stdalign.h
+#define alignof(type) ((size_t)(offsetof(struct { char c; type d; }, d)))
 
 #ifndef CHIRP_COLLECTOR_START_HEAP_SIZES
 # define CHIRP_COLLECTOR_START_HEAP_SIZES {30000000, 30000000, 30000000}
