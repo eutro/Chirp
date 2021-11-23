@@ -19,6 +19,7 @@
   (setq-local comment-multi-line t)
   (setq-local indent-line-function #'chirp-indent-line)
   (setq-local electric-indent-chars '(?= ?: ?\{ ?\( ?\) ?\}))
+  (local-set-key (kbd "C-c \\") #'chirp-insert-lambda)
   (set-syntax-table chirp-mode-syntax-table))
 
 (defconst chirp-mode-syntax-table
@@ -131,7 +132,7 @@
        (regexp-opt '("foreign" "fn" "in" "let" "else" "if" "defn"))
        "\\b")
      (0 font-lock-keyword-face))
-    ("\\\\" (0 font-lock-keyword-face))
+    ("\\\\\\|λ" (0 font-lock-keyword-face))
     (,(concat
        "\\(" chirp--id-regexp "\\)"
        chirp--maybe-ignore-regexp
@@ -160,6 +161,12 @@
 (defun chirp--in-string-p ()
   "Check if we are currently in a string."
   (nth 3 (save-excursion (syntax-ppss (point)))))
+
+;;;###autoload
+(defun chirp-insert-lambda ()
+  "Insert a λ character."
+  (interactive)
+  (insert "λ"))
 
 (defun chirp-indent-line ()
   "Indent the current line as Chirp."

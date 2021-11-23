@@ -1,7 +1,7 @@
-defn cons(x, y) = \f.f(x, y) // this is a comment
+defn cons(x, y) = λf.f(x, y) // this is a comment
 
-defn car(pair) = pair(\x,y.x)
+defn car(pair) = pair(λx,y.x)
 
-defn cdr(pair) = pair(\x,y.y)
+defn cdr(pair) = pair(λx,y.y)
 
-cdr(car(cons(cons(1, 1.0), cons(\x.x, false))))
+cdr(car(cons(cons(1, 1.0), cons(λx.x, false))))

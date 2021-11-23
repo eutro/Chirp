@@ -1,9 +1,9 @@
-defn inc(n) = \f.\x.n(f)(f(x))
-defn add(a, b) = \f.\x.a(f)(b(f)(x))
-defn mul(a, b) = \f.\x.a(b(f))(x)
-defn exp(a, b) = \f.\x.b(a)(f)(x)
+defn inc(n) = λf.λx.n(f)(f(x))
+defn add(a, b) = λf.λx.a(f)(b(f)(x))
+defn mul(a, b) = λf.λx.a(b(f))(x)
+defn exp(a, b) = λf.λx.b(a)(f)(x)
 
-defn zero(f) = \x.x
+defn zero(f) = λx.x
 defn one = inc(zero)
 defn two = add(one, one)
 defn three = add(one, two)
@@ -13,7 +13,7 @@ defn six = mul(two, three)
 defn seven = add(four, three)
 defn eight = exp(two, three)
 
-defn church2int(n) = n(\x.x + 1)(0)
+defn church2int(n) = n(λx.x + 1)(0)
 
 defn putI(i: i64): #() = foreign
 defn println(): #() = foreign

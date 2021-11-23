@@ -1,6 +1,6 @@
-(fn foo(x) = foo(\.x))(1)
+(fn foo(x) = foo(λ.x))(1)
 
-(\.{
+(λ.{
   defn foo(x) = bar(10)
   defn z = foo(10)
   defn bar(x) = foo(z)

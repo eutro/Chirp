@@ -8,8 +8,8 @@
 defn tru(x, y) = x
 defn fls(x, y) = y
 
-defn cons(x, y) = \ifpair,ifnull.ifpair(x, y)
-defn nil = \ifpair,ifnull.ifnull()
+defn cons(x, y) = λifpair,ifnull.ifpair(x, y)
+defn nil = λifpair,ifnull.ifnull()
 
 /*
 Current pattern           111 110 101 100 011 010 001 000
@@ -20,11 +20,11 @@ defn stepabc(a, b, c) =
 
 defn steplist(l, tail) =
   tail(
-    \m,rtail.cons(
-      stepabc(l,m,rtail(\r,i.r, \.fls)),
+    λm,rtail.cons(
+      stepabc(l,m,rtail(λr,i.r, λ.fls)),
       steplist(m, rtail)
     ),
-    \.nil
+    λ.nil
   )
 
 defn step(list) =
@@ -35,11 +35,11 @@ defn putI(i: i64): #() = foreign
 defn println(): #() = foreign
 defn printB(b) = putI(b(1, 0))
 defn printL(list) =
-  list(\l,tail.{printB(l),printL(tail)}, println)
+  list(λl,tail.{printB(l),printL(tail)}, println)
 defn printAndStep(list) = {printL(list), step(list)}
 
 printL(//
-(\f.\x.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(//
+(λf.λx.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(//
 
 // specify the pattern
 cons(tru,

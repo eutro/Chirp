@@ -3,7 +3,7 @@
 defn chirpGc(x: i64): #() = foreign
 defn putS(s: string): #() = foreign
 
-defn test = (\capture,dropSecond.{ // ensure they aren't globals
+defn test = (λcapture,dropSecond.{ // ensure they aren't globals
   defn testfn() =
     putS(
       dropSecond(
@@ -16,8 +16,8 @@ defn test = (\capture,dropSecond.{ // ensure they aren't globals
     )
   testfn
 })(
-  let capture(x) = \.x in: capture,
-  (\.{
+  let capture(x) = λ.x in: capture,
+  (λ.{
     /// true, but taken from FFI so the optimiser doesn't inline
     /// #include <stdbool.h>
     /// bool ffiTrue() { return true; }
