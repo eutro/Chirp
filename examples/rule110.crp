@@ -38,8 +38,8 @@ defn printL(list) =
   list(λl,tail.{printB(l),printL(tail)}, println)
 defn printAndStep(list) = {printL(list), step(list)}
 
-printL(//
-(λf.λx.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(//
+printL(
+(λf.λx.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(
 
 // specify the pattern
 cons(tru,

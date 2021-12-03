@@ -18,7 +18,7 @@
   (setq-local comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
   (setq-local comment-multi-line t)
   (setq-local indent-line-function #'chirp-indent-line)
-  (setq-local electric-indent-chars '(?= ?: ?\{ ?\( ?\) ?\}))
+  (setq-local electric-indent-chars '(?= ?: ?\{ ?\( ?\) ?\} ?\n))
   (local-set-key (kbd "C-c \\") #'chirp-insert-lambda)
   (set-syntax-table chirp-mode-syntax-table))
 
@@ -168,14 +168,11 @@
   (interactive)
   (insert "λ"))
 
-(defun chirp-indent-line ()
-  "Indent the current line as Chirp."
-  (interactive)
-  (if (chirp--in-string-p) 'noindent
+(defun chirp-predict-indent ()
+  (save-excursion
     (let* ((last-line-indent (save-excursion (forward-line -1) (current-indentation)))
            (offset (- (point) (save-excursion (back-to-indentation) (point)))))
       (back-to-indentation)
-
       (let* ((should-indent
               (or
                (looking-at-p "[=+/*-]")
@@ -192,15 +189,55 @@
                   (and (looking-at-p "let ")
                        (not (re-search-forward "\\bin\\b" (save-excursion (end-of-line) (point)) t))))))
              (at-in (looking-at-p "in\\b"))
-             (should-unindent (looking-at-p "[)}]"))
-             (target-indent
-              (+ last-line-indent
-                 (if should-indent chirp-indent-depth 0)
-                 (if let-alignment 4 0)
-                 (if at-in (- chirp-indent-depth 4) 0)
-                 (if should-unindent (- chirp-indent-depth) 0))))
-        (indent-line-to target-indent))
-      (when (> offset 0) (forward-char offset)))))
+             (should-unindent (looking-at-p "[)}]")))
+        (+ last-line-indent
+           (if should-indent chirp-indent-depth 0)
+           (if let-alignment 4 0)
+           (if at-in (- chirp-indent-depth 4) 0)
+           (if should-unindent (- chirp-indent-depth) 0))))))
+
+(defun chirp-indent-line ()
+  "Indent the current line as Chirp."
+  (interactive)
+  (if (chirp--in-string-p) 'noindent
+    (let* ((cyclep (memq last-command '(indent-for-tab-command chirp-indent-line)))
+           (expected-indent (chirp-predict-indent))
+           (offset (- (point) (save-excursion (back-to-indentation) (point))))
+           (at-viable
+            (memq
+             (current-indentation)
+             (list
+              expected-indent
+              (- expected-indent chirp-indent-depth)
+              (- expected-indent (* 2 chirp-indent-depth))
+              (+ expected-indent chirp-indent-depth)))))
+      (cond
+       ((and (not cyclep)
+             (eq 0 (current-indentation))
+             (not (eq expected-indent 0)))
+        (indent-line-to expected-indent))
+       ((and at-viable (not cyclep)) nil)
+       ((not cyclep) (indent-line-to expected-indent))
+       (t (chirp-cycle-indent)))
+      (back-to-indentation)
+      (forward-char (max offset 0)))))
+
+(defun chirp--cycle-indent-internal (expected-indent)
+  (let* ((current-indent (current-indentation))
+         (diff (- current-indent expected-indent))
+         (target-indent
+          (cond
+           ((eq diff (- chirp-indent-depth)) expected-indent)
+           ((eq diff 0) (+ expected-indent chirp-indent-depth))
+           ((eq diff chirp-indent-depth) (+ expected-indent (* 2 chirp-indent-depth)))
+           ((eq diff (* 2 chirp-indent-depth)) 0)
+           ((eq current-indent 0) (- expected-indent chirp-indent-depth))
+           (t expected-indent))))
+    (indent-line-to target-indent)))
+
+(defun chirp-cycle-indent ()
+  (interactive)
+  (chirp--cycle-indent-internal (chirp-predict-indent)))
 
 (provide 'chirp-mode)
 ;;; chirp-mode.el ends here
