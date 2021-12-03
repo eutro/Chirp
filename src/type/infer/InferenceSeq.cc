@@ -81,19 +81,16 @@ namespace type::infer {
         },
         [&](const Constraint::Concrete *c) {
           return &seq.steps.emplace_back(
-            std::in_place_type_t<Step::Unify>(),
             Step::Unify{c->tyA, c->tyB}
           ).desc;
         },
         [&](const Constraint::Trait *c) {
           return &seq.steps.emplace_back(
-            std::in_place_type_t<Step::ImplTrait>(),
             Step::ImplTrait{c->ty, c->tb, c->idx}
           ).desc;
         },
         [&](const Constraint::Assigned *c) {
           return &seq.steps.emplace_back(
-            std::in_place_type_t<Step::Assign>(),
             Step::Assign{c->toTy, c->fromTy}
           ).desc;
         },

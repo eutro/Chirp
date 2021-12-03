@@ -24,8 +24,7 @@ namespace type::infer {
     };
     std::variant<Unify, Assign, ImplTrait> v;
     err::Location desc;
-    template<typename... Arg>
-    Step(Arg &&... args): v(std::forward<Arg>(args)...), desc() {}
+    Step(decltype(v) &&vv): v(std::forward<decltype(vv)>(vv)), desc() {}
   };
 
   struct VarInfo {
