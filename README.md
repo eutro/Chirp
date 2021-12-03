@@ -42,9 +42,6 @@ to find it.
 Thus, you will have to build LLVM from source yourself, or
 [find someone else who has done so for you](https://github.com/vovkos/llvm-package-windows).
 
-Also, currently the source doesn't compile with MSVC. If you have a
-Windows PC and could help fix that it would be appreciated.
-
 # Compiling something
 
 The `bin/chirp2llvm` target emits LLVM IR in plain text on input from stdin.
