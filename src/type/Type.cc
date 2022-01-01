@@ -30,6 +30,10 @@ namespace type {
     }
   }
 
+  Ty *uncycle(Ty *ty) {
+    Tbcx _tbcx;
+    return uncycle(*ty->tcx, _tbcx, ty);
+  }
   Ty *uncycle(TTcx &ttcx, Ty *ty) {
     return uncycle(ttcx.tcx, ttcx.tbcx, ty);
   }

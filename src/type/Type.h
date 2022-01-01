@@ -114,12 +114,6 @@ namespace type {
       std::vector<Ty*> t;
       BIN_OPS(Tuple)
     };
-    struct TraitRef {
-      Ty *ty;
-      TraitBound *trait;
-      Idx ref;
-      BIN_OPS(TraitRef)
-    };
     struct String {
       bool nul;
       BIN_OPS(String)
@@ -147,11 +141,11 @@ namespace type {
       ADT,
       Never,
       Tuple,
-      TraitRef,
       String,
       Cyclic,
       CyclicRef,
       FfiFn> v;
+    Tcx *tcx;
 
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
@@ -159,6 +153,13 @@ namespace type {
     BIN_OPS(Ty)
   };
 }
+
+template <>
+struct arena::InternHook<type::Ty> {
+  inline void postIntern(type::Tcx &tcx, type::Ty *ty) {
+    ty->tcx = &tcx;
+  }
+};
 
 #define ITER_HASH(TYPE)                             \
   namespace std { template <> struct hash<TYPE> {   \
@@ -181,11 +182,18 @@ ITER_HASH(std::set<Idx>)
 #undef IMPL_SINGLETON
 
 namespace type {
+  Ty *uncycle(Ty *);
   Ty *uncycle(Tcx &, Tbcx &, Ty *);
   Ty *uncycle(TTcx &, Ty *);
 
   struct PreWalk {};
   struct PostWalk {};
+
+  template <bool IGNORED = false, typename T, typename TR>
+  T replaceTy(Tcx &tcx, T x, TR &tr) {
+    Tbcx _tbcx;
+    return replaceTy(tcx, _tbcx, x, tr);
+  }
 
   template <bool IGNORED = false, typename T, typename TR>
   T replaceTy(TTcx &ttcx, T x, TR &tr) {
@@ -212,18 +220,6 @@ namespace type {
       case util::index_of_type_v<Ty::CyclicRef, VTy>:
         ty = tr(ty);
         break;
-      case util::index_of_type_v<Ty::TraitRef, VTy>: {
-        auto &trf = std::get<Ty::TraitRef>(ty->v);
-        auto uret = Ty::TraitRef{replaceTy<IGNORED>(tcx, tbcx, trf.ty, tr),
-                                 replaceTy<IGNORED>(tcx, tbcx, trf.trait, tr),
-                                 trf.ref};
-        if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
-        else {
-          (void)uret;
-          tr(ty);
-        }
-        break;
-      }
       case util::index_of_type_v<Ty::ADT, VTy>: {
         auto &adt = std::get<Ty::ADT>(ty->v);
         auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(tcx, tbcx, adt.s, tr)};

@@ -59,10 +59,6 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           }
           os << ")";
         },
-        [&](Ty::TraitRef &t) {
-          os << "<" << t.ty << " as " << t.trait << ">";
-          os << "::" << t.ref;
-        },
         [&](Ty::String &) {
           os << "str";
         },
