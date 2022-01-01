@@ -1,9 +1,10 @@
 #include "Fn.h"
 
 namespace type::infer {
-  Fn::Fn(Idx inputArity, Idx outputArity, decltype(invoke) &&invoke):
-    inputArity(inputArity),
-    outputArity(outputArity),
-    invoke(std::forward<decltype(invoke)>(invoke))
-  {}
+  Constant::Constant(const Constant &o):
+    size(o.size),
+    raw(new char[size])
+  {
+    std::memcpy(raw, o.raw, size);
+  }
 }

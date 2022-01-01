@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <map>
+#include <sstream>
 #include <variant>
 
 namespace type::infer {
@@ -52,17 +53,34 @@ namespace type::infer {
   };
 
   struct LookupTableImpl : public LookupTable {
-    std::map<LookupKey*, OverloadLookup> fns;
-    Fn *lookupFn(LookupKey *fn, const std::vector<Tp> &args) override {
-      auto found = fns.find(fn);
+    std::map<std::pair<LookupKey*, std::vector<Constant>>, OverloadLookup> fns;
+    Fn *lookupFn(
+      LookupKey *fn, 
+      const std::vector<Constant> &constants,
+      const std::vector<Tp> &args
+    ) override {
+      auto found = fns.find({fn, constants});
       if (found == fns.end()) {
-        throw std::runtime_error("Undefined function: " + fn->value);
+        std::stringstream s;
+        s << "Undefined function: " << fn->value;
+        if (!constants.empty()) {
+          s << " with specific constants:";
+          for (const auto &c : constants) {
+            s << " " << c;
+          }
+        }
+        throw std::runtime_error(s.str());
       }
       auto &overloads = found->second;
       return overloads.lookup(args).at(0);
     }
-    void insertFn(LookupKey *fn, const std::vector<Tp> &params, Fn &&fnv) override {
-      fns[fn].insert(params, std::forward<Fn>(fnv));
+    void insertFn(
+      LookupKey *fn,
+      const std::vector<Constant> &constants,
+      const std::vector<Tp> &params,
+      Fn &&fnv
+    ) override {
+      fns[{fn, constants}].insert(params, std::forward<Fn>(fnv));
     }
   };
 
@@ -71,7 +89,7 @@ namespace type::infer {
     return keys.intern(std::string(value));
   }
 
-  std::unique_ptr<LookupTable> newLookupTable() {
+  std::unique_ptr<LookupTable> LookupTable::create() {
     return std::make_unique<LookupTableImpl>();
   }
 }

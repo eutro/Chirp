@@ -12,9 +12,18 @@ namespace type::infer {
   };
 
   struct LookupTable {
-    virtual Fn *lookupFn(LookupKey *fn, const std::vector<Tp> &params) = 0;
-    virtual void insertFn(LookupKey *fn, const std::vector<Tp> &params, Fn &&fnv) = 0;
+    virtual ~LookupTable() = default;
+    virtual Fn *lookupFn(
+      LookupKey *fn, 
+      const std::vector<Constant> &constants, 
+      const std::vector<Tp> &params
+    ) = 0;
+    virtual void insertFn(
+      LookupKey *fn, 
+      const std::vector<Constant> &constants, 
+      const std::vector<Tp> &params,
+      Fn &&fnv
+    ) = 0;
+    static std::unique_ptr<LookupTable> create();
   };
-
-  std::unique_ptr<LookupTable> newLookupTable();
 }

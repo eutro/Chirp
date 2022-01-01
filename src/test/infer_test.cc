@@ -5,13 +5,25 @@
 using namespace type::infer;
 
 int main() {
-  Env env;
-  ENV = &env;
+  ENV = new Env;
+  auto print = LookupKey::intern("print");
+  const char *hw = "Hello, world!\n";
+  const char *ht = "Hello there!\n";
+  ENV->table->insertFn(print, {hw}, {}, [=](auto _) {
+    std::cout << hw;
+    return _;
+  });
+  ENV->table->insertFn(print, {ht}, {}, [=](auto _) {
+    std::cout << ht;
+    return _;
+  });
+
   auto foo = LookupKey::intern("foo");
-  env.table->insertFn(foo, {}, Fn(0, 0, [](auto args){
-    std::cout << "Test\n";
-    return args;
-  }));
-  (*env.table->lookupFn(foo, {}))({});
+  InsnList insns;
+  insns.insns.emplace_back(Insn(print, {hw}, {}));
+  insns.insns.emplace_back(Insn(print, {ht}, {}));
+  ENV->table->insertFn(foo, {}, {}, insns);
+  (*ENV->table->lookupFn(foo, {}, {}))({});
+  delete ENV;
   ENV = nullptr;
 }
