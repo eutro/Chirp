@@ -9,7 +9,7 @@ on:
 env:
   BUILD_TYPE: Release
   UNIX_LLVM_VERSION: 13.0.0
-  WIN_LLVM_VERSION: 13.0.0
+  WIN_LLVM_VERSION: master
   WIN_LLVM_VERSION_FULL: llvm-13.0.0-windows-amd64-msvc15-msvcrt
 
 jobs:
