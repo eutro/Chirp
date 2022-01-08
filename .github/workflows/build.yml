@@ -40,22 +40,20 @@ jobs:
         
     - uses: ammaraskar/gcc-problem-matcher@0.1
       if: matrix.running-on != 'windows-latest'
-    - name: Setup Chirp (Unix)
+    - name: Setup and Build Chirp (Unix)
       if: matrix.running-on != 'windows-latest'
       run: |
         cmake -B ${{github.workspace}}/chirp/build \
               -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
               ${{github.workspace}}/chirp/src
+        cmake --build ${{github.workspace}}/chirp/build
 
     - uses: ammaraskar/msvc-problem-matcher@0.1
       if: matrix.running-on == 'windows-latest'
-    - name: Setup Chirp (Windows)
+    - name: Setup and Build Chirp (Windows)
       if: matrix.running-on == 'windows-latest'
       run: |
         cmake -B ${{github.workspace}}/chirp/build `
-              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} `
               -DLLVM_DIR="${{github.workspace}}\\llvm-ex\\${{env.WIN_LLVM_VERSION_FULL}}\\lib\\cmake\\llvm" `
               ${{github.workspace}}/chirp/src
-
-    - name: Build Chirp
-      run: cmake --build ${{github.workspace}}/chirp/build
+        cmake --build ${{github.workspace}}/chirp/build --config ${{env.BUILD_TYPE}}
