@@ -5,7 +5,6 @@
 
 #include <llvm/ADT/None.h>
 #include <llvm/Support/Casting.h>
-#include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Constant.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
@@ -19,14 +18,13 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DIBuilder.h>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
 namespace lir::codegen {
-  const std::string GC_METHOD = "shadow-stack";
+  constexpr const char *GC_METHOD = "shadow-stack";
 
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     if (insn.span) {
@@ -46,7 +44,7 @@ namespace lir::codegen {
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);                  \
           auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.typeVars.at(i.obj->ty)->v)); \
           auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo()); \
-          auto gep = lcc.ib.CreateInBoundsGEP(castPtr, {                \
+          auto gep = lcc.ib.CreateInBoundsGEP(structTy, castPtr, {                \
               llvm::ConstantInt::get(i32Ty, 0),                         \
               llvm::ConstantInt::get(i32Ty, i.field)                    \
             })
@@ -83,9 +81,9 @@ namespace lir::codegen {
           do {                                                          \
             const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc, insn.ty); \
             if (gcData) {                                               \
-              auto alloca = addTemporary(lcc, VALUE->getType(), gcData->metadata); \
+              auto alloca = addTemporary(lcc, (VALUE)->getType(), gcData->metadata); \
               lcc.ib.CreateStore(VALUE, alloca);                        \
-              return {alloca, VALUE->getType(), Value::Pointer}; \
+              return {alloca, (VALUE)->getType(), Value::Pointer}; \
             }                                                           \
           } while(0)
 
@@ -161,7 +159,7 @@ namespace lir::codegen {
             Idx idx = 0;
             auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
             for (auto &v : i.values) {
-              auto gep = lcc.ib.CreateInBoundsGEP(alloca, {
+              auto gep = lcc.ib.CreateInBoundsGEP(ty, alloca, {
                   llvm::ConstantInt::get(i32Ty, 0),
                   llvm::ConstantInt::get(i32Ty, idx++),
                 });
@@ -219,7 +217,7 @@ namespace lir::codegen {
         [&](Insn::LiteralInt &i) -> Value {
           Ty *cTy = lcc.inst.typeVars.at(insn.ty);
           auto ty = getTy(cc, cTy);
-          llvm::IntegerType *intTy = llvm::cast<llvm::IntegerType>(ty);
+          auto *intTy = llvm::cast<llvm::IntegerType>(ty);
           return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};
         },
         [&](Insn::LiteralFloat &i) -> Value {
@@ -386,7 +384,7 @@ namespace lir::codegen {
     Idx retIdx = std::get<Jump::Ret>(bl.blocks.back()->end.v).value->ty;
     auto &retPair = getTyTuple(cc, inst.typeVars.at(retIdx));
     diTys.push_back(std::get<1>(retPair));
-    for (auto e : bl.params) {
+    for (const auto &e : bl.params) {
       auto argPair = getTyTuple(cc, inst.typeVars.at(e.second.ty));
       argTys.push_back(std::get<0>(argPair));
       diTys.push_back(std::get<1>(argPair));
@@ -438,7 +436,7 @@ namespace lir::codegen {
         for (const BlockList &bl : trait.methods) {
           funcs.push_back(getBbFunc(bl, sys[{blockIdx, instIdx}], cc));
         }
-        emitCalls.push_back([&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
+        emitCalls.emplace_back([&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
           auto func = funcs.at(ct.method);
           std::vector<llvm::Value *> args;
           args.reserve(ct.args.size() + 1 /* receiver */);

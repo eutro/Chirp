@@ -8,9 +8,9 @@ on:
 
 env:
   BUILD_TYPE: Release
-  UNIX_LLVM_VERSION: 12.0.0
-  WIN_LLVM_VERSION: 12.0.1
-  WIN_LLVM_VERSION_FULL: llvm-12.0.1-windows-amd64-msvc15-msvcrt
+  UNIX_LLVM_VERSION: 13.0.0
+  WIN_LLVM_VERSION: 13.0.0
+  WIN_LLVM_VERSION_FULL: llvm-13.0.0-windows-amd64-msvc15-msvcrt
 
 jobs:
   build:
