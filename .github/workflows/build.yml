@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        running-on: [ubuntu-latest, macos-11.3, windows-latest]
+        running-on: [ubuntu-latest, macos-11, windows-latest]
     runs-on: ${{matrix.running-on}}
 
     steps:
@@ -32,6 +32,14 @@ jobs:
       run: |
         Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.WIN_LLVM_VERSION}}/${{env.WIN_LLVM_VERSION_FULL}}.7z"
         7z x llvm.7z -ollvm-ex
+
+    - name: Dirty MacOS Hack
+      if: matrix.running-on == 'macos-11'
+      # CMake was looking for libcurses here for some reason.
+      run: |
+        sudo ln -s \
+          /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk  \
+          /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX11.3.sdk
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
