@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        running-on: [ubuntu-latest, macos-10.15, windows-latest]
+        running-on: [ubuntu-latest, macos-11, windows-latest]
     runs-on: ${{matrix.running-on}}
 
     steps:
@@ -32,6 +32,17 @@ jobs:
       run: |
         Invoke-WebRequest -OutFile llvm.7z -Uri "https://github.com/vovkos/llvm-package-windows/releases/download/llvm-${{env.WIN_LLVM_VERSION}}/${{env.WIN_LLVM_VERSION_FULL}}.7z"
         7z x llvm.7z -ollvm-ex
+
+    - name: Dirty MacOS Hack
+      if: matrix.running-on == 'macos-11'
+      # In LLVM 13.0.0 releases, LLVMExport.cmake on MacOS declares that LLVMSupport links with
+      # /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX11.3.sdk/usr/lib/libcurses.tbd
+      # (full absolute path) which of course does not exist if we don't have that SDK.
+      # So symlink it to the SDK that we do have.
+      run: |
+        sudo ln -s \
+          /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk  \
+          /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX11.3.sdk
 
     - name: Checkout Chirp
       uses: actions/checkout@v2
