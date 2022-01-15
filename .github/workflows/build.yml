@@ -35,7 +35,10 @@ jobs:
 
     - name: Dirty MacOS Hack
       if: matrix.running-on == 'macos-11'
-      # CMake was looking for libcurses here for some reason.
+      # In LLVM 13.0.0 releases, LLVMExport.cmake on MacOS declares that LLVMSupport links with
+      # /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX11.3.sdk/usr/lib/libcurses.tbd
+      # (full absolute path) which of course does not exist if we don't have that SDK.
+      # So symlink it to the SDK that we do have.
       run: |
         sudo ln -s \
           /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk  \
