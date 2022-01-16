@@ -128,7 +128,7 @@ namespace hir {
 
   class LiteralExpr : public Expr {
   public:
-    enum Type {
+    enum class Type {
       Int, Float, String,
     };
     Type type;

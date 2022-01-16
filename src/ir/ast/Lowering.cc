@@ -275,7 +275,7 @@ namespace ast::lower {
           source,
             DefType::ADT{},
         });
-      DefType::ADT &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
+      auto &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
 
       DefType::ADT::Variant &variant = closure.variants.emplace_back();
       variant.values.reserve(closed.size());
@@ -630,7 +630,7 @@ namespace ast::lower {
       case Tok::TStr:
         expr->type = hir::LiteralExpr::Type::String;
         break;
-      default: throw 0;
+      default: throw std::runtime_error("Impossible literal expression token type.");
       }
       return expr;
     }
@@ -702,7 +702,7 @@ namespace ast::lower {
             case Tok::TGt:
               cmp = hir::CmpExpr::Op::Gt;
               break;
-            default: throw 0;
+            default: throw std::runtime_error("Impossible binary expression token type.");
             }
 
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);

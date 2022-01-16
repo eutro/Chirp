@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ostream>
 #include "../Type.h"
 #include "Fn.h"
 #include "LookupTable.h"
@@ -23,6 +24,9 @@ namespace type::infer {
      * Which return value of the instruction to reference, or the parameter index.
      */
     Idx retIdx;
+    VarRef(std::optional<Idx> insn, Idx retIdx) : insn(insn), retIdx(retIdx) {}
+
+    friend std::ostream &operator<<(std::ostream &os, const VarRef &var);
   };
 
   struct Insn {
@@ -39,20 +43,53 @@ namespace type::infer {
      * The arguments to the function.
      */
     std::vector<VarRef> inputs;
+    /**
+     * Extra constant arguments to the function.
+     */
+    std::vector<Constant> constArgs;
     Insn(
-      decltype(key) key,
-      decltype(constants) &&constants,
-      decltype(inputs) &&inputs
+        decltype(key) key,
+        decltype(constants) &&constants,
+        decltype(inputs) &&inputs,
+        decltype(constArgs) &&constArgs
     ):
-      key(key),
-      constants(std::forward<decltype(constants)>(constants)),
-      inputs(std::forward<decltype(inputs)>(inputs))
+        key(key),
+        constants(std::forward<decltype(constants)>(constants)),
+        inputs(std::forward<decltype(inputs)>(inputs)),
+        constArgs(std::forward<decltype(constArgs)>(constArgs))
     {}
+
+    friend std::ostream &operator<<(std::ostream &os, const Insn &insn);
   };
 
   struct InsnList {
     std::vector<Insn> insns;
-    // implement Fn
-    std::vector<Tp> operator()(const std::vector<Tp> &args) const;
+    VarRef lastInsn(Idx i = 0) {
+      return VarRef(insns.size() - 1, i);
+    }
+
+    using SccCollapser = std::function<void(const std::vector<Insn*> &)>;
+    /**
+     * Sort the instructions topologically.
+     *
+     * A collapse function must be supplied which "collapses" strongly connected components.
+     * Cycles are to be expected, with mutually recursive functions that capture each other,
+     * for example, so strongly connected components of size >1 (cycles) must be handled.
+     *
+     * The function must accept a single parameter, the strongly connected component to collapse,
+     * and must modify the instructions in this strongly connected component so that there is no longer
+     * a cycle.
+     */
+    void topSort(SccCollapser collapse);
+
+    /**
+     * Fn implementation.
+     *
+     * The instruction list must be in topological ordering for this to work.
+     */
+    std::vector<Tp> operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const;
+
+    friend std::ostream &operator<<(std::ostream &os, const InsnList &list);
   };
+  static_assert(std::is_assignable_v<Fn, InsnList>);
 }

@@ -24,6 +24,11 @@ namespace type::infer {
       const std::vector<Tp> &params,
       Fn &&fnv
     ) = 0;
+    virtual void insertFallback(
+        LookupKey *fn,
+        const std::vector<Constant> &constants,
+        Fn &&fnv
+    ) = 0;
     static std::unique_ptr<LookupTable> create();
   };
 }

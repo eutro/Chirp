@@ -8,6 +8,7 @@
 namespace type::infer {
   struct OverloadLookup {
     std::vector<std::pair<std::vector<Tp>, Fn>> overloads;
+    std::optional<Fn> fallback;
     std::vector<Fn*> lookup(const std::vector<Tp> &args) {
       std::vector<Fn*> candidates;
       for (auto &overload : overloads) {
@@ -15,10 +16,16 @@ namespace type::infer {
           candidates.push_back(&overload.second);
         }
       }
+      if (candidates.empty() && fallback) {
+        candidates.push_back(&*fallback);
+      }
       return candidates;
     }
     void insert(const std::vector<Tp> &params, Fn &&fnv) {
       overloads.emplace_back(params, std::forward<Fn>(fnv));
+    }
+    void insertFallback(Fn &&fnv) {
+      fallback = std::forward<Fn>(fnv);
     }
     static bool tryMatch(const std::vector<Tp> &to, const std::vector<Tp> &from) {
       if (to.size() != from.size()) {
@@ -81,6 +88,13 @@ namespace type::infer {
       Fn &&fnv
     ) override {
       fns[{fn, constants}].insert(params, std::forward<Fn>(fnv));
+    }
+    void insertFallback(
+        LookupKey *fn,
+        const std::vector<Constant> &constants,
+        Fn &&fnv
+    ) override {
+      fns[{fn, constants}].insertFallback(std::forward<Fn>(fnv));
     }
   };
 
