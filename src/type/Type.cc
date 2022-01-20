@@ -18,7 +18,7 @@ namespace type {
       case IntSize::i32: return 32;
       case IntSize::i64: return 64;
       case IntSize::i128: return 128;
-      default: throw 0;
+      default: throw std::runtime_error("unreachable");
     }
   }
   Idx bitCount(FloatSize f) {
@@ -26,24 +26,17 @@ namespace type {
       case FloatSize::f16: return 16;
       case FloatSize::f32: return 32;
       case FloatSize::f64: return 64;
-      default: throw 0;
+      default: throw std::runtime_error("unreachable");
     }
   }
 
-  Ty *uncycle(Ty *ty) {
-    Tbcx _tbcx;
-    return uncycle(*ty->tcx, _tbcx, ty);
-  }
-  Ty *uncycle(TTcx &ttcx, Ty *ty) {
-    return uncycle(ttcx.tcx, ttcx.tbcx, ty);
-  }
-  Ty *uncycle(Tcx &tcx, Tbcx &tbcx, Ty *ty) {
+  Ty *uncycle(Tcx &tcx, Ty *ty) {
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Idx depth = 0;
       auto uncycler = overloaded {
           [&](Tp rt) {
             if (std::holds_alternative<Ty::CyclicRef>(rt->v)) {
-              Ty::CyclicRef &ref = std::get<Ty::CyclicRef>(rt->v);
+              auto &ref = std::get<Ty::CyclicRef>(rt->v);
               if (ref.depth == depth) {
                 return ty;
               }
@@ -63,8 +56,11 @@ namespace type {
             return ty;
           },
       };
-      return replaceTy(tcx, tbcx, std::get<Ty::Cyclic>(ty->v).ty, uncycler);
+      return replaceTy(tcx, std::get<Ty::Cyclic>(ty->v).ty, uncycler);
     }
     return ty;
+  }
+  Ty *uncycle(Ty *ty) {
+    return uncycle(*ty->tcx, ty);
   }
 }

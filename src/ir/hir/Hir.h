@@ -34,10 +34,8 @@ namespace hir {
     struct Type {};
     struct Trait {};
     struct ADT {
-      struct Variant {
-        std::vector<DefIdx> values;
-      };
-      std::vector<Variant> variants;
+      std::vector<DefIdx> values;
+      std::vector<DefIdx> types;
     };
     std::variant<Variable, Trait, Type, ADT> v;
     template <typename... Arg>
@@ -196,9 +194,7 @@ namespace hir {
   class NewExpr : public Expr {
   public:
     Idx adt;
-    Idx variant;
     std::vector<Eptr> values;
-    std::vector<Idx> captures; // which types are captured
 
     _acceptDef(Expr) override;
   };

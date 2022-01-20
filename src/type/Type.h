@@ -18,14 +18,7 @@ template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace type {
   class Ty;
-  struct TraitBound;
   using Tcx = arena::InternArena<Ty>;
-  using Tbcx = arena::InternArena<TraitBound>;
-
-  struct TTcx {
-    Tcx tcx;
-    Tbcx tbcx;
-  };
 
   using Tp = Ty *;
 
@@ -67,15 +60,11 @@ namespace type {
   bool operator<(const TYPE &o) const;           \
   bool operator==(const TYPE &o) const;
 
-  struct TraitBound {
+  struct [[deprecated]] TraitBound {
     Idx i;
     Substs s;
     BIN_OPS(TraitBound)
   };
-
-  using Variants = std::set<Idx>;
-
-  using TraitBounds = std::vector<TraitBound*>;
 
   class Ty {
   public:
@@ -103,7 +92,6 @@ namespace type {
     };
     struct ADT {
       Idx i;
-      Variants v;
       Substs s;
       BIN_OPS(ADT)
     };
@@ -167,7 +155,6 @@ struct arena::InternHook<type::Ty> {
         return util::hashIterable(o); } }; }
 
 ITER_HASH(type::Substs)
-ITER_HASH(type::TraitBounds)
 ITER_HASH(std::set<Idx>)
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
@@ -183,34 +170,12 @@ ITER_HASH(std::set<Idx>)
 
 namespace type {
   Ty *uncycle(Ty *);
-  Ty *uncycle(Tcx &, Tbcx &, Ty *);
-  Ty *uncycle(TTcx &, Ty *);
 
   struct PreWalk {};
   struct PostWalk {};
 
-  template <bool IGNORED = false, typename T, typename TR>
-  T replaceTy(Tcx &tcx, T x, TR &tr) {
-    Tbcx _tbcx;
-    return replaceTy(tcx, _tbcx, x, tr);
-  }
-
-  template <bool IGNORED = false, typename T, typename TR>
-  T replaceTy(TTcx &ttcx, T x, TR &tr) {
-    return replaceTy(ttcx.tcx, ttcx.tbcx, x, tr);
-  }
-
   template <bool IGNORED = false, typename TR>
-  TraitBound *replaceTy(Tcx &tcx, Tbcx &tbcx, TraitBound *tb, TR &tr) {
-    if constexpr (IGNORED) {
-      replaceTy<IGNORED>(tcx, tbcx, tb->s, tr);
-      return tb;
-    }
-    return tbcx.intern(TraitBound{tb->i, replaceTy(tcx, tbcx, tb->s, tr)});
-  }
-
-  template <bool IGNORED = false, typename TR>
-  Tp replaceTy(Tcx &tcx, Tbcx &tbcx, Tp ty, TR &tr) {
+  Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
     if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
       ty = tr(ty, PreWalk{});
     }
@@ -222,29 +187,29 @@ namespace type {
         break;
       case util::index_of_type_v<Ty::ADT, VTy>: {
         auto &adt = std::get<Ty::ADT>(ty->v);
-        auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(tcx, tbcx, adt.s, tr)};
+        auto uret = Ty::ADT{adt.i, replaceTy<IGNORED>(tcx, adt.s, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::Tuple, VTy>: {
         auto &tup = std::get<Ty::Tuple>(ty->v);
-        auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tbcx, tup.t, tr)};
+        auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tup.t, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::Cyclic, VTy>: {
         auto &clc = std::get<Ty::Cyclic>(ty->v);
-        auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, tbcx, clc.ty, tr)};
+        auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, clc.ty, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::FfiFn, VTy>: {
         auto &ffifn = std::get<Ty::FfiFn>(ty->v);
-        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, tbcx, ffifn.args, tr),
-                              replaceTy<IGNORED>(tcx, tbcx, ffifn.ret, tr)};
+        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, ffifn.args, tr),
+                              replaceTy<IGNORED>(tcx, ffifn.ret, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
@@ -265,24 +230,24 @@ namespace type {
   }
 
   template <bool IGNORED = false, typename T, typename TR>
-  std::vector<T> replaceTy(Tcx &tcx, Tbcx &tbcx, const std::vector<T> &tys, TR &tr) {
+  std::vector<T> replaceTy(Tcx &tcx, const std::vector<T> &tys, TR &tr) {
     if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, tbcx, s, tr);
+      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
       return {};
     }
     auto ret = tys;
-    for (auto &s : ret) s = replaceTy(tcx, tbcx, s, tr);
+    for (auto &s : ret) s = replaceTy(tcx, s, tr);
     return ret;
   }
 
   template <bool IGNORED = false, typename T, typename TR>
-  std::set<T> replaceTy(Tcx &tcx, Tbcx &tbcx, const std::set<T> &tys, TR &tr) {
+  std::set<T> replaceTy(Tcx &tcx, const std::set<T> &tys, TR &tr) {
     if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, tbcx, s, tr);
+      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
       return {};
     }
     std::set<T> set;
-    for (auto &s : tys) set.insert(replaceTy(tcx, tbcx, s, tr));
+    for (auto &s : tys) set.insert(replaceTy(tcx, s, tr));
     return set;
   }
 
@@ -303,8 +268,7 @@ namespace type {
           return ty;
         },
     };
-    TTcx ttcx;
-    replaceTy<true>(ttcx, ty, checker);
+    replaceTy<true>(ty, checker);
     return isComplete;
   }
 }

@@ -15,7 +15,7 @@ int main() {
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
-  type::TTcx ttcx;
+  type::Tcx Tcx;
   auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
   type::infer::SolveCtx icx(ttcx);
   type::infer::solveSystem(types.sys, icx, {0});

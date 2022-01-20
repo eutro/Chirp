@@ -63,6 +63,7 @@ namespace type::infer {
     Idx index = 1;
     std::function<void(Node&)> connect = [&](Node &node) {
       node.lowLink = node.index = index++;
+      node.onStack = true;
       stack.push(&node);
       for (Node *outNode : node.outEdges) {
         if (!outNode->index) {
@@ -95,7 +96,8 @@ namespace type::infer {
       for (const auto &node : scc) {
         outScc.push_back(node->insn);
       }
-      collapse(outScc);
+      collapse(*this, outScc);
+      outScc.clear();
     }
     std::vector<Insn> outInsns;
     outInsns.reserve(insns.size());
@@ -175,5 +177,28 @@ namespace type::infer {
     }
     os << "[" << var.retIdx << "]";
     return os;
+  }
+  bool VarRef::operator<(const VarRef &rhs) const {
+    if (insn < rhs.insn)
+      return true;
+    if (rhs.insn < insn)
+      return false;
+    return retIdx < rhs.retIdx;
+  }
+  bool VarRef::operator>(const VarRef &rhs) const {
+    return rhs < *this;
+  }
+  bool VarRef::operator<=(const VarRef &rhs) const {
+    return !(rhs < *this);
+  }
+  bool VarRef::operator>=(const VarRef &rhs) const {
+    return !(*this < rhs);
+  }
+  bool VarRef::operator==(const VarRef &rhs) const {
+    return insn == rhs.insn &&
+           retIdx == rhs.retIdx;
+  }
+  bool VarRef::operator!=(const VarRef &rhs) const {
+    return !(rhs == *this);
   }
 }

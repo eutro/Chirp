@@ -43,12 +43,12 @@ namespace type::infer {
     static bool tryMatchTy(Tp to, Tp from) {
       if (to == from) return true;
       if (std::holds_alternative<Ty::Placeholder>(to->v)) return true;
+      from = uncycle(from);
       if (to->v.index() != from->v.index()) return false;
       return std::visit(
         overloaded {
           [](Ty::ADT &lhs, Ty::ADT &rhs){
             if (lhs.i != rhs.i) return false;
-            if (lhs.v != rhs.v) return false;
             return tryMatch(lhs.s, rhs.s);
           },
           [](Ty::Tuple &lhs, Ty::Tuple &rhs) {
@@ -59,8 +59,7 @@ namespace type::infer {
           },
           [](const auto&,const auto&){return false;},
         },
-        uncycle(to)->v,
-        uncycle(from)->v);
+        to->v, from->v);
     }
   };
 

@@ -75,19 +75,6 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
   return os;
 }
 
-std::ostream &operator<<(std::ostream &os, type::TraitBound *tb) {
-  os << "trait[" << tb->i << "]";
-  if (!tb->s.empty()) {
-    os << "<";
-    for (auto iter = tb->s.begin(); iter != tb->s.end();) {
-      os << *iter;
-      if (++iter != tb->s.end()) os << ",";
-    }
-    os << ">";
-  }
-  return os;
-}
-
 namespace type::print {
   void printTy(type::Ty *t) {
     std::cerr << t << std::endl;

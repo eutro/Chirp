@@ -19,8 +19,8 @@ namespace hir::infer {
   public:
     type::Tcx &tcx;
 
-    InferenceVisitor(type::TTcx &ttcx):
-      tcx(ttcx.tcx)
+    InferenceVisitor(type::Tcx &ttcx):
+      tcx(ttcx)
     {}
 
     Program *program = nullptr;
@@ -75,9 +75,106 @@ namespace hir::infer {
       });
     }
 
-    static void doSorting(const std::vector<Insn*> &insns) {
+    void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
       if (insns.size() > 1) {
-        // throw std::runtime_error("Uh oh! Cycles!");
+        std::map<Tp, VarRef> externs;
+        std::map<VarRef, Tp> externsRev;
+        std::map<Insn *, std::vector<Tp>> tys;
+        std::map<Tp, Tp> values;
+        for (Insn *insn : insns) tys[insn];
+        Idx counter = 0;
+        auto setOutputs = [&](Insn *insn, const std::vector<Tp> &outs) {
+          std::vector<Tp> &vars = tys[insn];
+          vars.reserve(outs.size());
+          while (vars.size() < outs.size()) {
+            vars.push_back(tcx.intern(Ty::Placeholder{counter++}));
+          }
+          for (Idx i = 0; i < vars.size(); ++i) {
+            values[vars[i]] = outs[i];
+          }
+        };
+        auto getVar = [&](VarRef vr) {
+          if (vr.insn) {
+            auto found = tys.find(&il.insns.at(*vr.insn));
+            if (found != tys.end()) {
+              while (found->second.size() <= vr.retIdx) {
+                found->second.push_back(tcx.intern(Ty::Placeholder{counter++}));
+              }
+              return found->second.at(vr.retIdx);
+            }
+          }
+          if (externsRev.count(vr)) {
+            return externsRev.at(vr);
+          } else {
+            Ty *tp = tcx.intern(Ty::Placeholder{counter++});
+            externs.insert({tp, vr});
+            return externsRev[vr] = tp;
+          }
+        };
+        LookupKey *idKey = IdentityInsn::key();
+        LookupKey *constructKey = ConstructInsn::key();
+        for (Insn *insn : insns) {
+          std::vector<Tp> inputs;
+          inputs.reserve(insn->inputs.size());
+          for (auto in : insn->inputs) {
+            inputs.push_back(getVar(in));
+          }
+          if (insn->key == idKey) {
+            setOutputs(insn, inputs);
+          } else if (insn->key == constructKey) {
+            ConstructInsn construct;
+            setOutputs(insn, construct(inputs, insn->constArgs));
+          } else {
+            throw std::runtime_error("Bad instruction in cycle: " + insn->key->value);
+          }
+        }
+
+        for (auto &e : tys) {
+          std::vector<VarRef> externalInputs;
+          for (auto &t : e.second) {
+            bool cyclic = false;
+            Idx cycleDepth = 0;
+            std::function<Tp(Tp)> doReplace;
+            auto replaceFn = overloaded {
+              [&](Tp ty, type::PreWalk) {
+                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+                  cycleDepth++;
+                }
+                return ty;
+              },
+              [&](Tp ty, type::PostWalk) {
+                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+                  cycleDepth--;
+                }
+                return ty;
+              },
+              [&](Tp tp) {
+                if (std::holds_alternative<Ty::Placeholder>(tp->v)) {
+                  if (externs.count(tp)) {
+                    externalInputs.push_back(externs.at(tp));
+                    return tcx.intern(Ty::Placeholder{(Idx) externalInputs.size() - 1});
+                  } else if (tp == t) {
+                    cyclic = true;
+                    return tcx.intern(Ty::CyclicRef{cycleDepth});
+                  } else {
+                    return doReplace(values.at(tp));
+                  }
+                }
+                return tp;
+              }
+            };
+            doReplace = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceFn); };
+            Tp replaced = doReplace(values.at(t));
+            if (cyclic) {
+              replaced = tcx.intern(Ty::Cyclic{replaced});
+            }
+            t = replaced;
+          }
+          e.first->key = ConstructInsn::key();
+          e.first->inputs = std::move(externalInputs);
+          e.first->constArgs.clear();
+          std::copy(e.second.begin(), e.second.end(), std::back_inserter(e.first->constArgs));
+        }
       }
     }
 
@@ -85,8 +182,10 @@ namespace hir::infer {
       program = &p;
       InferResult res;
       addBuiltins(*res.table);
-      visitRootBlock(p.topLevel, res.insnLists.emplace_back(), false);
-      res.insnLists.back().topSort(doSorting);
+      visitBlock(p.topLevel, res.insnLists.emplace_back(), false);
+      auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
+      res.insnLists.back().topSort(sortFn);
+      varNodes.clear();
       for (auto &traitImpl : p.traitImpls) {
         InsnList &ig = res.insnLists.emplace_back();
         std::vector<Tp> allParams;
@@ -105,7 +204,7 @@ namespace hir::infer {
           }
         }
         for (auto &block : traitImpl.methods) {
-          visitRootBlock(block, ig, true);
+          visitBlock(block, ig, true);
         }
         std::vector<VarRef> retTypes;
         for (auto &rt : traitImpl.types) {
@@ -113,40 +212,32 @@ namespace hir::infer {
         }
         ig.insns.push_back(Insn(IdentityInsn::key(), {}, std::move(retTypes), {}));
         ig.retInsn = *ig.lastInsn().insn;
-        ig.topSort(doSorting);
+        ig.topSort(sortFn);
         res.table->insertFn(TraitInsn::key(), {(Idx)Builtins::Fn}, allParams, InstWrapper<std::monostate>(ig));
+        varNodes.clear();
       }
       return res;
     }
 
-    class DefinitionVisitor : public RecurVisitor<std::monostate, std::vector<Idx>> {
-    public:
-      void visitBlock(Block &it, std::vector<Idx> &vars) override {
-        for (auto b : it.bindings) {
-          vars.push_back(b);
-        }
-        RecurVisitor::visitBlock(it, vars);
-      }
-    };
-
-    VarRef visitRootBlock(Block &block, InsnList &ig, bool isFunction) {
-      std::vector<DefIdx> vars;
-      DefinitionVisitor().visitBlock(block, vars);
+    VarRef visitBlock(Block &block, InsnList &ig, bool isFunction) {
       if (isFunction) {
+        varNodes.insert({block.bindings.at(0), VarRef({}, 0)});
         std::vector<Tp> placeholders;
-        placeholders.reserve(vars.size());
-        for (Idx i = 0; i < vars.size(); ++i) {
-          placeholders.push_back(tcx.intern(Ty::Placeholder{i}));
-          varNodes.insert({vars[i], VarRef(ig.insns.size(), i)});
+        placeholders.reserve(block.bindings.size() - 1);
+        for (Idx i = 1; i < block.bindings.size(); ++i) {
+          placeholders.push_back(tcx.intern(Ty::Placeholder{i-1}));
         }
-        ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {VarRef({}, 1)}, {}));
+        ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {VarRef({}, 1)}, {tcx.intern(Ty::Tuple{placeholders})}));
+        for (Idx i = 1; i < block.bindings.size(); ++i) {
+          varNodes.insert({block.bindings[i], ig.lastInsn(i)});
+        }
       } else {
-        for (Idx var : vars) {
+        for (Idx var : block.bindings) {
           ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
           varNodes.insert({var, ig.lastInsn()});
         }
       }
-      for (Idx var : vars) {
+      for (Idx var : block.bindings) {
         VarRef &node = varNodes.at(var);
         Definition &def = program->bindings.at(var);
         auto &varDef = std::get<DefType::Variable>(def.defType.v);
@@ -213,7 +304,7 @@ namespace hir::infer {
                 return placeholders[base];
               },
               [&](DefType::ADT &) -> Tp {
-                return tcx.intern(Ty::ADT{base, {0}, visitParams(ty)});
+                return tcx.intern(Ty::ADT{base, visitParams(ty)});
               },
               [](DefType::Trait &) -> Tp {
                 throw std::runtime_error("Trait type hints unimplemented");
@@ -293,18 +384,14 @@ namespace hir::infer {
         }
       }
       auto logFn = [](std::monostate &ms, const std::vector<Tp> &tys) {
-        std::cout << tys.at(0);
+        std::cout << tys.at(0) << "\n";
       };
       InstWrapper<std::monostate>::LogInsn<decltype(logFn)> log(std::move(logFn));
       ig.insns.push_back(Insn(DynInsn::key(), {}, {node}, {(type::infer::Fn) log}, {}, e.span));
       return node;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
-      VarRef ret({}, 0);
-      for (Eptr &expr : e.block.body) {
-        ret = visitExpr(*expr, ig);
-      }
-      return ret;
+      return visitBlock(e.block, ig, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
       return varNodes.at(e.ref);
@@ -425,19 +512,19 @@ namespace hir::infer {
         args.push_back(visitExpr(*se PASS_ARGS));
         argTys.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, argTys});
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(args), {tyTemplate}, "construction", e.span));
       return ig.lastInsn();
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
       VarRef objTy = visitExpr(*e.value PASS_ARGS);
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
-      size_t fieldCount = adt.variants.front().values.size();
+      size_t fieldCount = adt.values.size();
       std::vector<Tp> params;
       for (Idx i = 0; i < fieldCount; ++i) {
         params.push_back(tcx.intern(Ty::Placeholder{i}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, {e.variant}, std::move(params)});
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params)});
       ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {objTy}, {tyTemplate}, "field taken", e.span));
       return ig.lastInsn(e.field);
     }
@@ -458,7 +545,7 @@ namespace hir::infer {
     }
   };
 
-  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::TTcx &ttcx) {
+  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::Tcx &ttcx) {
     return std::make_unique<InferenceVisitor>(ttcx);
   }
 }

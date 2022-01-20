@@ -1,14 +1,20 @@
 #include "Insns.h"
 
 #include <utility>
+#include <sstream>
 
 namespace type::infer {
   std::vector<Tp> IdentityInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     return tys;
   }
   std::vector<Tp> ConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
-    TyTemplate tyTemplate = constant_cast<Tp>(cArgs.front());
-    return {tyTemplate.construct(tys)};
+    std::vector<Tp> ret;
+    ret.reserve(cArgs.size());
+    for (const Constant &constant : cArgs) {
+      TyTemplate tyTemplate = constant_cast<Tp>(constant);
+      ret.push_back(tyTemplate.construct(tys));
+    }
+    return ret;
   }
   std::vector<Tp> DeConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
     TyTemplate tyTemplate = constant_cast<Tp>(cArgs.front());
@@ -25,11 +31,10 @@ namespace type::infer {
     return replaceTy(*targetTy->tcx, targetTy, replacer);
   }
   std::vector<Tp> TyTemplate::deconstruct(Tp ty) const {
-    // TODO handle failure
     Idx rets = 0;
     auto countRets = [&rets](Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-        rets = std::max(std::get<Ty::Placeholder>(ty->v).i, rets);
+        rets = std::max(std::get<Ty::Placeholder>(ty->v).i + 1, rets);
       }
       return ty;
     };
@@ -68,7 +73,16 @@ namespace type::infer {
             tmplTy->v, ty->v);
       }
     };
-    doDeconstruct(targetTy, ty);
+    doDeconstruct(targetTy, type::uncycle(ty));
+    for (Tp tp : out) {
+      if (std::holds_alternative<Ty::Err>(tp->v)) {
+        std::stringstream ss;
+        ss << "ICE: Failed deconstruction";
+        ss << "\n to: " << targetTy;
+        ss << "\n from: " << ty;
+        throw std::runtime_error(ss.str());
+      }
+    }
     return out;
   }
 

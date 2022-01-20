@@ -227,14 +227,14 @@ namespace ast::lower {
                 std::vector<Param> &params,
                 const loc::Span &source,
                 Expr &body) {
-      std::set<hir::DefIdx> globalRefs;
+      // std::set<hir::DefIdx> globalRefs;
       std::set<hir::DefIdx> closed;
       bindings.push([&](hir::DefIdx vr) {
-        if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
-          globalRefs.insert(vr);
-        } else {
+        // if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+        //   globalRefs.insert(vr);
+        // } else {
           closed.insert(vr);
-        }
+        // }
       });
       typeBindings.push();
       if (typeParams) {
@@ -277,11 +277,10 @@ namespace ast::lower {
         });
       auto &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
 
-      DefType::ADT::Variant &variant = closure.variants.emplace_back();
-      variant.values.reserve(closed.size());
+      closure.values.reserve(closed.size());
       for (auto &cv : closed) {
         auto &data = program.bindings.at(cv);
-        variant.values.push_back(introduceDef(hir::Definition{
+        closure.values.push_back(introduceDef(hir::Definition{
               data.name,
               data.source,
               DefType::Variable{false},
@@ -339,9 +338,7 @@ namespace ast::lower {
       fnImpl.types.push_back(retTy);
 
       auto expr = withSpan<hir::NewExpr>(source);
-      expr->globalRefs = std::move(globalRefs);
       expr->adt = typeIdx;
-      expr->variant = 0;
       expr->values.reserve(closed.size());
       for (auto &cv : closed) {
         auto varE = withSpan<hir::VarExpr>(std::nullopt);

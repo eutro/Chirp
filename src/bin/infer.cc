@@ -14,13 +14,12 @@ int main() {
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
-  type::TTcx ttcx;
+  type::Tcx ttcx;
   auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
 
   std::cerr << "* Steps\n";
   for (auto &block : types.insnLists) {
     std::cerr << "** Seq\n";
-    block.topSort([](const auto&){});
     std::cerr << block;
   }
 

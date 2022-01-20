@@ -27,6 +27,12 @@ namespace type::infer {
     VarRef(std::optional<Idx> insn, Idx retIdx) : insn(insn), retIdx(retIdx) {}
 
     friend std::ostream &operator<<(std::ostream &os, const VarRef &var);
+    bool operator<(const VarRef &rhs) const;
+    bool operator>(const VarRef &rhs) const;
+    bool operator<=(const VarRef &rhs) const;
+    bool operator>=(const VarRef &rhs) const;
+    bool operator==(const VarRef &rhs) const;
+    bool operator!=(const VarRef &rhs) const;
   };
 
   struct Insn {
@@ -92,7 +98,7 @@ namespace type::infer {
       return VarRef(insns.size() - 1, i);
     }
 
-    using SccCollapser = std::function<void(const std::vector<Insn*> &)>;
+    using SccCollapser = std::function<void(InsnList &il, const std::vector<Insn*> &)>;
     /**
      * Sort the instructions topologically.
      *
