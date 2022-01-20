@@ -1,15 +1,17 @@
 #include "Insns.h"
 
+#include <utility>
+
 namespace type::infer {
   std::vector<Tp> IdentityInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     return tys;
   }
   std::vector<Tp> ConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
-    auto &tyTemplate = constant_cast<TyTemplate>(cArgs.front());
+    TyTemplate tyTemplate = constant_cast<Tp>(cArgs.front());
     return {tyTemplate.construct(tys)};
   }
   std::vector<Tp> DeConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
-    auto &tyTemplate = constant_cast<TyTemplate>(cArgs.front());
+    TyTemplate tyTemplate = constant_cast<Tp>(cArgs.front());
     return tyTemplate.deconstruct(tys.front());
   }
 
@@ -79,8 +81,22 @@ namespace type::infer {
     throw std::runtime_error("ICE: trap in type inference");
   }
 
+  std::vector<Tp> CheckInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
+    // TODO check
+    return std::vector<Tp>();
+  }
+
   std::vector<Tp> UnionInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     // TODO union
-    return std::vector<Tp>();
+    return {tys.front()};
+  }
+
+  std::vector<Tp> DynInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) {
+    return constant_cast<Fn>(cs.at(0))(tys, {});
+  }
+
+  ConstInsn::ConstInsn(std::vector<Tp> ret) : ret(std::move(ret)) {}
+  std::vector<Tp> ConstInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
+    return ret;
   }
 }

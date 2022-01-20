@@ -1,5 +1,7 @@
 #include "LookupTable.h"
 
+#include "../TypePrint.h"
+
 #include <memory>
 #include <map>
 #include <sstream>
@@ -52,6 +54,9 @@ namespace type::infer {
           [](Ty::Tuple &lhs, Ty::Tuple &rhs) {
             return tryMatch(lhs.t, rhs.t);
           },
+          [](Ty::FfiFn &lhs, Ty::FfiFn &rhs) {
+            return tryMatchTy(lhs.args, rhs.args) && tryMatchTy(lhs.ret, rhs.ret);
+          },
           [](const auto&,const auto&){return false;},
         },
         uncycle(to)->v,
@@ -71,15 +76,31 @@ namespace type::infer {
         std::stringstream s;
         s << "Undefined function: " << fn->value;
         if (!constants.empty()) {
-          s << " with specific constants:";
+          s << "\n with constants:";
           for (const auto &c : constants) {
             s << " " << c;
           }
         }
         throw std::runtime_error(s.str());
       }
-      auto &overloads = found->second;
-      return overloads.lookup(args).at(0);
+      OverloadLookup &overloads = found->second;
+      const std::vector<Fn *> &lookedUp = overloads.lookup(args);
+      if (lookedUp.empty()) {
+        std::stringstream s;
+        s << "Undefined function: " << fn->value;
+        if (!constants.empty()) {
+          s << "\n with constants:";
+          for (const auto &c : constants) {
+            s << " " << c;
+          }
+        }
+        s << "\n with types:";
+        for (const auto &t : args) {
+          s << " " << t;
+        }
+        throw std::runtime_error(s.str());
+      }
+      return lookedUp.at(0);
     }
     void insertFn(
       LookupKey *fn,

@@ -13,6 +13,8 @@ namespace type::infer {
   template <typename T>
   const T &constant_cast(const Constant &c);
 
+  using Fn = std::function<std::vector<Tp>(const std::vector<Tp> &tys, const std::vector<Constant> &args)>;
+
   /**
    * A wrapper for constants that can be bitwise compared.
    */
@@ -37,7 +39,8 @@ namespace type::infer {
 
       template <typename T>
       static OutputFn outputFor() {
-        if constexpr (util::op_valid_t<std::ostream&, const T&, util::left_shift>::value) {
+        if constexpr (util::op_valid_t<std::ostream&, const T&, util::left_shift>::value &&
+        !std::is_same_v<Fn, T>) {
           return streamOutput<T>;
         } else {
           return hexOutput;
@@ -103,6 +106,4 @@ namespace type::infer {
     }
     return *(T*)c.raw;
   }
-
-  using Fn = std::function<std::vector<Tp>(const std::vector<Tp> &tys, const std::vector<Constant> &args)>;
 }

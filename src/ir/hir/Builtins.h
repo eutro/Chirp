@@ -23,5 +23,7 @@ namespace hir {
     FFIFN,
     STRING,
     NULSTRING,
+
+    LAST_BUILTIN_
   };
 }

@@ -23,4 +23,9 @@ int main() {
     block.topSort([](const auto&){});
     std::cerr << block;
   }
+
+  type::infer::Env env{std::move(types.table)};
+  type::infer::addInsns(*env.table);
+  type::infer::ENV = &env;
+  types.insnLists.front()({}, {});
 }

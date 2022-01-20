@@ -47,6 +47,14 @@ namespace type::infer {
      * Extra constant arguments to the function.
      */
     std::vector<Constant> constArgs;
+    /**
+     * The reason for this instruction.
+     */
+    std::optional<std::string> reason;
+    /**
+     * The location this instruction should be traced to.
+     */
+    std::optional<loc::Span> src;
     Insn(
         decltype(key) key,
         decltype(constants) &&constants,
@@ -58,12 +66,28 @@ namespace type::infer {
         inputs(std::forward<decltype(inputs)>(inputs)),
         constArgs(std::forward<decltype(constArgs)>(constArgs))
     {}
+    Insn(
+        decltype(key) key,
+        decltype(constants) &&constants,
+        decltype(inputs) &&inputs,
+        decltype(constArgs) &&constArgs,
+        const std::optional<std::string> &reason,
+        std::optional<loc::Span> src
+    ):
+        key(key),
+        constants(std::forward<decltype(constants)>(constants)),
+        inputs(std::forward<decltype(inputs)>(inputs)),
+        constArgs(std::forward<decltype(constArgs)>(constArgs)),
+        reason(reason),
+        src(src)
+    {}
 
     friend std::ostream &operator<<(std::ostream &os, const Insn &insn);
   };
 
   struct InsnList {
     std::vector<Insn> insns;
+    Idx retInsn{};
     VarRef lastInsn(Idx i = 0) {
       return VarRef(insns.size() - 1, i);
     }
@@ -80,7 +104,7 @@ namespace type::infer {
      * and must modify the instructions in this strongly connected component so that there is no longer
      * a cycle.
      */
-    void topSort(SccCollapser collapse);
+    void topSort(const SccCollapser &collapse);
 
     /**
      * Fn implementation.

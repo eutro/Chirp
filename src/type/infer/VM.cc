@@ -5,6 +5,7 @@ namespace type::infer {
   thread_local Env *ENV;
 
   std::vector<Tp> InsnList::operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const {
+    std::cerr << "\n\nCurrently evaluating:\n" << *this;
     if (insns.empty()) return args;
     std::vector<std::vector<Tp>> rets;
     rets.reserve(insns.size());
@@ -15,7 +16,7 @@ namespace type::infer {
       for (auto ref : insn.inputs) {
         const std::vector<Tp> *source;
         if (ref.insn) {
-          if (rets.size() < *ref.insn) {
+          if (*ref.insn < rets.size()) {
             source = &rets.at(*ref.insn);
           } else {
             throw std::runtime_error("ICE: Invocation of non-topological InsnList");
@@ -23,15 +24,19 @@ namespace type::infer {
         } else {
           source = &args;
         }
-        insnArgs.push_back(source->at(ref.retIdx));
+        if (ref.retIdx < source->size()) {
+          insnArgs.push_back(source->at(ref.retIdx));
+        } else {
+          throw std::runtime_error("ICE: Variable reference out of bounds");
+        }
       }
       auto &fn = *ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
       rets.push_back(fn(insnArgs, insn.constArgs));
     }
-    return rets.back();
+    return rets.at(retInsn);
   }
 
-  void InsnList::topSort(InsnList::SccCollapser collapse) {
+  void InsnList::topSort(const InsnList::SccCollapser &collapse) {
     struct Node {
       Insn *insn;
       std::vector<Node *> outEdges;
@@ -107,14 +112,16 @@ namespace type::infer {
         }
       }
     }
+    retInsn = nodes.at(retInsn).index;
     insns = std::move(outInsns);
   }
 
   std::ostream &operator<<(std::ostream &os, const InsnList &list) {
     Idx i = 0;
     for (const Insn &insn : list.insns) {
-      os << "$" << i++ << " = " << insn << "\n";
+      os << "$" << std::dec << i++ << " = " << insn << "\n";
     }
+    os << "return $" << std::dec << list.retInsn << "\n";
     return os;
   }
 
@@ -147,10 +154,20 @@ namespace type::infer {
       }
     }
     os << ")";
+    if (insn.reason || insn.src) {
+      os << " #";
+      if (insn.src) {
+        os << " (" << insn.src->lo << " - " << insn.src->hi << ")";
+      }
+      if (insn.reason) {
+        os << " " << *insn.reason;
+      }
+    }
     return os;
   }
 
   std::ostream &operator<<(std::ostream &os, const VarRef &var) {
+    os << std::dec;
     if (var.insn) {
       os << "$" << *var.insn;
     } else {

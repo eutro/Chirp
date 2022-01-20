@@ -197,10 +197,8 @@ namespace hir {
   public:
     Idx adt;
     Idx variant;
-    // hack to tell the type checker that this depends
-    // on the given globals being soft-initialised
-    std::set<Idx> globalRefs;
     std::vector<Eptr> values;
+    std::vector<Idx> captures; // which types are captured
 
     _acceptDef(Expr) override;
   };

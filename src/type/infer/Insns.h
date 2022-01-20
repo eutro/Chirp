@@ -47,7 +47,64 @@ namespace type::infer {
   };
   static_assert(std::is_assignable_v<Fn, UnionInsn>);
 
+  struct CheckInsn {
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
+    static LookupKey *key() { return LookupKey::intern("check"); }
+  };
+  static_assert(std::is_assignable_v<Fn, CheckInsn>);
+
   struct TraitInsn {
     static LookupKey *key() { return LookupKey::intern("trait"); }
   };
+
+  struct DynInsn {
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs);
+    static LookupKey *key() { return LookupKey::intern("dyn"); }
+  };
+
+  template <typename T>
+  struct InstWrapper {
+    Fn fn;
+    std::shared_ptr<std::vector<T>> insts = std::make_shared<std::vector<T>>();
+    InstWrapper(Fn &&fn) : fn(std::forward<Fn>(fn)) {}
+    static thread_local T *CURRENT_INST;
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
+      T ci;
+      T *oldInst = CURRENT_INST;
+      CURRENT_INST = &ci;
+      auto ret = fn(tys, cs);
+      CURRENT_INST = oldInst;
+      insts->push_back(std::move(ci));
+      return ret;
+    }
+
+    template <typename F>
+    struct LogInsn {
+      F f;
+      LogInsn(F &&f) : f(std::forward<F>(f)) {}
+      static LogInsn of(F &&f) {
+        return LogInsn(std::forward<F>(f));
+      }
+      std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
+        f(*CURRENT_INST, tys);
+        return tys;
+      }
+    };
+  };
+  template <typename T> thread_local T *InstWrapper<T>::CURRENT_INST{};
+
+  struct ConstInsn {
+    std::vector<Tp> ret;
+    ConstInsn(std::vector<Tp> ret);
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
+  };
+
+  template <typename... T>
+  void addSimple(LookupTable &lt) {
+    (lt.insertFallback(T::key(), {}, T{}), ...);
+  }
+
+  static inline void addInsns(LookupTable &lt) {
+    addSimple<IdentityInsn, ConstructInsn, DeConstructInsn, OutputInsn, TrapInsn, UnionInsn, CheckInsn, DynInsn>(lt);
+  }
 }
