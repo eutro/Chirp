@@ -63,4 +63,28 @@ namespace type {
   Ty *uncycle(Ty *ty) {
     return uncycle(*ty->tcx, ty);
   }
+
+  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys) {
+    if (tys.empty()) {
+      return tcx.intern(Ty::Union{{}});
+    }
+    std::set<Tp> tySet;
+    for (Tp ty : tys) {
+      if (std::holds_alternative<Ty::Union>(ty->v)) {
+        auto &unioned = std::get<Ty::Union>(ty->v);
+        std::copy(unioned.tys.begin(), unioned.tys.end(), std::inserter(tySet, tySet.end()));
+      } else {
+        tySet.insert(ty);
+      }
+    }
+    if (tySet.empty()) {
+      return tcx.intern(Ty::Union{});
+    } else if (tySet.size() == 1) {
+      return *tySet.begin();
+    } else {
+      tys.clear();
+      std::copy(tySet.begin(), tySet.end(), std::back_inserter(tys));
+      return tcx.intern(Ty::Union{tys});
+    }
+  }
 }

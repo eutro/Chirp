@@ -95,8 +95,9 @@ namespace type {
       Substs s;
       BIN_OPS(ADT)
     };
-    struct Never {
-      BIN_OPS(Never)
+    struct Union {
+      std::vector<Tp> tys; // must be sorted
+      BIN_OPS(Union)
     };
     struct Tuple {
       std::vector<Ty*> t;
@@ -127,7 +128,7 @@ namespace type {
       Float,
       Placeholder,
       ADT,
-      Never,
+      Union,
       Tuple,
       String,
       Cyclic,
@@ -174,6 +175,8 @@ namespace type {
   struct PreWalk {};
   struct PostWalk {};
 
+  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys);
+
   template <bool IGNORED = false, typename TR>
   Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
     if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
@@ -214,12 +217,18 @@ namespace type {
         else (void)uret;
         break;
       }
+      case util::index_of_type_v<Ty::Union, VTy>: {
+        auto &unty = std::get<Ty::Union>(ty->v);
+        auto uret = replaceTy<IGNORED>(tcx, unty.tys, tr);
+        if constexpr(!IGNORED) ty = unionOf(tcx, uret);
+        else (void)uret;
+        break;
+      }
       case util::index_of_type_v<Ty::Err, VTy>:
       case util::index_of_type_v<Ty::Bool, VTy>:
       case util::index_of_type_v<Ty::Int, VTy>:
       case util::index_of_type_v<Ty::UInt, VTy>:
       case util::index_of_type_v<Ty::Float, VTy>:
-      case util::index_of_type_v<Ty::Never, VTy>:
       case util::index_of_type_v<Ty::String, VTy>:
       default: break; // noop
     }

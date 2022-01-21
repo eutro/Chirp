@@ -48,8 +48,13 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
             os << ">";
           }
         },
-        [&](Ty::Never &t) {
-          os << "!";
+        [&](Ty::Union &t) {
+          os << "U{";
+          for (auto iter = t.tys.begin(); iter != t.tys.end();) {
+            os << *iter;
+            if (++iter != t.tys.end()) os << ",";
+          }
+          os << "}";
         },
         [&](Ty::Tuple &t) {
           os << "#(";

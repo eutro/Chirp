@@ -96,13 +96,14 @@ namespace type::infer {
   }
 
   std::vector<Tp> CheckInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-    // TODO check
+    DeConstructInsn deconstruct;
+    deconstruct(tys, {tys.front()});
     return std::vector<Tp>();
   }
 
   std::vector<Tp> UnionInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-    // TODO union
-    return {tys.front()};
+    std::vector<Tp> tysC = tys;
+    return {unionOf(*tys.at(0)->tcx, tysC)};
   }
 
   std::vector<Tp> DynInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) {
