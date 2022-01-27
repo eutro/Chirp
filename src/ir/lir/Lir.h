@@ -25,12 +25,12 @@ namespace lir {
     };
     struct SetField {
       Insn *obj;
-      Idx variant, field;
+      Idx field;
       Insn *value;
     };
     struct GetField {
       Insn *obj;
-      Idx variant, field;
+      Idx field;
     };
     struct CallTrait {
       Insn *obj;

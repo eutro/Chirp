@@ -202,7 +202,6 @@ namespace hir {
   class GetExpr : public Expr {
   public:
     Idx adt;
-    Idx variant;
     Idx field;
     Eptr value;
 

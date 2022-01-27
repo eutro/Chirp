@@ -30,24 +30,27 @@ namespace hir::infer {
     std::map<DefIdx, VarRef> tyNodes;
 
     LookupKey *logKey = LookupKey::intern("log");
-    Idx igIdx = 0;
+    Idx igIdx = 2;
     Idx blockIdx = 0;
     Idx exprIdx = 0;
     std::shared_ptr<type::infer::Inst::ConstructingSet> instSet =
       std::make_shared<decltype(instSet)::element_type>();
 
     void addBuiltins(LookupTable &sys) {
+      auto constFn = [&](const std::vector<Tp> &i) {
+        return InstWrapper(ConstInsn(i), 0, igIdx++, instSet);
+      };
       auto implBinOp = [&](Tp ty, Idx trait) {
-        sys.insertFn(TraitInsn::key(), {trait}, {ty, ty}, ConstInsn({ty}));
+        sys.insertFn(TraitInsn::key(), {trait}, {ty, ty}, constFn({ty}));
       };
       auto implNeg = [&](Tp ty) {
-        sys.insertFn(TraitInsn::key(), {(Idx)Neg}, {ty}, ConstInsn({ty}));
+        sys.insertFn(TraitInsn::key(), {(Idx)Neg}, {ty}, constFn({ty}));
       };
       auto implEq = [&](Tp ty) {
-        sys.insertFn(TraitInsn::key(), {(Idx)Eq}, {ty, ty}, ConstInsn({}));
+        sys.insertFn(TraitInsn::key(), {(Idx)Eq}, {ty, ty}, constFn({}));
       };
       auto implCmp = [&](Tp ty) {
-        sys.insertFn(TraitInsn::key(), {(Idx)Cmp}, {ty, ty}, ConstInsn({}));
+        sys.insertFn(TraitInsn::key(), {(Idx)Cmp}, {ty, ty}, constFn({}));
       };
 
       for (type::IntSize is : type::INT_SIZE_FIXED) {
@@ -75,13 +78,19 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
-      sys.insertFn(TraitInsn::key(), {(Idx)Builtins::Fn}, 
+      sys.insertFn(TraitInsn::key(), {(Idx)Builtins::Fn},
                    {tcx.intern(Ty::FfiFn{tcx.intern(Ty::Placeholder{0}),
                                          tcx.intern(Ty::Placeholder{1})}),
                     tcx.intern(Ty::Placeholder{0})},
-                   [](const std::vector<Tp> &tys, const auto&) -> std::vector<Tp> {
-        return {std::get<Ty::FfiFn>(tys.at(0)->v).ret};
-      });
+                   InstWrapper(
+                     [](const std::vector<Tp> &tys, const auto&) -> std::vector<Tp> {
+                       auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
+                       CheckInsn check;
+                       check({tys.at(1)}, {ffifn.args});
+                       return {ffifn.ret};
+                     },
+                     1, 1, instSet)
+      );
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
@@ -191,11 +200,11 @@ namespace hir::infer {
       program = &p;
       InferResult res;
       res.insts = instSet;
-      addBuiltins(*res.table);
       visitTopLevel(p.topLevel, res);
       for (auto &traitImpl : p.traitImpls) {
         visitTrait(traitImpl, res);
       }
+      addBuiltins(*res.table);
       return res;
     }
 

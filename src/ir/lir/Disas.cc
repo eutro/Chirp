@@ -36,9 +36,9 @@ namespace lir::disas {
           [&](Insn::GetVar &x){os << "GetVar %" << x.var;},
           [&](Insn::SetField &x){
             os << "SetField $" << insns.at(x.obj)
-            << "[" << x.variant << "][" << x.field << "] @" << insns.at(x.value);
+            << "[" << x.field << "] @" << insns.at(x.value);
           },
-          [&](Insn::GetField &x){os << "GetField $" << insns.at(x.obj) << "[" << x.variant << "][" << x.field << "]";},
+          [&](Insn::GetField &x){os << "GetField $" << insns.at(x.obj) << "[" << x.field << "]";},
           [&](Insn::CallTrait &x){
             os << "CallTrait $" << insns.at(x.obj) << " @" << x.trait << "[" << x.method << "]";
             for (auto &arg : x.args) {

@@ -22,6 +22,9 @@ namespace type::infer {
      */
     struct Set {
       std::map<EntityIdx, std::map<ValIdx, Val>> entities;
+      Val &operator[](const Ref &ref) {
+        return entities.at(ref.first).at(ref.second);
+      }
     };
     struct ConstructingSet : Set {
       std::map<Ref, std::vector<Tp>> refRets;

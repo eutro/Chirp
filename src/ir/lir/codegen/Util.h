@@ -22,7 +22,7 @@
 
 namespace lir::codegen {
   using type::Ty;
-  using type::infer::Instantiation;
+  using Instantiation = type::infer::Inst::Val;
   using Tp = Ty *;
   struct LocalCC;
   struct CC;
@@ -59,8 +59,6 @@ namespace lir::codegen {
   };
 
   struct CC {
-    arena::InternArena<Ty> &tcx;
-    arena::InternArena<type::TraitBound> &tbcx;
     llvm::Module &mod;
     llvm::LLVMContext &ctx;
 
@@ -68,7 +66,7 @@ namespace lir::codegen {
     llvm::DICompileUnit *cu;
 
     // _[block][inst]
-    std::vector<std::vector<EmitFn>> emitCall;
+    std::map<Idx, std::map<Idx, EmitFn>> emitCall;
     std::map<type::Ty *, TyTuple> tyCache;
 
     std::map<Idx, Value> vars;
@@ -131,7 +129,7 @@ namespace lir::codegen {
 
   template <typename T = llvm::Type *>
   T getTy(LocalCC &lcc, Idx i) {
-    return getTy<T>(lcc.cc, lcc.inst.typeVars.at(i));
+    return getTy<T>(lcc.cc, lcc.inst.loggedTys.at(i));
   }
 
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);

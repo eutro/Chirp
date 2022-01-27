@@ -7,14 +7,13 @@
 #include <llvm/IR/Module.h>
 
 namespace lir::codegen {
+  using TypeInst = type::infer::Inst;
   struct CodegenResult {
     std::unique_ptr<llvm::LLVMContext> ctx;
     std::unique_ptr<llvm::Module> mod;
   };
 
-  CodegenResult generate(type::Tcx &tcx,
-                         type::Tbcx &tbcx,
-                         type::infer::System &sys,
+  CodegenResult generate(TypeInst::Set &insts,
                          Module &mod,
                          const std::string &fileName = "module.crp",
                          const std::string &fileDir = ".");

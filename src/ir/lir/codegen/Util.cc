@@ -11,7 +11,7 @@ namespace lir::codegen {
       }
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-      Ty *uncycled = type::uncycle(cc.tcx, cc.tbcx, ty);
+      Ty *uncycled = type::uncycle(ty);
       return getTyTuple(cc, uncycled);
     } else {
       cc.tyCache[ty] = std::make_tuple(nullptr, nullptr, std::nullopt);

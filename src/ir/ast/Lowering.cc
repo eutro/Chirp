@@ -366,7 +366,6 @@ namespace ast::lower {
         if (found != mapping.end()) {
           auto getE = withSpan<hir::GetExpr>(varE.span);
           getE->adt = typeIdx;
-          getE->variant = 0;
           getE->field = found->second;
           auto thisE = withSpan<hir::VarExpr>(std::nullopt);
           thisE->ref = thisIdx;

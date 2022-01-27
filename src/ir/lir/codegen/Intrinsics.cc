@@ -13,7 +13,8 @@ namespace lir::codegen {
   }
 
   void implTrait(CC &cc, EmitFn fn) {
-    cc.emitCall.emplace_back().push_back(fn);
+    auto &m = cc.emitCall[cc.emitCall.size()];
+    m[m.size()] = fn;
   }
 
   template <std::size_t Arity, typename T, typename C, typename... Args>
@@ -26,7 +27,7 @@ namespace lir::codegen {
                   std::forward<Args>(args)...));
   }
 
-  void addIntrinsics(CC &cc, type::infer::System &sys) {
+  void addIntrinsics(CC &cc, type::infer::Inst::Set &sys) {
     using BinaryAndTwine = llvm::Value *(llvm::IRBuilder<>::*)(llvm::Value*, llvm::Value*, const llvm::Twine&);
     for ([[maybe_unused]] type::IntSize is : type::INT_SIZE_FIXED) {
       for (bool isU : {false, true}) {
@@ -134,17 +135,17 @@ namespace lir::codegen {
       );
     }
 
-    auto &ffiInsts = sys.seqs.at(cc.emitCall.size());
-    auto &ffiCalls = cc.emitCall.emplace_back();
-    for ([[maybe_unused]] const auto &inst : ffiInsts.insts) {
-      ffiCalls.push_back([](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc)
-                         -> llvm::Value * {
+    auto &ffiInsts = sys.entities.at(1); // :)
+    auto &ffiCalls = cc.emitCall[1];
+    for ([[maybe_unused]] const auto &inst : ffiInsts) {
+      ffiCalls.emplace(inst.first, [](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc)
+                       -> llvm::Value * {
         std::vector<llvm::Value *> args;
         args.reserve(ct.args.size());
         for (auto &arg : ct.args) {
           args.push_back(lcc.load(arg));
         }
-        Tp objTy = lcc.inst.typeVars.at(ct.obj->ty);
+        Tp objTy = lcc.inst.loggedTys.at(ct.obj->ty);
         llvm::FunctionType *fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(objTy->v));
         return lcc.ib.CreateCall(fnTy, lcc.load(ct.obj), args);
       });
