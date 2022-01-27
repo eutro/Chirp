@@ -17,14 +17,19 @@ int main() {
   type::Tcx ttcx;
   auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
 
-  std::cerr << "* Steps\n";
-  for (auto &block : types.insnLists) {
-    std::cerr << "** Seq\n";
-    std::cerr << block;
-  }
-
   type::infer::Env env{std::move(types.table)};
   type::infer::addInsns(*env.table);
   type::infer::ENV = &env;
-  types.insnLists.front()({}, {});
+  types.root({}, {});
+
+  for (auto &e : types.insts->entities) {
+    std::cout << "* Block " << e.first << "\n";
+    for (auto &i : e.second) {
+      std::cout << "** Inst " << i.first << "\n";
+      auto &v = i.second;
+      for (auto &ex : v.loggedTys) {
+        std::cout << "- Expr " << ex.first << " - " << ex.second << "\n";
+      }
+    }
+  }
 }

@@ -11,8 +11,12 @@ namespace type::infer {
     std::vector<Tp> ret;
     ret.reserve(cArgs.size());
     for (const Constant &constant : cArgs) {
-      TyTemplate tyTemplate = constant_cast<Tp>(constant);
-      ret.push_back(tyTemplate.construct(tys));
+      if (tys.empty()) {
+        ret.push_back(constant_cast<Tp>(constant));
+      } else {
+        TyTemplate tyTemplate = constant_cast<Tp>(constant);
+        ret.push_back(tyTemplate.construct(tys));
+      }
     }
     return ret;
   }
@@ -106,12 +110,10 @@ namespace type::infer {
     return {unionOf(*tys.at(0)->tcx, tysC)};
   }
 
-  std::vector<Tp> DynInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) {
-    return constant_cast<Fn>(cs.at(0))(tys, {});
-  }
-
   ConstInsn::ConstInsn(std::vector<Tp> ret) : ret(std::move(ret)) {}
   std::vector<Tp> ConstInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     return ret;
   }
+
+  thread_local Inst::Val *InstWrapper::CURRENT_INST = nullptr;
 }

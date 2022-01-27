@@ -10,8 +10,9 @@ namespace hir::infer {
   using Tp = Ty *;
 
   struct InferResult {
-    std::vector<type::infer::InsnList> insnLists;
+    std::shared_ptr<type::infer::Inst::Set> insts;
     std::unique_ptr<type::infer::LookupTable> table = type::infer::LookupTable::create();
+    type::infer::Fn root;
   };
 
   std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::Tcx &ttcx);

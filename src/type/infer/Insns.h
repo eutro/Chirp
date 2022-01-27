@@ -2,6 +2,7 @@
 
 #include "Fn.h"
 #include "LookupTable.h"
+#include "Inst.h"
 
 namespace type::infer {
   struct IdentityInsn {
@@ -57,41 +58,57 @@ namespace type::infer {
     static LookupKey *key() { return LookupKey::intern("trait"); }
   };
 
-  struct DynInsn {
-    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs);
-    static LookupKey *key() { return LookupKey::intern("dyn"); }
-  };
-
-  template <typename T>
   struct InstWrapper {
     Fn fn;
-    std::shared_ptr<std::vector<T>> insts = std::make_shared<std::vector<T>>();
-    InstWrapper(Fn &&fn) : fn(std::forward<Fn>(fn)) {}
-    static thread_local T *CURRENT_INST;
+    Idx returnCount;
+    Inst::EntityIdx entityIdx;
+    std::shared_ptr<Inst::ConstructingSet> insts;
+    InstWrapper(Fn fn, Idx returnCount, decltype(entityIdx) entityIdx, decltype(insts) insts)
+      : fn(fn), returnCount(returnCount), entityIdx(entityIdx), insts(insts) {}
+    static thread_local Inst::Val *CURRENT_INST;
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
-      T ci;
-      T *oldInst = CURRENT_INST;
+      decltype(Inst::Val::loggedRefs) *loggedRefs = nullptr;
+      Idx refIdx;
+      if (CURRENT_INST) {
+        loggedRefs = &CURRENT_INST->loggedRefs;
+        refIdx = constant_cast<Idx>(cs.at(0));
+      }
+      auto &memo = insts->memo[entityIdx];
+      if (memo.count(tys)) {
+        Inst::Ref ref = memo.at(tys);
+        if (loggedRefs) loggedRefs->emplace(refIdx, ref);
+        return insts->refRets.at(ref);
+      }
+      auto &set = insts->entities[entityIdx];
+      Inst::Ref ref{entityIdx, (Idx)set.size()};
+      memo.emplace(tys, ref);
+      // TODO invalidate any memos created referencing this
+      std::vector<Tp> &memoRets = insts->refRets.emplace(
+        ref,
+        std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}))
+      ).first->second;
+
+      Inst::Val ci;
+      Inst::Val *oldInst = CURRENT_INST;
       CURRENT_INST = &ci;
       auto ret = fn(tys, cs);
       CURRENT_INST = oldInst;
-      insts->push_back(std::move(ci));
+
+      set.emplace(ref.second, std::move(ci));
+      memoRets = ret;
+      if (loggedRefs) loggedRefs->emplace(refIdx, ref);
       return ret;
     }
-
-    template <typename F>
-    struct LogInsn {
-      F f;
-      LogInsn(F &&f) : f(std::forward<F>(f)) {}
-      static LogInsn of(F &&f) {
-        return LogInsn(std::forward<F>(f));
-      }
-      std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-        f(*CURRENT_INST, tys);
-        return tys;
-      }
-    };
   };
-  template <typename T> thread_local T *InstWrapper<T>::CURRENT_INST{};
+
+  struct LogInsn {
+    static LookupKey *key() { return LookupKey::intern("log"); }
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
+      InstWrapper::CURRENT_INST->loggedTys[constant_cast<Idx>(cs.at(1))] = tys.at(0);
+      return tys;
+    }
+  };
+  static_assert(std::is_assignable_v<Fn, LogInsn>);
 
   struct ConstInsn {
     std::vector<Tp> ret;
@@ -105,6 +122,13 @@ namespace type::infer {
   }
 
   static inline void addInsns(LookupTable &lt) {
-    addSimple<IdentityInsn, ConstructInsn, DeConstructInsn, OutputInsn, TrapInsn, UnionInsn, CheckInsn, DynInsn>(lt);
+    addSimple<IdentityInsn,
+              ConstructInsn,
+              DeConstructInsn,
+              OutputInsn,
+              TrapInsn,
+              UnionInsn,
+              CheckInsn,
+              LogInsn>(lt);
   }
 }

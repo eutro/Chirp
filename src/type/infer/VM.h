@@ -1,17 +1,14 @@
 #pragma once
 
 #include <ostream>
+#include <deque>
+
 #include "../Type.h"
 #include "Fn.h"
 #include "LookupTable.h"
 
 namespace type::infer {
-  /**
-   * The runtime state of the inference VM.
-   */
-  struct Env {
-    std::unique_ptr<LookupTable> table = LookupTable::create();
-  };
+  struct Env;
 
   extern thread_local Env *ENV;
 
@@ -91,6 +88,14 @@ namespace type::infer {
     friend std::ostream &operator<<(std::ostream &os, const Insn &insn);
   };
 
+  /**
+   * The runtime state of the inference VM.
+   */
+  struct Env {
+    std::unique_ptr<LookupTable> table = LookupTable::create();
+    std::deque<const Insn *> stack;
+  };
+
   struct InsnList {
     std::vector<Insn> insns;
     Idx retInsn{};
@@ -111,6 +116,11 @@ namespace type::infer {
      * a cycle.
      */
     void topSort(const SccCollapser &collapse);
+
+    /**
+     * Optimise the instruction list.
+     */
+    void opt();
 
     /**
      * Fn implementation.

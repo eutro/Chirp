@@ -21,12 +21,13 @@ namespace type::infer {
   struct Constant {
     struct TypeData {
       using OutputFn = std::function<void(std::ostream&, const Constant &)>;
-      const std::type_info &ty;
+      const std::type_info *ty;
       OutputFn output;
+
       TypeData(const std::type_info &ty, const OutputFn &output)
-        : ty(ty), output(output) {}
+        : ty(&ty), output(output) {}
       bool operator==(const TypeData &rhs) const {
-        return ty == rhs.ty;
+        return *ty == *rhs.ty;
       }
       bool operator!=(const TypeData &rhs) const {
         return !(rhs == *this);
@@ -65,6 +66,7 @@ namespace type::infer {
     char *raw;
 
     Constant(const Constant &o);
+    Constant &operator=(const Constant &o);
 
     template <
         typename T,

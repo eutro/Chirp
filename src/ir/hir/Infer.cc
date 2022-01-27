@@ -21,11 +21,20 @@ namespace hir::infer {
 
     InferenceVisitor(type::Tcx &ttcx):
       tcx(ttcx)
-    {}
+    {
+      instSet->tcx = &tcx;
+    }
 
     Program *program = nullptr;
     std::map<DefIdx, VarRef> varNodes;
     std::map<DefIdx, VarRef> tyNodes;
+
+    LookupKey *logKey = LookupKey::intern("log");
+    Idx igIdx = 0;
+    Idx blockIdx = 0;
+    Idx exprIdx = 0;
+    std::shared_ptr<type::infer::Inst::ConstructingSet> instSet =
+      std::make_shared<decltype(instSet)::element_type>();
 
     void addBuiltins(LookupTable &sys) {
       auto implBinOp = [&](Tp ty, Idx trait) {
@@ -181,42 +190,70 @@ namespace hir::infer {
     InferResult visitProgram(Program &p) override {
       program = &p;
       InferResult res;
+      res.insts = instSet;
       addBuiltins(*res.table);
-      visitBlock(p.topLevel, res.insnLists.emplace_back(), false);
-      auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
-      res.insnLists.back().topSort(sortFn);
-      varNodes.clear();
+      visitTopLevel(p.topLevel, res);
       for (auto &traitImpl : p.traitImpls) {
-        InsnList &ig = res.insnLists.emplace_back();
-        std::vector<Tp> allParams;
-        {
-          allParams.reserve(traitImpl.trait.params.size() + 1);
-          {
-            VarRef vr({}, 0);
-            allParams.push_back(parseTyHint(traitImpl.type, vr, ig));
-          }
-          {
-            Idx i = 1;
-            for (auto &ty : traitImpl.trait.params) {
-              VarRef vr({}, i++);
-              allParams.push_back(parseTyHint(ty, vr, ig));
-            }
-          }
-        }
-        for (auto &block : traitImpl.methods) {
-          visitBlock(block, ig, true);
-        }
-        std::vector<VarRef> retTypes;
-        for (auto &rt : traitImpl.types) {
-          retTypes.push_back(parseCompleteTy(rt, ig));
-        }
-        ig.insns.push_back(Insn(IdentityInsn::key(), {}, std::move(retTypes), {}));
-        ig.retInsn = *ig.lastInsn().insn;
-        ig.topSort(sortFn);
-        res.table->insertFn(TraitInsn::key(), {(Idx)Builtins::Fn}, allParams, InstWrapper<std::monostate>(ig));
-        varNodes.clear();
+        visitTrait(traitImpl, res);
       }
       return res;
+    }
+
+    void topSort(InsnList &ig) {
+      auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
+      ig.topSort(sortFn);
+      ig.opt();
+    }
+
+    void visitTopLevel(Block &block, InferResult &res) {
+      InsnList ig;
+      visitRootBlock(block, res, ig, false);
+      ig.insns.push_back(Insn(IdentityInsn::key(), {}, {}, {}));
+      ig.retInsn = *ig.lastInsn().insn;
+      topSort(ig);
+      res.root = InstWrapper(ig, 0, igIdx++, instSet);
+    }
+
+    void visitTrait(TraitImpl &ti, InferResult &res) {
+      InsnList ig;
+      std::vector<Tp> allParams;
+      {
+        allParams.reserve(ti.trait.params.size() + 1);
+        {
+          VarRef vr({}, 0);
+          allParams.push_back(parseTyHint(ti.type, vr, ig));
+        }
+        {
+          Idx i = 1;
+          for (auto &ty : ti.trait.params) {
+            VarRef vr({}, i++);
+            allParams.push_back(parseTyHint(ty, vr, ig));
+          }
+        }
+      }
+      for (auto &block : ti.methods) {
+        visitRootBlock(block, res, ig, true);
+      }
+      std::vector<VarRef> retTypes;
+      for (auto &rt : ti.types) {
+        retTypes.push_back(parseCompleteTy(rt, ig));
+      }
+      ig.insns.push_back(Insn(IdentityInsn::key(), {}, std::move(retTypes), {}));
+      ig.retInsn = *ig.lastInsn().insn;
+      topSort(ig);
+      res.table->insertFn(
+        TraitInsn::key(),
+        {(Idx)Builtins::Fn},
+        allParams,
+        InstWrapper(ig, ti.types.size(), igIdx++, instSet)
+      );
+    }
+
+    void visitRootBlock(Block &block, InferResult &res, InsnList &ig, bool isFunction) {
+      visitBlock(block, ig, isFunction);
+      blockIdx++;
+      exprIdx = 0;
+      varNodes.clear();
     }
 
     VarRef visitBlock(Block &block, InsnList &ig, bool isFunction) {
@@ -229,7 +266,7 @@ namespace hir::infer {
         }
         ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {VarRef({}, 1)}, {tcx.intern(Ty::Tuple{placeholders})}));
         for (Idx i = 1; i < block.bindings.size(); ++i) {
-          varNodes.insert({block.bindings[i], ig.lastInsn(i)});
+          varNodes.insert({block.bindings[i], ig.lastInsn(i-1)});
         }
       } else {
         for (Idx var : block.bindings) {
@@ -376,6 +413,7 @@ namespace hir::infer {
     bool foregoHints = false;
     VarRef visitExpr ARGS(Expr) override {
       VarRef node = ExprVisitor::visitExpr(e PASS_ARGS);
+      Idx id = exprIdx++;
       if (foregoHints) {
         foregoHints = false;
       } else {
@@ -383,11 +421,7 @@ namespace hir::infer {
           parseTyHint(hint, node, ig);
         }
       }
-      auto logFn = [](std::monostate &ms, const std::vector<Tp> &tys) {
-        std::cout << tys.at(0) << "\n";
-      };
-      InstWrapper<std::monostate>::LogInsn<decltype(logFn)> log(std::move(logFn));
-      ig.insns.push_back(Insn(DynInsn::key(), {}, {node}, {(type::infer::Fn) log}, {}, e.span));
+      ig.insns.push_back(Insn(logKey, {}, {node}, {blockIdx, id}, {}, e.span));
       return node;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
@@ -398,7 +432,7 @@ namespace hir::infer {
     }
     RET_T visitCondExpr ARGS(CondExpr) override {
       VarRef predTy = visitExpr(*e.predE PASS_ARGS);
-      ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {predTy}, {tcx.intern(Ty::Bool{})}));
+      ig.insns.push_back(Insn(CheckInsn::key(), {}, {predTy}, {tcx.intern(Ty::Bool{})}));
       VarRef thenTy = visitExpr(*e.thenE PASS_ARGS);
       VarRef elseTy = visitExpr(*e.elseE PASS_ARGS);
       ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
@@ -466,19 +500,19 @@ namespace hir::infer {
         case BinExpr::Rem: trait = Rem; break;
         default: throw std::runtime_error("Invalid binary expression type");
       }
-      ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {}, "result of operation", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {exprIdx}, "result of operation", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
       VarRef lhsTy = visitExpr(*e.lhs PASS_ARGS);
       VarRef rhsTy = visitExpr(*e.rhs PASS_ARGS);
-      ig.insns.push_back(Insn(TraitInsn::key(), {Cmp}, {lhsTy, rhsTy}, {}, "comparison made", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {Cmp}, {lhsTy, rhsTy}, {exprIdx}, "comparison made", e.span));
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Bool{})}, "result of comparison", e.span));
       return ig.lastInsn();
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
       VarRef valTy = visitExpr(*e.value PASS_ARGS);
-      ig.insns.push_back(Insn(TraitInsn::key(), {Neg}, {valTy}, {}, "result of negation", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {Neg}, {valTy}, {exprIdx}, "result of negation", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
@@ -492,7 +526,7 @@ namespace hir::infer {
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(argTys), {tcx.intern(Ty::Tuple{std::move(placeholders)})}));
       VarRef tupleTy = ig.lastInsn();
-      ig.insns.push_back(Insn(TraitInsn::key(), {(Idx)Builtins::Fn}, {fnTy, tupleTy}, {}, "function called", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {(Idx)Builtins::Fn}, {fnTy, tupleTy}, {exprIdx}, "function called", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {
