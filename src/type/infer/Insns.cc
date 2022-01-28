@@ -115,5 +115,48 @@ namespace type::infer {
     return ret;
   }
 
+  std::vector<Tp> InstWrapper::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
+    decltype(Inst::Val::loggedRefs) *loggedRefs = nullptr;
+    Idx refIdx;
+    if (CURRENT_INST) {
+      loggedRefs = &CURRENT_INST->loggedRefs;
+      refIdx = constant_cast<Idx>(cs.at(0));
+    }
+    auto &memo = insts->memo[entityIdx];
+    if (memo.count(tys)) {
+      Inst::Ref ref = memo.at(tys);
+      if (loggedRefs) loggedRefs->emplace(refIdx, ref);
+      return insts->refRets.at(ref);
+    }
+    auto &set = insts->entities[entityIdx];
+    Inst::Ref ref{entityIdx, (Idx)set.size()};
+    memo.emplace(tys, ref);
+    // TODO invalidate any memos created referencing this
+    std::vector<Tp> &memoRets = insts->refRets.emplace(
+      ref,
+      std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}))
+    ).first->second;
+
+    Inst::Val ci;
+    Inst::Val *oldInst = CURRENT_INST;
+    CURRENT_INST = &ci;
+    auto ret = fn(tys, cs);
+    CURRENT_INST = oldInst;
+
+    set.emplace(ref.second, std::move(ci));
+    memoRets = ret;
+    if (loggedRefs) loggedRefs->emplace(refIdx, ref);
+    return ret;
+  }
   thread_local Inst::Val *InstWrapper::CURRENT_INST = nullptr;
+
+  std::vector<Tp> LogInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
+    if (tys.size() != cs.size()) {
+      throw std::runtime_error("Type and index list size mismatch");
+    }
+    for (Idx i = 0; i < tys.size(); ++i) {
+      InstWrapper::CURRENT_INST->loggedTys[constant_cast<Idx>(cs.at(i))] = tys.at(i);
+    }
+    return {};
+  }
 }

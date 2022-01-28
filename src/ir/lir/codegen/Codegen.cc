@@ -423,10 +423,12 @@ namespace lir::codegen {
 
     std::vector<std::unique_ptr<std::vector<llvm::Function *>>> traitMethods;
     // block 0 is main
-    // block 1 is ffifns
-    Idx blockIdx = 1;
-    for (auto &trait : mod.traitImpls) {
-      blockIdx++;
+    Idx intrinsicCount = addIntrinsics(cc, allInsts);
+    for (auto it = allInsts.entities.lower_bound(intrinsicCount);
+         it != allInsts.entities.end();
+         ++it) {
+      Idx blockIdx = it->first;
+      auto &trait = mod.traitImpls.at(blockIdx - intrinsicCount);
       auto &emitCalls = cc.emitCall[blockIdx];
       auto &insts = allInsts.entities.at(blockIdx);
       for (Idx instIdx = 0; instIdx < insts.size(); ++instIdx) {
@@ -448,7 +450,6 @@ namespace lir::codegen {
         });
       }
     }
-    addIntrinsics(cc, allInsts);
 
     llvm::IRBuilder<> ib(cc.ctx);
 
@@ -491,9 +492,11 @@ namespace lir::codegen {
 
     {
       auto tIt = traitMethods.begin();
-      blockIdx = 0;
-      for (auto &trait : mod.traitImpls) {
-        blockIdx++;
+      for (auto it = allInsts.entities.lower_bound(intrinsicCount);
+           it != allInsts.entities.end();
+           ++it) {
+        Idx blockIdx = it->first;
+        auto &trait = mod.traitImpls.at(blockIdx - intrinsicCount);
         auto &insts = allInsts.entities.at(blockIdx);
         for (auto &inst : insts) {
           std::vector<llvm::Function *> &funcs = **tIt++;

@@ -1,7 +1,8 @@
 #include "Lowering.h"
 #include "Hir.h"
 #include "Infer.h"
-#include "RecurVisitor.h"
+#include "IdxCounter.h"
+
 #include <limits>
 
 namespace hir::lower {
@@ -29,23 +30,6 @@ namespace hir::lower {
       }
       return ret;
     }
-
-    class TyCounter : public RecurVisitor<std::monostate, std::map<Expr*, Idx>, Idx> {
-      std::monostate visitExpr(Expr &it, std::map<Expr*, Idx> &exprTys, Idx &idx) override {
-        exprTys[&it] = idx++;
-        return RecurVisitor::visitExpr(it, exprTys, idx);
-      }
-    };
-
-    class DefCounter : public RecurVisitor<std::monostate, std::map<Idx, Idx>, Idx> {
-    public:
-      void visitBlock(Block &it, std::map<Idx, Idx> &defTys, Idx &idx) override {
-        for (auto &b : it.bindings) {
-          defTys[b] = idx++;
-        }
-        RecurVisitor::visitBlock(it, defTys, idx);
-      }
-    };
 
     std::map<Expr*, Idx> exprTys;
     std::map<Idx, Idx> defTys;

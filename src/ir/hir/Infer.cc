@@ -2,7 +2,7 @@
 
 #include "Builtins.h"
 #include "../../type/TypePrint.h"
-#include "RecurVisitor.h"
+#include "IdxCounter.h"
 
 #include <variant>
 
@@ -30,13 +30,25 @@ namespace hir::infer {
     std::map<DefIdx, VarRef> tyNodes;
 
     LookupKey *logKey = LookupKey::intern("log");
-    Idx igIdx = 2;
-    Idx blockIdx = 0;
-    Idx exprIdx = 0;
+    Idx igIdx = 0;
     std::shared_ptr<type::infer::Inst::ConstructingSet> instSet =
       std::make_shared<decltype(instSet)::element_type>();
 
     void addBuiltins(LookupTable &sys) {
+            sys.insertFn(TraitInsn::key(), {(Idx)Builtins::Fn},
+                   {tcx.intern(Ty::FfiFn{tcx.intern(Ty::Placeholder{0}),
+                                         tcx.intern(Ty::Placeholder{1})}),
+                    tcx.intern(Ty::Placeholder{0})},
+                   InstWrapper(
+                     [](const std::vector<Tp> &tys, const auto&) -> std::vector<Tp> {
+                       auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
+                       CheckInsn check;
+                       check({tys.at(1)}, {ffifn.args});
+                       return {ffifn.ret};
+                     },
+                     1, igIdx++, instSet)
+      );
+
       auto constFn = [&](const std::vector<Tp> &i) {
         return InstWrapper(ConstInsn(i), 0, igIdx++, instSet);
       };
@@ -78,19 +90,6 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
-      sys.insertFn(TraitInsn::key(), {(Idx)Builtins::Fn},
-                   {tcx.intern(Ty::FfiFn{tcx.intern(Ty::Placeholder{0}),
-                                         tcx.intern(Ty::Placeholder{1})}),
-                    tcx.intern(Ty::Placeholder{0})},
-                   InstWrapper(
-                     [](const std::vector<Tp> &tys, const auto&) -> std::vector<Tp> {
-                       auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
-                       CheckInsn check;
-                       check({tys.at(1)}, {ffifn.args});
-                       return {ffifn.ret};
-                     },
-                     1, 1, instSet)
-      );
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
@@ -201,10 +200,10 @@ namespace hir::infer {
       InferResult res;
       res.insts = instSet;
       visitTopLevel(p.topLevel, res);
+      addBuiltins(*res.table);
       for (auto &traitImpl : p.traitImpls) {
         visitTrait(traitImpl, res);
       }
-      addBuiltins(*res.table);
       return res;
     }
 
@@ -258,10 +257,21 @@ namespace hir::infer {
       );
     }
 
+    std::map<Expr*, Idx> exprTys;
+    std::map<Idx, Idx> defTys;
     void visitRootBlock(Block &block, InferResult &res, InsnList &ig, bool isFunction) {
+      Idx counter = 0;
+      {
+        TyCounter tc;
+        exprTys.clear();
+        tc.visitBlock(block, exprTys, counter);
+      }
+      {
+        DefCounter dc;
+        defTys.clear();
+        dc.visitBlock(block, defTys, counter);
+      }
       visitBlock(block, ig, isFunction);
-      blockIdx++;
-      exprIdx = 0;
       varNodes.clear();
     }
 
@@ -290,6 +300,7 @@ namespace hir::infer {
         for (auto &hint : varDef.hints) {
           parseTyHint(hint, node, ig);
         }
+        ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {defTys.at(var)}));
       }
       VarRef ret({}, 0);
       for (Eptr &expr : block.body) {
@@ -421,8 +432,8 @@ namespace hir::infer {
 
     bool foregoHints = false;
     VarRef visitExpr ARGS(Expr) override {
+      Idx id = exprTys.at(&e);
       VarRef node = ExprVisitor::visitExpr(e PASS_ARGS);
-      Idx id = exprIdx++;
       if (foregoHints) {
         foregoHints = false;
       } else {
@@ -430,7 +441,7 @@ namespace hir::infer {
           parseTyHint(hint, node, ig);
         }
       }
-      ig.insns.push_back(Insn(logKey, {}, {node}, {blockIdx, id}, {}, e.span));
+      ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {id}, {}, e.span));
       return node;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
@@ -496,6 +507,7 @@ namespace hir::infer {
       return ig.lastInsn();
     }
     RET_T visitBinExpr ARGS(BinExpr) override {
+      Idx id = exprTys.at(&e);
       VarRef lhsNode = visitExpr(*e.lhs PASS_ARGS);
       VarRef rhsNode = visitExpr(*e.rhs PASS_ARGS);
       Idx trait;
@@ -509,22 +521,25 @@ namespace hir::infer {
         case BinExpr::Rem: trait = Rem; break;
         default: throw std::runtime_error("Invalid binary expression type");
       }
-      ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {exprIdx}, "result of operation", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {id}, "result of operation", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
+      Idx id = exprTys.at(&e);
       VarRef lhsTy = visitExpr(*e.lhs PASS_ARGS);
       VarRef rhsTy = visitExpr(*e.rhs PASS_ARGS);
-      ig.insns.push_back(Insn(TraitInsn::key(), {Cmp}, {lhsTy, rhsTy}, {exprIdx}, "comparison made", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {Cmp}, {lhsTy, rhsTy}, {id}, "comparison made", e.span));
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Bool{})}, "result of comparison", e.span));
       return ig.lastInsn();
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
+      Idx id = exprTys.at(&e);
       VarRef valTy = visitExpr(*e.value PASS_ARGS);
-      ig.insns.push_back(Insn(TraitInsn::key(), {Neg}, {valTy}, {exprIdx}, "result of negation", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {Neg}, {valTy}, {id}, "result of negation", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
+      Idx id = exprTys.at(&e);
       VarRef fnTy = visitExpr(*e.func PASS_ARGS);
       std::vector<VarRef> argTys;
       std::vector<Tp> placeholders;
@@ -535,7 +550,7 @@ namespace hir::infer {
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(argTys), {tcx.intern(Ty::Tuple{std::move(placeholders)})}));
       VarRef tupleTy = ig.lastInsn();
-      ig.insns.push_back(Insn(TraitInsn::key(), {(Idx)Builtins::Fn}, {fnTy, tupleTy}, {exprIdx}, "function called", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {(Idx)Builtins::Fn}, {fnTy, tupleTy}, {id}, "function called", e.span));
       return ig.lastInsn(0);
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {

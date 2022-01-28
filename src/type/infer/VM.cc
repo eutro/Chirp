@@ -142,6 +142,8 @@ namespace type::infer {
     std::map<VarRef, VarRef> mappedRelocations;
     std::map<VarRef, VarRef> unmappedRelocations;
     std::map<Idx, Idx> insnRelocations;
+    std::vector<Constant> logIdcs;
+    std::vector<VarRef> logVars;
 
     // intern all constant constructions within the block
     std::set<Tp> fullTys; // set of all types that include no free variables
@@ -262,9 +264,19 @@ namespace type::infer {
           }
         }
         if (allSame) continue;
+      } else if (insn.key == LogInsn::key()) {
+        if (insn.inputs.size() != insn.constArgs.size()) {
+          throw std::runtime_error("LogInsn inputs/constArgs length mismatch");
+        }
+        std::copy(insn.constArgs.begin(), insn.constArgs.end(), std::back_inserter(logIdcs));
+        std::copy(insn.inputs.begin(), insn.inputs.end(), std::back_inserter(logVars));
+        continue;
       }
       insnRelocations[i] = (Idx) outInsns.size();
       outInsns.push_back(insn);
+    }
+    if (logIdcs.size()) {
+      outInsns.push_back(Insn(LogInsn::key(), {}, std::move(logVars), std::move(logIdcs)));
     }
 
     insns = outInsns;
