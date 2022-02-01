@@ -120,41 +120,43 @@ namespace type::infer {
   }
 
   std::vector<Tp> InstWrapper::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
-    decltype(Inst::Val::loggedRefs) *loggedRefs = nullptr;
-    Idx refIdx;
-    if (CURRENT_INST) {
-      loggedRefs = &CURRENT_INST->loggedRefs;
-      refIdx = constant_cast<Idx>(cs.at(0));
-    }
-    auto &memo = insts->memo[entityIdx];
-    if (memo.count(tys)) {
-      Inst::Ref ref = memo.at(tys);
-      if (loggedRefs) loggedRefs->emplace(refIdx, ref);
-      return insts->refRets.at(ref);
-    }
-    std::map<Idx, Inst::Val> &set = insts->entities[entityIdx];
-    Inst::Ref ref{entityIdx, (Idx)set.size()};
-    memo.emplace(tys, ref);
-    auto &setInsert = set[ref.second];
-    // TODO invalidate any memos created referencing this
-    std::vector<Tp> &memoRets = insts->refRets.emplace(
-      ref,
-      std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}))
-    ).first->second;
+    bool isRetry = false;
+    std::vector<Tp> *ret;
+    std::optional<std::vector<Tp>> retSafe;
+    Inst::Ref ref;
 
-    Inst::Val ci;
-    Inst::Val *oldInst = CURRENT_INST;
-    CURRENT_INST = &ci;
-    std::cerr << "Current inst: " << ref.first << ":" << ref.second << "\n";
-    auto ret = fn(tys, cs);
-    CURRENT_INST = oldInst;
+    do {
+      bool hasMemo;
+      ref = insts->initCall(entityIdx, tys, ret, hasMemo);
+      if (hasMemo) {
+        retSafe = *ret;
+        break;
+      } else {
+        if (retSafe) {
+          *ret = *retSafe;
+        } else {
+          *ret = std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}));
+        }
+        auto oldRef = CURRENT_REF;
+        auto oldInst = CURRENT_INST;
+        CURRENT_REF = &ref;
+        CURRENT_INST = &(*insts)[ref];
+        retSafe = *ret = fn(tys, {});
+        CURRENT_REF = oldRef;
+        CURRENT_INST = oldInst;
+      }
+    } while ((isRetry = insts->finishCall(ref, isRetry)));
 
-    setInsert = std::move(ci);
-    memoRets = ret;
-    if (loggedRefs) loggedRefs->emplace(refIdx, ref);
-    return ret;
+    if (CURRENT_REF) {
+      Idx refIdx = constant_cast<Idx>(cs.at(0));
+      Inst::Ref invokingRef = *CURRENT_REF;
+      (*insts)[ref].invokingRefs.insert(invokingRef);
+      (*insts)[invokingRef].loggedRefs.insert({refIdx, ref});
+    }
+    return std::move(*retSafe);
   }
   thread_local Inst::Val *InstWrapper::CURRENT_INST = nullptr;
+  thread_local Inst::Ref *InstWrapper::CURRENT_REF = nullptr;
 
   std::vector<Tp> LogInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
     if (tys.size() != cs.size()) {

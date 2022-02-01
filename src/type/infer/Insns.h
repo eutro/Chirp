@@ -65,6 +65,7 @@ namespace type::infer {
     std::shared_ptr<Inst::ConstructingSet> insts;
 
     static thread_local Inst::Val *CURRENT_INST;
+    static thread_local Inst::Ref *CURRENT_REF;
 
     InstWrapper(Fn fn, Idx returnCount, decltype(entityIdx) entityIdx, decltype(insts) insts)
       : fn(fn), returnCount(returnCount), entityIdx(entityIdx), insts(insts) {}

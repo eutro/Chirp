@@ -4,6 +4,7 @@
 #include <sstream>
 #include <stack>
 #include <map>
+#include <stdexcept>
 
 #ifndef CHIRP_MAX_STACK_DEPTH
 #define CHIRP_MAX_STACK_DEPTH 100
@@ -13,7 +14,7 @@ namespace type::infer {
   thread_local Env *ENV;
 
   std::vector<Tp> InsnList::operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const {
-    std::cerr << "Currently evaluating:\n" << *this;
+    // std::cerr << "Currently evaluating:\n" << *this;
     if (insns.empty()) return args;
     std::vector<std::vector<Tp>> rets;
     rets.reserve(insns.size());
@@ -49,10 +50,13 @@ namespace type::infer {
       } catch (std::runtime_error &e) {
         std::cerr << "Thrown at: " << insn << "\n";
         throw e;
-      }
+      }/* catch (std::exception &e) {
+        std::cerr << "Thrown at: " << insn << "\n";
+        throw std::runtime_error(e.what());
+        }*/
     }
     ENV->stack.pop_back();
-    std::cerr << "\n";
+    // std::cerr << "\n";
     return rets.at(retInsn);
   }
 
