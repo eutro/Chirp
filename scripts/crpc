@@ -7,12 +7,17 @@ fi
 
 FILE="$1"
 shift
+OPT_ARGS=()
+LCC_ARGS=()
+CC_ARGS=()
+AS_ARGS=()
 while getopts "o:c:a:l:" o; do
     case "${o}" in
-        o) OPT_ARGS="$OPT_ARGS ${OPTARG}";;
-        c) LCC_ARGS="$LCC_ARGS ${OPTARG}";;
-        a) AS_ARGS="$AS_ARGS ${OPTARG}";;
-        l) CC_ARGS="$CC_ARGS ${OPTARG}";;
+        o) OPT_ARGS+=("${OPTARG}");;
+        c) LCC_ARGS+=("${OPTARG}");;
+        a) AS_ARGS+=("-Xassembler" "${OPTARG}");;
+        l) CC_ARGS+=("${OPTARG}");;
+        *) echo 1>&2 "Unrecognised switch: ${o}"; exit 2;;
     esac
 done
 
@@ -34,15 +39,13 @@ CRP_FILENAME="$FULL"
 export CRP_FILEDIR
 CRP_FILEDIR="$DIR"
 
-TMPDIR="$(mktemp --dir --tmpdir $(date +"crpc.%Y-%m-%d.%H:%M:%S.XXX"))"
+TMPDIR="$(mktemp --dir --tmpdir "$(date +"crpc.%Y-%m-%d.%H:%M:%S.XXX")")"
 ll_file="$TMPDIR/$BASE.ll"
 opt_ll_file="$TMPDIR/$BASE.opt.bc"
-obj_file="$TMPDIR/$BASE.o"
 asm_file="$TMPDIR/$BASE.s"
 
 chirp2llvm < "$FILE" > "$ll_file" &&
-    opt "$ll_file" $OPT_ARGS -o "$opt_ll_file" &&
-    llc "$opt_ll_file" $LCC_ARGS -relocation-model=pic -o "$asm_file" &&
-    as "$asm_file" $AS_ARGS -ad -o "$obj_file" &&
-    cc "$obj_file" $CC_ARGS -lchirp_runtime -o "$OUT" &&
-    rm -rf $TMPDIR
+    opt "$ll_file" "${OPT_ARGS[@]}" -o "$opt_ll_file" &&
+    llc "$opt_ll_file" "${LCC_ARGS[@]}" -relocation-model=pic -o "$asm_file" &&
+    clang "$asm_file" "${CC_ARGS[@]}" "${AS_ARGS[@]}" -lchirp_runtime -o "$OUT" &&
+    rm -rf "$TMPDIR"

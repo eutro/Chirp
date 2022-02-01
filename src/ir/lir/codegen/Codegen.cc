@@ -42,7 +42,7 @@ namespace lir::codegen {
 
 #define FIELD_GEP \
           auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);                  \
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.loggedTys.at(i.obj->ty)->v)); \
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(i.obj->ty))->v)); \
           auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo()); \
           auto gep = lcc.ib.CreateInBoundsGEP(structTy, castPtr, {                \
               llvm::ConstantInt::get(i32Ty, 0),                         \
@@ -96,7 +96,7 @@ namespace lir::codegen {
             return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
           }
           auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(lcc.inst.loggedTys.at(insn.ty)->v));
+          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(insn.ty))->v));
           auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
           auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
           auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
