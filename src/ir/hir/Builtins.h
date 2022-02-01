@@ -1,5 +1,7 @@
 #pragma once
 
+#include <limits>
+
 namespace hir {
   enum Builtins {
     // Traits
@@ -26,4 +28,6 @@ namespace hir {
 
     LAST_BUILTIN_
   };
+
+  constexpr Idx BUILTIN_BLOCKS_START = std::numeric_limits<Idx>::max() - Neg * (LAST_BUILTIN_ - BOOL);
 }

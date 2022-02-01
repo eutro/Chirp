@@ -46,6 +46,7 @@ namespace hir::lower {
         dc.visitBlock(block, defTys, counter);
       }
       BlockList l;
+      l.blockIdx = *block.idx;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true, func);
       return l;

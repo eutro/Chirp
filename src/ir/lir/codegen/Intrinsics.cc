@@ -16,7 +16,7 @@ namespace lir::codegen {
 
   void implTrait(CC &cc, EmitFn fn) {
     auto &m = cc.emitCall[counter++];
-    m[m.size()] = fn;
+    m[m.size()] = std::move(fn);
   }
 
   template <std::size_t Arity, typename T, typename C, typename... Args>
@@ -29,9 +29,9 @@ namespace lir::codegen {
                   std::forward<Args>(args)...));
   }
 
-  Idx addIntrinsics(CC &cc, type::infer::Inst::Set &sys) {
-    counter = 1;
-    auto &ffiInsts = sys.entities[counter]; // :)
+  void addIntrinsics(CC &cc, type::infer::Inst::Set &sys) {
+    counter = hir::BUILTIN_BLOCKS_START;
+    auto &ffiInsts = sys.entities[counter];
     auto &ffiCalls = cc.emitCall[counter];
     counter++;
     for ([[maybe_unused]] const auto &inst : ffiInsts) {
@@ -154,6 +154,5 @@ namespace lir::codegen {
         }
       );
     }
-    return counter;
   }
 }

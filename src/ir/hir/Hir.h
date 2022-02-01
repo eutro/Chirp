@@ -77,6 +77,7 @@ namespace hir {
 
   class Block {
   public:
+    std::optional<Idx> idx;
     std::optional<loc::Span> span;
     std::vector<DefIdx> bindings;
     std::vector<Eptr> body;

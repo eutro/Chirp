@@ -13,7 +13,7 @@ namespace type::infer {
   thread_local Env *ENV;
 
   std::vector<Tp> InsnList::operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const {
-    // std::cerr << "\n\nCurrently evaluating:\n" << *this;
+    std::cerr << "Currently evaluating:\n" << *this;
     if (insns.empty()) return args;
     std::vector<std::vector<Tp>> rets;
     rets.reserve(insns.size());
@@ -52,6 +52,7 @@ namespace type::infer {
       }
     }
     ENV->stack.pop_back();
+    std::cerr << "\n";
     return rets.at(retInsn);
   }
 

@@ -81,6 +81,7 @@ namespace ast::lower {
     Bindings bindings;
     Bindings typeBindings;
     hir::DefIdx defNo = 0;
+    Idx blockIdx = 0;
 
     hir::DefIdx introduceDef(hir::Definition &&def) {
       hir::DefIdx id = defNo++;
@@ -379,6 +380,7 @@ namespace ast::lower {
         return nullptr;
       })->visitExpr(*blockE, nullptr);
 
+      block.idx = blockIdx++;
       fnImpl.methods.push_back(std::move(block));
 
       return expr;
@@ -462,6 +464,7 @@ namespace ast::lower {
       }
 
       addBindingsToBlock(program.topLevel);
+      program.topLevel.idx = blockIdx++;
       auto &body = program.topLevel.body;
       auto iter = indeces.begin();
       for (auto &stmt : it.statements) {

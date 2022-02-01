@@ -29,24 +29,23 @@ namespace hir::infer {
     std::map<DefIdx, VarRef> varNodes;
     std::map<DefIdx, VarRef> tyNodes;
 
-    LookupKey *logKey = LookupKey::intern("log");
-    Idx igIdx = 0;
     std::shared_ptr<type::infer::Inst::ConstructingSet> instSet =
       std::make_shared<decltype(instSet)::element_type>();
 
     void addBuiltins(LookupTable &sys) {
-            sys.insertFn(TraitInsn::key(), {(Idx)Builtins::Fn},
+      Idx igIdx = BUILTIN_BLOCKS_START;
+      sys.insertFn(TraitInsn::key(), {(Idx) Builtins::Fn},
                    {tcx.intern(Ty::FfiFn{tcx.intern(Ty::Placeholder{0}),
                                          tcx.intern(Ty::Placeholder{1})}),
                     tcx.intern(Ty::Placeholder{0})},
                    InstWrapper(
-                     [](const std::vector<Tp> &tys, const auto&) -> std::vector<Tp> {
-                       auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
-                       CheckInsn check;
-                       check({tys.at(1)}, {ffifn.args});
-                       return {ffifn.ret};
-                     },
-                     1, igIdx++, instSet)
+                       [](const std::vector<Tp> &tys, const auto &) -> std::vector<Tp> {
+                         auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
+                         CheckInsn check;
+                         check({tys.at(1)}, {ffifn.args});
+                         return {ffifn.ret};
+                       },
+                       1, igIdx++, instSet)
       );
 
       auto constFn = [&](const std::vector<Tp> &i) {
@@ -219,7 +218,7 @@ namespace hir::infer {
       ig.insns.push_back(Insn(IdentityInsn::key(), {}, {}, {}));
       ig.retInsn = *ig.lastInsn().insn;
       topSort(ig);
-      res.root = InstWrapper(ig, 0, igIdx++, instSet);
+      res.root = InstWrapper(ig, 0, *block.idx, instSet);
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {
@@ -253,7 +252,7 @@ namespace hir::infer {
         TraitInsn::key(),
         {(Idx)Builtins::Fn},
         allParams,
-        InstWrapper(ig, ti.types.size(), igIdx++, instSet)
+        InstWrapper(ig, ti.types.size(), *ti.methods.front().idx, instSet)
       );
     }
 

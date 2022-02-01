@@ -5,6 +5,7 @@
 #include <set>
 #include <tuple>
 #include <variant>
+#include <sstream>
 
 namespace util {
   template<typename Data = std::monostate>
@@ -121,4 +122,11 @@ namespace util {
   };
 
   template<class X, class Y, class Op> using op_valid_t = typename op_valid<X, Y, Op>::type;
+
+  template <typename... T>
+  std::string toStr(const T &...x) {
+    std::stringstream ss;
+    ((ss << x), ...);
+    return ss.str();
+  }
 }

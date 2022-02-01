@@ -113,6 +113,7 @@ namespace lir {
   };
 
   struct BlockList {
+    Idx blockIdx;
     std::map<Idx, Decl> params, vars;
     std::vector<std::unique_ptr<BasicBlock>> blocks;
     BlockList() {}

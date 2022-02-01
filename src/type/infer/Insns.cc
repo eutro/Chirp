@@ -53,7 +53,9 @@ namespace type::infer {
         std::visit(
             overloaded{
                 [&](Ty::Tuple &lt, Ty::Tuple &rt) {
-                  if (lt.t.size() != rt.t.size()) return;
+                  if (lt.t.size() != rt.t.size()) {
+                    throw std::runtime_error("ICE: Tuple size mismatch when deconstructing");
+                  }
                   auto ltIt = lt.t.begin();
                   auto rtIt = rt.t.begin();
                   for (; ltIt != lt.t.end(); ++ltIt, ++rtIt) {
@@ -61,7 +63,9 @@ namespace type::infer {
                   }
                 },
                 [&](Ty::ADT &lt, Ty::ADT &rt) {
-                  if (lt.i != rt.i || lt.s.size() != rt.s.size()) return;
+                  if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
+                    throw std::runtime_error("ICE: ADT type mismatch when deconstructing");
+                  }
                   auto ltIt = lt.s.begin();
                   auto rtIt = rt.s.begin();
                   for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
@@ -128,9 +132,10 @@ namespace type::infer {
       if (loggedRefs) loggedRefs->emplace(refIdx, ref);
       return insts->refRets.at(ref);
     }
-    auto &set = insts->entities[entityIdx];
+    std::map<Idx, Inst::Val> &set = insts->entities[entityIdx];
     Inst::Ref ref{entityIdx, (Idx)set.size()};
     memo.emplace(tys, ref);
+    auto &setInsert = set[ref.second];
     // TODO invalidate any memos created referencing this
     std::vector<Tp> &memoRets = insts->refRets.emplace(
       ref,
@@ -140,10 +145,11 @@ namespace type::infer {
     Inst::Val ci;
     Inst::Val *oldInst = CURRENT_INST;
     CURRENT_INST = &ci;
+    std::cerr << "Current inst: " << ref.first << ":" << ref.second << "\n";
     auto ret = fn(tys, cs);
     CURRENT_INST = oldInst;
 
-    set.emplace(ref.second, std::move(ci));
+    setInsert = std::move(ci);
     memoRets = ret;
     if (loggedRefs) loggedRefs->emplace(refIdx, ref);
     return ret;

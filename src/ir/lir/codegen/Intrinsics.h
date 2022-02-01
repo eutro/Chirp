@@ -3,5 +3,5 @@
 #include "Util.h"
 
 namespace lir::codegen {
-  Idx addIntrinsics(CC &cc, type::infer::Inst::Set &sys);
+  void addIntrinsics(CC &cc, type::infer::Inst::Set &sys);
 }

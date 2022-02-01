@@ -423,15 +423,14 @@ namespace lir::codegen {
 
     std::vector<std::unique_ptr<std::vector<llvm::Function *>>> traitMethods;
     // block 0 is main
-    Idx intrinsicCount = addIntrinsics(cc, allInsts);
-    for (auto it = allInsts.entities.lower_bound(intrinsicCount);
-         it != allInsts.entities.end();
-         ++it) {
-      Idx blockIdx = it->first;
-      auto &trait = mod.traitImpls.at(blockIdx - intrinsicCount);
+    addIntrinsics(cc, allInsts);
+    for (auto &trait : mod.traitImpls) {
+      Idx blockIdx = trait.methods.front().blockIdx;
+      if (!allInsts.entities.count(blockIdx)) continue;
       auto &emitCalls = cc.emitCall[blockIdx];
       auto &insts = allInsts.entities.at(blockIdx);
-      for (Idx instIdx = 0; instIdx < insts.size(); ++instIdx) {
+      for (auto &inst : insts) {
+        Idx instIdx = inst.first;
         // only one method is actually supported
         // for (auto &method : trait.methods) {
         std::vector<llvm::Function *> &funcs = *traitMethods.emplace_back(std::make_unique<std::vector<llvm::Function*>>());
@@ -492,11 +491,9 @@ namespace lir::codegen {
 
     {
       auto tIt = traitMethods.begin();
-      for (auto it = allInsts.entities.lower_bound(intrinsicCount);
-           it != allInsts.entities.end();
-           ++it) {
-        Idx blockIdx = it->first;
-        auto &trait = mod.traitImpls.at(blockIdx - intrinsicCount);
+      for (auto &trait : mod.traitImpls) {
+        Idx blockIdx = trait.methods.front().blockIdx;
+        if (!allInsts.entities.count(blockIdx)) continue;
         auto &insts = allInsts.entities.at(blockIdx);
         for (auto &inst : insts) {
           std::vector<llvm::Function *> &funcs = **tIt++;
