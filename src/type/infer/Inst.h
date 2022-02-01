@@ -62,7 +62,7 @@ namespace type::infer {
         std::vector<Tp> *&rets,
         bool &hasMemo
       );
-      bool isValid(Ref ref);
+      bool isValid(Ref ref) const;
       // returns whether to retry the instantiation
       bool finishCall(Ref inst, bool isRetry);
     private:

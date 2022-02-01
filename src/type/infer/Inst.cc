@@ -19,7 +19,7 @@ namespace type::infer {
       return ref;
     }
     auto &es = entities[entity];
-    Ref ref = {entity, es.empty() ? 0 : es.rend()->first + 1};
+    Ref ref = {entity, es.empty() ? 0 : es.rbegin()->first + 1};
     es.insert({ref.second, {}});
     m.insert(args, ref);
     rets = &refRets.insert({ref, {}}).first->second;
@@ -28,7 +28,7 @@ namespace type::infer {
     return ref;
   }
 
-  bool Inst::ConstructingSet::isValid(Ref ref) {
+  bool Inst::ConstructingSet::isValid(Ref ref) const {
     return refRets.count(ref);
   }
 
