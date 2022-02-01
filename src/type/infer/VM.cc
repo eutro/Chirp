@@ -14,7 +14,16 @@ namespace type::infer {
   thread_local Env *ENV;
 
   std::vector<Tp> InsnList::operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const {
-    // std::cerr << "Currently evaluating:\n" << *this;
+    if (logging::DEBUG.isEnabled) {
+      std::ostream &os = logging::CHIRP.debug();
+      os << "Currently evaluating:\n$@ = [";
+      for (auto it = args.begin(); it != args.end();) {
+        os << *it;
+        if (++it != args.end()) os << ", ";
+      }
+      os << "]\n" << *this << "\n";
+    }
+
     if (insns.empty()) return args;
     std::vector<std::vector<Tp>> rets;
     rets.reserve(insns.size());
