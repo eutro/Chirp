@@ -64,8 +64,8 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           }
           os << ")";
         },
-        [&](Ty::String &) {
-          os << "str";
+        [&](Ty::String &s) {
+          os << (s.nul ? "cstr" : "str");
         },
         [&](Ty::Cyclic &c) {
           os << "#{" << c.ty << "}";

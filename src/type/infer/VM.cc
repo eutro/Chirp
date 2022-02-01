@@ -1,7 +1,8 @@
 #include "VM.h"
 #include "Insns.h"
+#include "../TypePrint.h"
+#include "../../common/Logging.h"
 
-#include <sstream>
 #include <stack>
 #include <map>
 #include <stdexcept>
@@ -65,7 +66,6 @@ namespace type::infer {
         }*/
     }
     ENV->stack.pop_back();
-    // std::cerr << "\n";
     return rets.at(retInsn);
   }
 
@@ -289,7 +289,7 @@ namespace type::infer {
       insnRelocations[i] = (Idx) outInsns.size();
       outInsns.push_back(insn);
     }
-    if (logIdcs.size()) {
+    if (!logIdcs.empty()) {
       outInsns.push_back(Insn(LogInsn::key(), {}, std::move(logVars), std::move(logIdcs)));
     }
 
@@ -304,6 +304,40 @@ namespace type::infer {
     }
     os << "return $" << std::dec << list.retInsn << "\n";
     return os;
+  }
+
+  void InsnList::optIdCons() {
+    for (Insn &insn : insns) {
+      if (insn.key == DeConstructInsn::key()) {
+        Tp ty = constant_cast<Tp>(insn.constArgs.at(0));
+        if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
+          insn.key = IdentityInsn::key();
+          insn.inputs = {insn.inputs.at(0)};
+          insn.constArgs = {};
+        }
+      } else if (insn.key == ConstructInsn::key()) {
+        bool allId = true;
+        for (auto &constArg : insn.constArgs) {
+          Tp ty = constant_cast<Tp>(constArg);
+          if (!std::holds_alternative<Ty::Placeholder>(ty->v)) {
+            allId = false;
+            break;
+          }
+        }
+        if (allId) {
+          std::vector<VarRef> refs;
+          refs.reserve(insn.constArgs.size());
+          for (auto &constArg : insn.constArgs) {
+            Tp ty = constant_cast<Tp>(constArg);
+            Idx i = std::get<Ty::Placeholder>(ty->v).i;
+            refs.push_back(insn.inputs.at(i));
+          }
+          insn.key = IdentityInsn::key();
+          insn.inputs = std::move(refs);
+          insn.constArgs = {};
+        }
+      }
+    }
   }
 
   std::ostream &operator<<(std::ostream &os, const Insn &insn) {

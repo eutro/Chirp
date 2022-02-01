@@ -118,6 +118,11 @@ namespace type::infer {
     void topSort(const SccCollapser &collapse);
 
     /**
+     * Optimise the instruction list, replacing any identity construct/deconstruct instructions with 'id'.
+     */
+    void optIdCons();
+
+    /**
      * Optimise the instruction list.
      */
     void opt();

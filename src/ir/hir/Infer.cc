@@ -3,6 +3,7 @@
 #include "Builtins.h"
 #include "../../type/TypePrint.h"
 #include "IdxCounter.h"
+#include "../../common/Logging.h"
 
 #include <variant>
 
@@ -208,6 +209,7 @@ namespace hir::infer {
 
     void topSort(InsnList &ig) {
       auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
+      ig.optIdCons();
       ig.topSort(sortFn);
       ig.opt();
     }
@@ -276,16 +278,16 @@ namespace hir::infer {
 
     VarRef visitBlock(Block &block, InsnList &ig, bool isFunction) {
       if (isFunction) {
-        varNodes.insert({block.bindings.at(0), VarRef({}, 0)});
         std::vector<Tp> placeholders;
         placeholders.reserve(block.bindings.size() - 1);
-        for (Idx i = 1; i < block.bindings.size(); ++i) {
-          placeholders.push_back(tcx.intern(Ty::Placeholder{i-1}));
+        for (Idx i = 0; i < block.bindings.size() - 1; ++i) {
+          placeholders.push_back(tcx.intern(Ty::Placeholder{i}));
         }
         ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {VarRef({}, 1)}, {tcx.intern(Ty::Tuple{placeholders})}));
-        for (Idx i = 1; i < block.bindings.size(); ++i) {
-          varNodes.insert({block.bindings[i], ig.lastInsn(i-1)});
+        for (Idx i = 0; i < block.bindings.size() - 1; ++i) {
+          varNodes.insert({block.bindings[i], ig.lastInsn(i)});
         }
+        varNodes.insert({block.bindings.back(), VarRef({}, 0)});
       } else {
         for (Idx var : block.bindings) {
           ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
@@ -353,7 +355,7 @@ namespace hir::infer {
           auto &def = program->bindings.at(base);
           return std::visit(overloaded{
               [&](DefType::Type &) -> Tp {
-                if (!placeholders[base]) {
+                if (!placeholders.count(base)) {
                   outIdcs.emplace_back(base);
                   placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
                 }
@@ -426,6 +428,7 @@ namespace hir::infer {
       VarRef reconstructed = ig.lastInsn();
       ig.insns.push_back(Insn(CheckInsn::key(), {}, {node, reconstructed}, {}, "check from type hint", ty.source));
       node = reconstructed;
+      logging::CHIRP.trace("Parsed hint\n", ig);
       return tmpl;
     }
 

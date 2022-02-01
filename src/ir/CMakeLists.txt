@@ -22,7 +22,7 @@ add_library(hiridx hir/IdxCounter.cc)
 target_link_libraries(hiridx hir)
 
 add_library(hirinfer hir/Infer.cc)
-target_link_libraries(hirinfer hir err type typeinfer hiridx)
+target_link_libraries(hirinfer hir err type typeinfer hiridx logging)
 
 add_library(hirlower hir/Lowering.cc)
 target_link_libraries(hirlower hir err type hiridx)
