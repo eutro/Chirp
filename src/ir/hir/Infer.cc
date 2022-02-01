@@ -527,7 +527,7 @@ namespace hir::infer {
       Idx id = exprTys.at(&e);
       VarRef lhsTy = visitExpr(*e.lhs PASS_ARGS);
       VarRef rhsTy = visitExpr(*e.rhs PASS_ARGS);
-      ig.insns.push_back(Insn(TraitInsn::key(), {Cmp}, {lhsTy, rhsTy}, {id}, "comparison made", e.span));
+      ig.insns.push_back(Insn(TraitInsn::key(), {e.op <= CmpExpr::Eq ? Eq : Cmp}, {lhsTy, rhsTy}, {id}, "comparison made", e.span));
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Bool{})}, "result of comparison", e.span));
       return ig.lastInsn();
     }
