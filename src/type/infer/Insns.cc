@@ -172,6 +172,11 @@ namespace type::infer {
         if (retSafe) {
           *ret = *retSafe;
         } else {
+          // TODO make opaque return type and handle folding it later;
+          // to allow stuff like:
+          // defn cons(x, y) = λifpair,ifnull.ifpair(x, y)
+          // defn nil = λifpair,ifnull.ifnull()
+          // defn rangeR(n) = if n == 0 then nil else cons(n, rangeR(n - 1))
           *ret = std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}));
         }
         auto oldRef = CURRENT_REF;
