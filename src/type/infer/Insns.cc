@@ -48,7 +48,7 @@ namespace type::infer {
       if (std::holds_alternative<Ty::Placeholder>(tmplTy->v)) {
         out.at(std::get<Ty::Placeholder>(tmplTy->v).i) = ty;
       } else if (tmplTy->v.index() != ty->v.index()) {
-        return; // output containing errs would indicate that something went wrong
+        return; // not our problem
       } else {
         std::visit(
             overloaded{
@@ -103,9 +103,46 @@ namespace type::infer {
     throw std::runtime_error("ICE: trap in type inference");
   }
 
+  bool tryUnify(Tp lhs, Tp rhs);
+  bool tryUnify(const std::vector<Tp> &lhs, const std::vector<Tp> &rhs) {
+    if (lhs.size() != rhs.size()) return false;
+    for (size_t i = 0; i < lhs.size(); ++i) {
+      if (!tryUnify(type::uncycle(lhs[i]), type::uncycle(rhs[i]))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool tryUnify(Tp lhs, Tp rhs) {
+    if (lhs == rhs) return true;
+    if (lhs->v.index() == rhs->v.index()) {
+      if (std::visit(
+          overloaded{
+              [](Ty::Int &l, Ty::Int &r) {return l.s == r.s;},
+              [](Ty::UInt &l, Ty::UInt &r) {return l.s == r.s;},
+              [](Ty::Float &l, Ty::Float &r) {return l.s == r.s;},
+              [](Ty::ADT &l, Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
+              [](Ty::Union &l, Ty::Union &r) {return false;},
+              [](Ty::Tuple &l, Ty::Tuple &r) {return tryUnify(l.t, r.t);},
+              [](Ty::String &l, Ty::String &r) {return l.nul == r.nul;},
+              [](Ty::FfiFn &l, Ty::FfiFn &r) {return tryUnify({l.args, l.ret}, {r.args, r.ret});},
+              [](auto &, auto &) {
+                // Err, Bool
+                return true;
+              }
+          },
+          lhs->v, rhs->v
+      )) return true;
+    }
+    return false;
+  }
+
   std::vector<Tp> CheckInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-    DeConstructInsn deconstruct;
-    deconstruct(tys, {tys.front()});
+    Tp ty = type::uncycle(tys.front());
+    for (auto it = tys.begin() + 1; it != tys.end(); ++it) {
+      tryUnify(ty, type::uncycle(*it));
+    }
     return std::vector<Tp>();
   }
 
