@@ -15,6 +15,11 @@ namespace type::infer {
 
   using Fn = std::function<std::vector<Tp>(const std::vector<Tp> &tys, const std::vector<Constant> &args)>;
 
+  template <typename T>
+  static std::ostream &streamOutput(std::ostream &os, const Constant &c) {
+    return os << constant_cast<T>(c);
+  }
+
   /**
    * A wrapper for constants that can be bitwise compared.
    */
@@ -42,15 +47,10 @@ namespace type::infer {
       static OutputFn outputFor() {
         if constexpr (util::op_valid_t<std::ostream&, const T&, util::left_shift>::value &&
         !std::is_same_v<Fn, T>) {
-          return &TypeData::streamOutput<T>;
+          return &streamOutput<T>;
         } else {
           return &TypeData::hexOutput;
         }
-      }
-
-      template <typename T>
-      static std::ostream &streamOutput(std::ostream &os, const Constant &c) {
-        return os << constant_cast<T>(c);
       }
 
       static std::ostream &hexOutput(std::ostream &os, const Constant &c) {
