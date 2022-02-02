@@ -2,9 +2,9 @@
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
   bool type::TYPE::operator<(const type::TYPE &o) const {        \
-    return std::make_tuple LHSA < std::make_tuple RHSA; }        \
+    return std::tie LHSA < std::tie RHSA; }        \
   bool type::TYPE::operator==(const type::TYPE &o) const {       \
-    return std::make_tuple LHSA == std::make_tuple RHSA; }
+    return std::tie LHSA == std::tie RHSA; }
 #define IMPL_SINGLETON(TYPE)                                            \
   bool type::TYPE::operator<(const type::TYPE &) const { return false; } \
   bool type::TYPE::operator==(const type::TYPE &) const { return true; }

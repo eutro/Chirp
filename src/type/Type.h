@@ -46,7 +46,7 @@ namespace type {
   };
 
   Idx bitCount(FloatSize);
-  static const std::array<FloatSize, 5> FLOAT_SIZE_VALUES {
+  static const std::array<FloatSize, 3> FLOAT_SIZE_VALUES {
       FloatSize::f16,
       FloatSize::f32,
       FloatSize::f64,
