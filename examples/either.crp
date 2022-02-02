@@ -1,0 +1,6 @@
+defn left(x) = \ ifl, ifr . ifl(x)
+defn right(x) = \ ifl, ifr . ifr(x)
+
+(if true
+ then left(0)
+ else right(1.0))(\l.l, \r.r)

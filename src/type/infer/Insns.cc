@@ -178,7 +178,7 @@ namespace type::infer {
         auto oldInst = CURRENT_INST;
         CURRENT_REF = &ref;
         CURRENT_INST = &(*insts)[ref];
-        retSafe = *ret = fn(tys, {});
+        retSafe = *ret = fn(tys, cs);
         CURRENT_REF = oldRef;
         CURRENT_INST = oldInst;
       }

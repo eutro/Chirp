@@ -90,6 +90,37 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
+
+      sys.insertFn(LookupKey::intern("union-dispatch"), {},{},
+                   InstWrapper(
+                       [&](const std::vector<Tp> &tys, const std::vector<Constant> &cs) -> std::vector<Tp> {
+                         Idx splitUnion = constant_cast<Idx>(cs.at(1));
+                         auto &lookup = *constant_cast<std::function<type::infer::Fn(const std::vector<Tp> &)>*>(cs.at(2));
+                         std::vector<Tp> callTys(tys);
+                         auto &uTy = std::get<Ty::Union>(callTys.at(splitUnion)->v);
+                         Idx i = 0;
+                         std::vector<std::vector<Tp>> rets;
+                         for (Tp ty : uTy.tys) {
+                           callTys[splitUnion] = ty;
+                           rets.push_back(lookup(callTys)(callTys, {i++}));
+                         }
+                         std::vector<std::vector<Tp>> transpose(rets.front().size(), std::vector<Tp>(rets.size()));
+                         for (Idx x = 0; x < rets.size(); ++x) {
+                           for (Idx y = 0; y < rets[x].size(); ++y) {
+                             transpose[y][x] = rets[x][y];
+                           }
+                         }
+                         std::vector<Tp> unionedRets;
+                         unionedRets.reserve(transpose.size());
+                         for (auto &t : transpose) {
+                           unionedRets.push_back(type::unionOf(*t.front()->tcx, t));
+                         }
+                         return unionedRets;
+                       },
+                       // return count set to 1; at the time of writing, this is correct in all cases, but undesirable
+                       1,
+                       igIdx++, instSet)
+      );
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {

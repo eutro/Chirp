@@ -2,6 +2,7 @@
 
 #include "../TypePrint.h"
 #include "../../common/Logging.h"
+#include "VM.h"
 
 #include <memory>
 #include <map>
@@ -11,6 +12,15 @@
 #include <deque>
 
 namespace type::infer {
+  struct WrapFnPtr {
+    Fn *impl;
+    WrapFnPtr(Fn *impl) : impl(impl) {}
+    std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
+      return (*impl)(tys, cs);
+    }
+  };
+  static_assert(std::is_assignable_v<Fn, WrapFnPtr>);
+  
   struct Ctor {
     std::optional<Idx> idx;
     std::vector<Idx> keys;
@@ -53,7 +63,7 @@ namespace type::infer {
               [](Ty::Float &t) -> TT { return {util::index_of_type_v<Ty::Float, TyV>, {(Idx) t.s}}; },
               [](Ty::Placeholder &t) -> TT { throw std::runtime_error("Wildcard does not have a constructor"); },
               [](Ty::ADT &t) -> TT { return {util::index_of_type_v<Ty::ADT, TyV>, {t.i, (Idx) t.s.size()}}; },
-              [](Ty::Union &t) -> TT { throw std::runtime_error("Union pattern matching unsupported"); },
+              [](Ty::Union &t) -> TT { return {util::index_of_type_v<Ty::Union, TyV>, {(Idx) t.tys.size()}}; },
               [](Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
               [](Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
               [](Ty::Cyclic &t) -> TT { throw std::runtime_error("Cyclic pattern matching unsupported"); },
@@ -189,26 +199,49 @@ namespace type::infer {
     DTree(Arg &&...arg): v(std::forward<Arg>(arg)...) {}
 
   private:
-    static Fn *decideStack(DTree *tree, std::deque<Tp> &stack) {
+    struct StackVal {
+      Tp ty;
+      std::optional<Idx> splittableUnion = std::nullopt;
+      StackVal(Ty *ty) : ty(ty) {}
+    };
+    
+    std::optional<Fn> decideStack(DTree *tree, std::deque<StackVal> &stack) {
       while (true) {
         auto &v = tree->v;
         if (std::holds_alternative<Leaf>(v)) {
-          return std::get<Leaf>(v).value;
+          return WrapFnPtr(std::get<Leaf>(v).value);
         } else if (std::holds_alternative<Switch>(v)) {
           auto &s = std::get<Switch>(v);
           if (s.col != stack.size() - 1) {
             std::swap(stack[s.col], stack[stack.size() - 1]);
           }
-          Tp ty = type::uncycle(stack.back());
-          Ctor c(ty);
+          StackVal stackVal = stack.back();
           stack.pop_back();
-          auto found = s.mapping.find(c);
-          if (found == s.mapping.end()) {
-            tree = s.fallback.get();
+          if (stackVal.splittableUnion && std::holds_alternative<Ty::Union>(stackVal.ty->v)) {
+            Idx splitIdx = *stackVal.splittableUnion;
+            return [splitIdx, this](const std::vector<Tp> &args, const std::vector<Constant> &constArgs) -> std::vector<Tp> {
+              std::optional<Fn> unionDispatch = ENV->table->lookupFn(LookupKey::intern("union-dispatch"), {}, {});
+              std::function<type::infer::Fn(const std::vector<Tp> &)> recursiveLookup = [this](const std::vector<Tp> &cArgs) {
+                std::optional<Fn> decided = this->decide(cArgs);
+                if (!decided) {
+                  throw std::runtime_error("Undefined function");
+                }
+                return *decided;
+              };
+              std::vector<Constant> callArgs{constArgs.front(), splitIdx, &recursiveLookup};
+              return (*unionDispatch)(args, callArgs);
+            };
           } else {
-            std::vector<Tp> children = childrenOf(ty);
-            stack.insert(stack.end(), children.begin(), children.end());
-            tree = &found->second;
+            Tp ty = type::uncycle(stackVal.ty);
+            Ctor c(ty);
+            auto found = s.mapping.find(c);
+            if (found == s.mapping.end()) {
+              tree = s.fallback.get();
+            } else {
+              std::vector<Tp> children = childrenOf(ty);
+              stack.insert(stack.end(), children.begin(), children.end());
+              tree = &found->second;
+            }
           }
         } else {
           return nullptr;
@@ -217,19 +250,21 @@ namespace type::infer {
     }
 
   public:
-    Fn *decide(const std::vector<Tp> &tys) {
+    std::optional<Fn> decide(const std::vector<Tp> &tys) {
       if (std::holds_alternative<Leaf>(v)) {
-        return std::get<Leaf>(v).value;
+        return WrapFnPtr(std::get<Leaf>(v).value);
       } else if (std::holds_alternative<Switch>(v)) {
         auto &s = std::get<Switch>(v);
         Ctor arity{std::nullopt, {(Idx)tys.size()}};
         auto found = s.mapping.find(arity);
         if (found != s.mapping.end()) {
-          std::deque<Tp> stack(tys.begin(), tys.end());
+          std::deque<StackVal> stack(tys.begin(), tys.end());
+          Idx i = 0;
+          for (auto &item : stack) item.splittableUnion = i++;
           return decideStack(&found->second, stack);
         }
       }
-      return nullptr;
+      return std::nullopt;
     }
   };
 
@@ -408,7 +443,7 @@ namespace type::infer {
       return *tree;
     }
 
-    Fn *lookup(const std::vector<Tp> &args) {
+    std::optional<Fn> lookup(const std::vector<Tp> &args) {
       return getOrBuildTree().decide(args);
     }
 
@@ -424,7 +459,7 @@ namespace type::infer {
 
   struct LookupTableImpl : public LookupTable {
     std::map<std::pair<LookupKey*, std::vector<Constant>>, OverloadLookup> fns;
-    Fn *lookupFn(
+    Fn lookupFn(
       LookupKey *fn,
       const std::vector<Constant> &constants,
       const std::vector<Tp> &args
@@ -442,7 +477,7 @@ namespace type::infer {
         throw std::runtime_error(s.str());
       }
       OverloadLookup &overloads = found->second;
-      Fn *lookedUp = overloads.lookup(args);
+      std::optional<Fn> lookedUp = overloads.lookup(args);
       if (!lookedUp) {
         std::stringstream s;
         s << "Undefined function: " << fn->value;
@@ -458,7 +493,7 @@ namespace type::infer {
         }
         throw std::runtime_error(s.str());
       }
-      return lookedUp;
+      return *lookedUp;
     }
     void insertFn(
       LookupKey *fn,
