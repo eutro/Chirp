@@ -8,6 +8,7 @@ TIdent ::= /[a-zA-Z_][a-zA-Z_0-9]*/
 TDefn ::= 'defn'
 TIf ::= 'if'
 TElse ::= 'else'
+TThen ::= 'then'
 TLet ::= 'let'
 TIn ::= 'in'
 TTrue ::= 'true'

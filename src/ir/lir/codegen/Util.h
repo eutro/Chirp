@@ -45,7 +45,7 @@ namespace lir::codegen {
       Direct,
     };
     Type loadTy;
-    Value(): ref([](){return nullptr;}) {}
+    Value(): ref([](){return nullptr;}), ty(nullptr), loadTy(Direct) {}
     Value(llvm::Value *v, llvm::Type *ty, Type loadTy):
       ref([=](){return v;}),
       ty(ty),
@@ -68,6 +68,7 @@ namespace lir::codegen {
     // _[block][inst]
     std::map<Idx, std::map<Idx, EmitFn>> emitCall;
     std::map<type::Ty *, TyTuple> tyCache;
+    std::map<std::pair<Tp, Tp>, llvm::FunctionCallee> unionConversions;
 
     std::map<Idx, Value> vars;
 
@@ -104,7 +105,7 @@ namespace lir::codegen {
     llvm::Value *reference(Idx var);
 
     std::map<BasicBlock *, llvm::BasicBlock *> bbs;
-    BasicBlock *bb;
+    BasicBlock *bb = nullptr;
     Idx paramC = 0;
 
     std::vector<llvm::DILocalScope *> scopes{func->getSubprogram()};
@@ -118,9 +119,9 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 
-  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
-
   llvm::DILocation *locFromSpan(CC &cc, LocalCC &lcc, const loc::SrcLoc &loc);
+
+  Tp getChirpTy(LocalCC &lcc, Idx i);
 
   template <typename T = llvm::Type *>
   T getTy(CC &cc, type::Tp ty) {
@@ -129,8 +130,10 @@ namespace lir::codegen {
 
   template <typename T = llvm::Type *>
   T getTy(LocalCC &lcc, Idx i) {
-    return getTy<T>(lcc.cc, lcc.inst.loggedTys.at(i));
+    return getTy<T>(lcc.cc, getChirpTy(lcc, i));
   }
+
+  llvm::Value *unionise(LocalCC &lcc, llvm::Value *inValue, Tp inTy, Tp outTy);
 
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);
 

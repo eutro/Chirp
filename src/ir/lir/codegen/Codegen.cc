@@ -127,13 +127,19 @@ namespace lir::codegen {
           return {value, value->getType(), Value::Direct};
         },
         [&](Insn::PhiNode &i) -> Value {
-          llvm::Type *ty = getTy(lcc, insn.ty);
+          Tp outTy = getChirpTy(lcc, insn.ty);
+          llvm::Type *ty = getTy(lcc.cc, outTy);
           auto phi = lcc.ib.CreatePHI(ty, i.branches.size());
           for (auto &ic : i.branches) {
             llvm::BasicBlock *bb = lcc.bbs.at(ic.block);
             llvm::Instruction *jump = &bb->getInstList().back();
             lcc.ib.SetInsertPoint(jump);
-            phi->addIncoming(lcc.load(ic.ref), bb);
+            Tp inTy = getChirpTy(lcc, ic.ref->ty);
+            llvm::Value *inValue = lcc.load(ic.ref);
+            if (outTy != inTy) {
+              inValue = unionise(lcc, inValue, inTy, outTy);
+            }
+            phi->addIncoming(inValue, bb);
           }
           lcc.ib.SetInsertPoint(phi->getParent());
           MAYBE_TEMP(phi);

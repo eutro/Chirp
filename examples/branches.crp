@@ -12,5 +12,10 @@ putI(
     x + (if y < z { z } else { x })
   }
 )
-if y < z { 1 } else { 1.0 }
+if x < y
+ then if y < z
+      then 1
+      else 1.0
+ else if x < z { "h" }
+      else "n": cstr
 println()

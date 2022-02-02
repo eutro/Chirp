@@ -1,6 +1,7 @@
 #include "Parser.h"
 
 #include <sstream>
+#include <utility>
 
 namespace tok::parser {
   loc::SrcLoc tokEnd(const Token &tok) {
@@ -9,14 +10,18 @@ namespace tok::parser {
     return loc;
   }
 
-  class ParseError {
+  class ParseError : public std::exception {
   public:
     std::string message;
     lexer::SrcLoc loc;
 
-    ParseError(const std::string &message, const lexer::SrcLoc &loc) :
-        message(message),
+    ParseError(std::string message, const lexer::SrcLoc &loc) :
+        message(std::move(message)),
         loc(loc) {
+    }
+
+    [[nodiscard]] const char *what() const noexcept override {
+      return message.c_str();
     }
   };
 
@@ -337,7 +342,7 @@ namespace tok::parser {
     return std::make_unique<ColonExpr>(std::move(expr));
   }
 
-  std::unique_ptr<Statement> parseDefn(ParserStream &stream, const std::optional<Token> &defnToken) {
+  std::unique_ptr<Statement> parseDefn(ParserStream &stream, std::optional<Token> &defnToken) {
     Defn defn;
     defn.defnToken = std::move(*defnToken);
     defn.span.lo = defn.defnToken.loc;
@@ -387,8 +392,12 @@ namespace tok::parser {
     } while (true);
   }
 
-  std::unique_ptr<Expr> parseBlockExpr(ParserStream &stream) {
-    return parseBlockExpr(stream, stream.require(Tok::TBrOpen, "{ expected"));
+  std::unique_ptr<Expr> parseThenExpr(ParserStream &stream) {
+    auto thenToken = stream.optional(Tok::TThen);
+    if (thenToken) {
+      return parseColonExpr(stream, std::move(*thenToken));
+    }
+    return parseBlockExpr(stream, stream.require(Tok::TBrOpen, "{ or 'then' expected"));
   }
 
   std::unique_ptr<Expr> parseDelimitedExpr(ParserStream &stream) {
@@ -453,7 +462,7 @@ namespace tok::parser {
         expr.span.lo = token->loc;
         expr.ifToken = std::move(*token);
         expr.predExpr = parseExpr(stream);
-        expr.thenExpr = parseBlockExpr(stream);
+        expr.thenExpr = parseThenExpr(stream);
         expr.span.hi = expr.thenExpr->span.hi;
         while ((token = stream.optional(Tok::TElse))) {
           Token elseToken = std::move(*token);
@@ -462,13 +471,13 @@ namespace tok::parser {
             elseIf.elseToken = std::move(elseToken);
             elseIf.ifToken = std::move(*token);
             elseIf.predExpr = parseExpr(stream);
-            elseIf.thenExpr = parseBlockExpr(stream);
+            elseIf.thenExpr = parseThenExpr(stream);
             expr.span.hi = elseIf.thenExpr->span.hi;
             expr.elseIfClauses.push_back(std::move(elseIf));
           } else {
             IfExpr::Else elseClause;
             elseClause.elseToken = std::move(elseToken);
-            elseClause.thenExpr = parseDelimitedExpr(stream);
+            elseClause.thenExpr = parseExpr(stream);
             expr.span.hi = elseClause.thenExpr->span.hi;
             expr.elseClause = std::move(elseClause);
             break;

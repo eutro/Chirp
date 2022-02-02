@@ -1,4 +1,5 @@
 #include "Util.h"
+#include "../../../type/TypePrint.h"
 
 namespace lir::codegen {
   const TyTuple &getTyTuple(CC &cc, type::Ty *ty) {
@@ -46,7 +47,7 @@ namespace lir::codegen {
             case type::FloatSize::f16: lt = llvm::Type::getHalfTy(cc.ctx); break;
             case type::FloatSize::f32: lt = llvm::Type::getFloatTy(cc.ctx); break;
             case type::FloatSize::f64: lt = llvm::Type::getDoubleTy(cc.ctx); break;
-            default: throw 0;
+            default: throw std::runtime_error("unreachable");
           }
           Idx bitC = type::bitCount(v.s);
           return std::make_tuple(
@@ -105,9 +106,9 @@ namespace lir::codegen {
                 ),
                 "adt.meta"
             );
-            cc.deferred.push_back([&v, // lifetime of the tcx it's from
-                                   gcMetaFn, collectibles, i8PtrPtrTy]
-                                   (CC &cc) {
+            cc.deferred.emplace_back([&v, // lifetime of the tcx it's from
+                                         gcMetaFn, collectibles, i8PtrPtrTy]
+                                         (CC &cc) {
               llvm::IRBuilder<> ib(cc.ctx);
               llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", gcMetaFn);
               ib.SetInsertPoint(entry);
@@ -200,7 +201,7 @@ namespace lir::codegen {
         [&](Ty::Union &u) -> TyTuple {
           if (u.tys.empty()) {
             return std::make_tuple(
-              llvm::StructType::get(cc.ctx, {}, "!"),
+              llvm::StructType::create(cc.ctx, {}, "!"),
               cc.db.createStructType(
                 cc.cu->getFile(), "!", cc.cu->getFile(), 1,
                 0, 0, llvm::DINode::DIFlags::FlagPublic,
@@ -231,8 +232,9 @@ namespace lir::codegen {
 
             // if the union is bigger than this, we have bigger problems
             auto disc = llvm::Type::getInt32Ty(cc.ctx);
-            auto op = llvm::StructType::get(cc.ctx, {});
-            auto st = llvm::StructType::get(cc.ctx, {disc, op}, "union");
+            auto fillerTy = llvm::ArrayType::get(llvm::Type::getInt8Ty(cc.ctx), 16); // an arbitrary type big enough to fit everything
+            auto op = llvm::StructType::get(cc.ctx, {fillerTy}, false);
+            auto st = llvm::StructType::create(cc.ctx, {disc, op}, util::toStr(ty));
             return std::make_tuple(
               st,
               cc.db.createStructType(
@@ -257,16 +259,10 @@ namespace lir::codegen {
   bool isZeroSize(Tp ty) {
     return std::visit(overloaded {
         [](Ty::Tuple &v) {
-          for (auto &ty : v.t) {
-            if (!isZeroSize(ty)) return false;
-          }
-          return true;
+          return std::all_of(v.t.begin(), v.t.end(), isZeroSize);
         },
         [](Ty::ADT &v) {
-          for (auto &ty : v.s) {
-            if (!isZeroSize(ty)) return false;
-          }
-          return true;
+          return std::all_of(v.s.begin(), v.s.end(), isZeroSize);
         },
         // cyclic types are only non-zero sized if a contained
         // component is, so cyclic references should be ignored
@@ -307,7 +303,7 @@ namespace lir::codegen {
         return ib.CreateLoad(v.ty, ref);
       case Value::Direct:
         return ref;
-      default: throw 0;
+      default: throw std::runtime_error("unreachable");
     }
   }
 
@@ -318,7 +314,7 @@ namespace lir::codegen {
       case Value::Direct:
         // allocate temporary?
         throw std::runtime_error("Attempted to get reference to direct value");
-      default: throw 0;
+      default: throw std::runtime_error("unreachable");
     }
   }
   
@@ -393,6 +389,79 @@ namespace lir::codegen {
         cc.metaFnTy->getPointerTo(),
         llvm::Type::getInt8Ty(cc.ctx)
       );
+    }
+  }
+
+  Tp getChirpTy(LocalCC &lcc, Idx i) {
+    return lcc.inst.loggedTys.at(i);
+  }
+
+  llvm::Value *unionise(LocalCC &lcc, llvm::Value *inValue, Tp inTy, Tp outTy) {
+    if (inTy == outTy) return inValue;
+    if (!std::holds_alternative<Ty::Union>(outTy->v)) {
+      throw std::runtime_error("ICE: Attempted to unionise to non-union type");
+    }
+    llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(lcc.cc.ctx);
+    llvm::Type *outUnionTy = getTy(lcc.cc, outTy);
+    if (std::holds_alternative<Ty::Union>(inTy->v)) {
+      auto found = lcc.cc.unionConversions.find({inTy, outTy});
+      if (found == lcc.cc.unionConversions.end()) {
+        llvm::Type *inUnionTy = getTy(lcc.cc, inTy);
+        llvm::FunctionType *conversionType = llvm::FunctionType::get(outUnionTy, {inUnionTy}, false);
+        llvm::Function *convert = llvm::Function::Create(conversionType, llvm::GlobalValue::PrivateLinkage,
+                                                         "union.convert", lcc.cc.mod);
+        found = lcc.cc.unionConversions.insert({{inTy, outTy}, llvm::FunctionCallee(conversionType, convert)}).first;
+
+        auto insertBlock = lcc.ib.GetInsertBlock();
+        auto insertPoint = lcc.ib.GetInsertPoint();
+
+        llvm::BasicBlock *entry = llvm::BasicBlock::Create(lcc.cc.ctx, "entry", convert);
+        lcc.ib.SetInsertPoint(entry);
+        llvm::Value *inUnionTemp = lcc.ib.CreateAlloca(inUnionTy, nullptr, "union.in.ref");
+        llvm::Argument *arg = convert->getArg(0);
+        arg->setName("union.in.val");
+        lcc.ib.CreateStore(arg, inUnionTemp);
+        llvm::Value *inUnionDisc = lcc.ib.CreateExtractValue(arg, 0, "union.in.idx");
+        llvm::Value *rawGEP = lcc.ib.CreateStructGEP(inUnionTy, inUnionTemp, 1, "union.in.value");
+        auto &inU = std::get<Ty::Union>(outTy->v);
+        llvm::BasicBlock *cont = llvm::BasicBlock::Create(lcc.cc.ctx, "union.cont");
+        llvm::PHINode *phi = llvm::PHINode::Create(outUnionTy, inU.tys.size() + 1, "union.out", cont);
+        llvm::SwitchInst *switchI = lcc.ib.CreateSwitch(inUnionDisc, cont, inU.tys.size());
+        phi->addIncoming(llvm::PoisonValue::get(outUnionTy), lcc.ib.GetInsertBlock());
+        for (Idx i = 0; i < inU.tys.size(); ++i) {
+          llvm::BasicBlock *bb = llvm::BasicBlock::Create(lcc.cc.ctx, util::toStr("union.case.", i), convert);
+          switchI->addCase(llvm::ConstantInt::get(i32Ty, i), bb);
+          lcc.ib.SetInsertPoint(bb);
+          Tp branchCTy = inU.tys[i];
+          llvm::Type *branchTy = getTy(lcc.cc, branchCTy);
+          llvm::Value *castGep = lcc.ib.CreatePointerCast(rawGEP, branchTy->getPointerTo(), "union.ptr.cast");
+          llvm::Value *branchVal = lcc.ib.CreateLoad(branchTy, castGep, "union.val");
+          branchVal = unionise(lcc, branchVal, branchCTy, outTy);
+          branchVal->setName(util::toStr("union.out.", i));
+          lcc.ib.CreateBr(cont);
+          phi->addIncoming(branchVal, bb);
+        }
+        cont->insertInto(convert);
+        lcc.ib.SetInsertPoint(cont);
+        lcc.ib.CreateRet(phi);
+
+        lcc.ib.SetInsertPoint(insertBlock, insertPoint);
+      }
+      return lcc.ib.CreateCall(found->second, {inValue});
+    } else {
+      auto &outU = std::get<Ty::Union>(outTy->v);
+      if (!std::binary_search(outU.tys.begin(), outU.tys.end(), inTy)) {
+        throw std::runtime_error("ICE: Attempted to unionise into unrelated union");
+      }
+      auto it = std::lower_bound(outU.tys.begin(), outU.tys.end(), inTy);
+      Idx discIdx = std::distance(outU.tys.begin(), it);
+      llvm::AllocaInst *temporary = lcc.ib.CreateAlloca(outUnionTy, nullptr, "union.ref");
+      llvm::Value *idxPtr = lcc.ib.CreateStructGEP(outUnionTy, temporary, 0, "union.idx");
+      lcc.ib.CreateStore(llvm::ConstantInt::get(i32Ty, discIdx), idxPtr);
+      llvm::Value *rawValuePtr = lcc.ib.CreateStructGEP(outUnionTy, temporary, 1, "union.value");
+      llvm::Value *valuePtr = lcc.ib.CreatePointerCast(rawValuePtr, inValue->getType()->getPointerTo(), "union.value.cast");
+      lcc.ib.CreateStore(inValue, valuePtr);
+      return lcc.ib.CreateLoad(outUnionTy, temporary);
     }
   }
 }

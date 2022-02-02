@@ -129,7 +129,7 @@
 (defconst chirp-mode-font-lock-keywords
   `((,(concat
        "\\b"
-       (regexp-opt '("foreign" "fn" "in" "let" "else" "if" "defn"))
+       (regexp-opt '("foreign" "fn" "in" "let" "else" "then" "if" "defn"))
        "\\b")
      (0 font-lock-keyword-face))
     ("\\\\\\|λ" (0 font-lock-keyword-face))

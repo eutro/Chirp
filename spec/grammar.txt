@@ -57,8 +57,8 @@ BracketExpr ::= '(' Expr ')'
 ColonExpr ::= ':' Expr
 
 IfExpr ::= 'if' Expr BlockExpr
-           ( 'else' 'if' Expr BlockExpr )*
-           ( 'else' DelimitedExpr )?
+           ( 'else' 'if' Expr ( 'then' Expr | BlockExpr ) )*
+           ( 'else' Expr )?
 
 LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr
 
