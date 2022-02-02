@@ -18,14 +18,7 @@ template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace type {
   class Ty;
-  struct TraitBound;
   using Tcx = arena::InternArena<Ty>;
-  using Tbcx = arena::InternArena<TraitBound>;
-
-  struct TTcx {
-    Tcx tcx;
-    Tbcx tbcx;
-  };
 
   using Tp = Ty *;
 
@@ -67,15 +60,11 @@ namespace type {
   bool operator<(const TYPE &o) const;           \
   bool operator==(const TYPE &o) const;
 
-  struct TraitBound {
+  struct [[deprecated]] TraitBound {
     Idx i;
     Substs s;
     BIN_OPS(TraitBound)
   };
-
-  using Variants = std::set<Idx>;
-
-  using TraitBounds = std::vector<TraitBound*>;
 
   class Ty {
   public:
@@ -103,22 +92,16 @@ namespace type {
     };
     struct ADT {
       Idx i;
-      Variants v;
       Substs s;
       BIN_OPS(ADT)
     };
-    struct Never {
-      BIN_OPS(Never)
+    struct Union {
+      std::vector<Tp> tys; // must be sorted
+      BIN_OPS(Union)
     };
     struct Tuple {
       std::vector<Ty*> t;
       BIN_OPS(Tuple)
-    };
-    struct TraitRef {
-      Ty *ty;
-      TraitBound *trait;
-      Idx ref;
-      BIN_OPS(TraitRef)
     };
     struct String {
       bool nul;
@@ -145,13 +128,13 @@ namespace type {
       Float,
       Placeholder,
       ADT,
-      Never,
+      Union,
       Tuple,
-      TraitRef,
       String,
       Cyclic,
       CyclicRef,
       FfiFn> v;
+    Tcx *tcx;
 
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
@@ -160,13 +143,19 @@ namespace type {
   };
 }
 
+template <>
+struct arena::InternHook<type::Ty> {
+  inline void postIntern(type::Tcx &tcx, type::Ty *ty) {
+    ty->tcx = &tcx;
+  }
+};
+
 #define ITER_HASH(TYPE)                             \
   namespace std { template <> struct hash<TYPE> {   \
       std::size_t operator()(const TYPE &o) {       \
         return util::hashIterable(o); } }; }
 
 ITER_HASH(type::Substs)
-ITER_HASH(type::TraitBounds)
 ITER_HASH(std::set<Idx>)
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
@@ -181,28 +170,15 @@ ITER_HASH(std::set<Idx>)
 #undef IMPL_SINGLETON
 
 namespace type {
-  Ty *uncycle(Tcx &, Tbcx &, Ty *);
-  Ty *uncycle(TTcx &, Ty *);
+  Ty *uncycle(Ty *);
 
   struct PreWalk {};
   struct PostWalk {};
 
-  template <bool IGNORED = false, typename T, typename TR>
-  T replaceTy(TTcx &ttcx, T x, TR &tr) {
-    return replaceTy(ttcx.tcx, ttcx.tbcx, x, tr);
-  }
+  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys);
 
   template <bool IGNORED = false, typename TR>
-  TraitBound *replaceTy(Tcx &tcx, Tbcx &tbcx, TraitBound *tb, TR &tr) {
-    if constexpr (IGNORED) {
-      replaceTy<IGNORED>(tcx, tbcx, tb->s, tr);
-      return tb;
-    }
-    return tbcx.intern(TraitBound{tb->i, replaceTy(tcx, tbcx, tb->s, tr)});
-  }
-
-  template <bool IGNORED = false, typename TR>
-  Tp replaceTy(Tcx &tcx, Tbcx &tbcx, Tp ty, TR &tr) {
+  Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
     if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
       ty = tr(ty, PreWalk{});
     }
@@ -212,44 +188,39 @@ namespace type {
       case util::index_of_type_v<Ty::CyclicRef, VTy>:
         ty = tr(ty);
         break;
-      case util::index_of_type_v<Ty::TraitRef, VTy>: {
-        auto &trf = std::get<Ty::TraitRef>(ty->v);
-        auto uret = Ty::TraitRef{replaceTy<IGNORED>(tcx, tbcx, trf.ty, tr),
-                                 replaceTy<IGNORED>(tcx, tbcx, trf.trait, tr),
-                                 trf.ref};
-        if constexpr (!IGNORED) ty = tr(tcx.intern(std::move(uret)));
-        else {
-          (void)uret;
-          tr(ty);
-        }
-        break;
-      }
       case util::index_of_type_v<Ty::ADT, VTy>: {
         auto &adt = std::get<Ty::ADT>(ty->v);
-        auto uret = Ty::ADT{adt.i, adt.v, replaceTy<IGNORED>(tcx, tbcx, adt.s, tr)};
+        auto uret = Ty::ADT{adt.i, replaceTy<IGNORED>(tcx, adt.s, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::Tuple, VTy>: {
         auto &tup = std::get<Ty::Tuple>(ty->v);
-        auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tbcx, tup.t, tr)};
+        auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tup.t, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::Cyclic, VTy>: {
         auto &clc = std::get<Ty::Cyclic>(ty->v);
-        auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, tbcx, clc.ty, tr)};
+        auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, clc.ty, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }
       case util::index_of_type_v<Ty::FfiFn, VTy>: {
         auto &ffifn = std::get<Ty::FfiFn>(ty->v);
-        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, tbcx, ffifn.args, tr),
-                              replaceTy<IGNORED>(tcx, tbcx, ffifn.ret, tr)};
+        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, ffifn.args, tr),
+                              replaceTy<IGNORED>(tcx, ffifn.ret, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
+        else (void)uret;
+        break;
+      }
+      case util::index_of_type_v<Ty::Union, VTy>: {
+        auto &unty = std::get<Ty::Union>(ty->v);
+        auto uret = replaceTy<IGNORED>(tcx, unty.tys, tr);
+        if constexpr(!IGNORED) ty = unionOf(tcx, uret);
         else (void)uret;
         break;
       }
@@ -258,7 +229,6 @@ namespace type {
       case util::index_of_type_v<Ty::Int, VTy>:
       case util::index_of_type_v<Ty::UInt, VTy>:
       case util::index_of_type_v<Ty::Float, VTy>:
-      case util::index_of_type_v<Ty::Never, VTy>:
       case util::index_of_type_v<Ty::String, VTy>:
       default: break; // noop
     }
@@ -269,24 +239,24 @@ namespace type {
   }
 
   template <bool IGNORED = false, typename T, typename TR>
-  std::vector<T> replaceTy(Tcx &tcx, Tbcx &tbcx, const std::vector<T> &tys, TR &tr) {
+  std::vector<T> replaceTy(Tcx &tcx, const std::vector<T> &tys, TR &tr) {
     if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, tbcx, s, tr);
+      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
       return {};
     }
     auto ret = tys;
-    for (auto &s : ret) s = replaceTy(tcx, tbcx, s, tr);
+    for (auto &s : ret) s = replaceTy(tcx, s, tr);
     return ret;
   }
 
   template <bool IGNORED = false, typename T, typename TR>
-  std::set<T> replaceTy(Tcx &tcx, Tbcx &tbcx, const std::set<T> &tys, TR &tr) {
+  std::set<T> replaceTy(Tcx &tcx, const std::set<T> &tys, TR &tr) {
     if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, tbcx, s, tr);
+      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
       return {};
     }
     std::set<T> set;
-    for (auto &s : tys) set.insert(replaceTy(tcx, tbcx, s, tr));
+    for (auto &s : tys) set.insert(replaceTy(tcx, s, tr));
     return set;
   }
 
@@ -307,8 +277,7 @@ namespace type {
           return ty;
         },
     };
-    TTcx ttcx;
-    replaceTy<true>(ttcx, ty, checker);
+    replaceTy<true>(ty, checker);
     return isComplete;
   }
 }

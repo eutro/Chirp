@@ -34,10 +34,8 @@ namespace hir {
     struct Type {};
     struct Trait {};
     struct ADT {
-      struct Variant {
-        std::vector<DefIdx> values;
-      };
-      std::vector<Variant> variants;
+      std::vector<DefIdx> values;
+      std::vector<DefIdx> types;
     };
     std::variant<Variable, Trait, Type, ADT> v;
     template <typename... Arg>
@@ -79,6 +77,7 @@ namespace hir {
 
   class Block {
   public:
+    std::optional<Idx> idx;
     std::optional<loc::Span> span;
     std::vector<DefIdx> bindings;
     std::vector<Eptr> body;
@@ -128,7 +127,7 @@ namespace hir {
 
   class LiteralExpr : public Expr {
   public:
-    enum Type {
+    enum class Type {
       Int, Float, String,
     };
     Type type;
@@ -196,10 +195,6 @@ namespace hir {
   class NewExpr : public Expr {
   public:
     Idx adt;
-    Idx variant;
-    // hack to tell the type checker that this depends
-    // on the given globals being soft-initialised
-    std::set<Idx> globalRefs;
     std::vector<Eptr> values;
 
     _acceptDef(Expr) override;
@@ -208,7 +203,6 @@ namespace hir {
   class GetExpr : public Expr {
   public:
     Idx adt;
-    Idx variant;
     Idx field;
     Eptr value;
 

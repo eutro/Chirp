@@ -48,8 +48,13 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
             os << ">";
           }
         },
-        [&](Ty::Never &t) {
-          os << "!";
+        [&](Ty::Union &t) {
+          os << "U{";
+          for (auto iter = t.tys.begin(); iter != t.tys.end();) {
+            os << *iter;
+            if (++iter != t.tys.end()) os << ",";
+          }
+          os << "}";
         },
         [&](Ty::Tuple &t) {
           os << "#(";
@@ -59,12 +64,8 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           }
           os << ")";
         },
-        [&](Ty::TraitRef &t) {
-          os << "<" << t.ty << " as " << t.trait << ">";
-          os << "::" << t.ref;
-        },
-        [&](Ty::String &) {
-          os << "str";
+        [&](Ty::String &s) {
+          os << (s.nul ? "cstr" : "str");
         },
         [&](Ty::Cyclic &c) {
           os << "#{" << c.ty << "}";
@@ -76,19 +77,6 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
           os << "ffifn<" << f.args << ", " << f.ret << ">";
         },
     }, t->v);
-  return os;
-}
-
-std::ostream &operator<<(std::ostream &os, type::TraitBound *tb) {
-  os << "trait[" << tb->i << "]";
-  if (!tb->s.empty()) {
-    os << "<";
-    for (auto iter = tb->s.begin(); iter != tb->s.end();) {
-      os << *iter;
-      if (++iter != tb->s.end()) os << ",";
-    }
-    os << ">";
-  }
   return os;
 }
 

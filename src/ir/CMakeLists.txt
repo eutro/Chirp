@@ -18,11 +18,14 @@ target_link_libraries(hirjson PUBLIC nlohmann_json::nlohmann_json)
 add_library(astlower ast/Lowering.cc)
 target_link_libraries(astlower ast hirrebind err)
 
+add_library(hiridx hir/IdxCounter.cc)
+target_link_libraries(hiridx hir)
+
 add_library(hirinfer hir/Infer.cc)
-target_link_libraries(hirinfer hir err type typeinfer)
+target_link_libraries(hirinfer hir err type typeinfer hiridx logging)
 
 add_library(hirlower hir/Lowering.cc)
-target_link_libraries(hirlower hir err type)
+target_link_libraries(hirlower hir err type hiridx)
 
 add_library(lirdisas lir/Disas.cc)
 

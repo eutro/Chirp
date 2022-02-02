@@ -81,6 +81,7 @@ namespace ast::lower {
     Bindings bindings;
     Bindings typeBindings;
     hir::DefIdx defNo = 0;
+    Idx blockIdx = 0;
 
     hir::DefIdx introduceDef(hir::Definition &&def) {
       hir::DefIdx id = defNo++;
@@ -227,14 +228,14 @@ namespace ast::lower {
                 std::vector<Param> &params,
                 const loc::Span &source,
                 Expr &body) {
-      std::set<hir::DefIdx> globalRefs;
+      // std::set<hir::DefIdx> globalRefs;
       std::set<hir::DefIdx> closed;
       bindings.push([&](hir::DefIdx vr) {
-        if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
-          globalRefs.insert(vr);
-        } else {
+        // if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
+        //   globalRefs.insert(vr);
+        // } else {
           closed.insert(vr);
-        }
+        // }
       });
       typeBindings.push();
       if (typeParams) {
@@ -275,13 +276,12 @@ namespace ast::lower {
           source,
             DefType::ADT{},
         });
-      DefType::ADT &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
+      auto &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
 
-      DefType::ADT::Variant &variant = closure.variants.emplace_back();
-      variant.values.reserve(closed.size());
+      closure.values.reserve(closed.size());
       for (auto &cv : closed) {
         auto &data = program.bindings.at(cv);
-        variant.values.push_back(introduceDef(hir::Definition{
+        closure.values.push_back(introduceDef(hir::Definition{
               data.name,
               data.source,
               DefType::Variable{false},
@@ -339,9 +339,7 @@ namespace ast::lower {
       fnImpl.types.push_back(retTy);
 
       auto expr = withSpan<hir::NewExpr>(source);
-      expr->globalRefs = std::move(globalRefs);
       expr->adt = typeIdx;
-      expr->variant = 0;
       expr->values.reserve(closed.size());
       for (auto &cv : closed) {
         auto varE = withSpan<hir::VarExpr>(std::nullopt);
@@ -369,7 +367,6 @@ namespace ast::lower {
         if (found != mapping.end()) {
           auto getE = withSpan<hir::GetExpr>(varE.span);
           getE->adt = typeIdx;
-          getE->variant = 0;
           getE->field = found->second;
           auto thisE = withSpan<hir::VarExpr>(std::nullopt);
           thisE->ref = thisIdx;
@@ -383,6 +380,7 @@ namespace ast::lower {
         return nullptr;
       })->visitExpr(*blockE, nullptr);
 
+      block.idx = blockIdx++;
       fnImpl.methods.push_back(std::move(block));
 
       return expr;
@@ -466,6 +464,7 @@ namespace ast::lower {
       }
 
       addBindingsToBlock(program.topLevel);
+      program.topLevel.idx = blockIdx++;
       auto &body = program.topLevel.body;
       auto iter = indeces.begin();
       for (auto &stmt : it.statements) {
@@ -630,7 +629,7 @@ namespace ast::lower {
       case Tok::TStr:
         expr->type = hir::LiteralExpr::Type::String;
         break;
-      default: throw 0;
+      default: throw std::runtime_error("Impossible literal expression token type.");
       }
       return expr;
     }
@@ -702,7 +701,7 @@ namespace ast::lower {
             case Tok::TGt:
               cmp = hir::CmpExpr::Op::Gt;
               break;
-            default: throw 0;
+            default: throw std::runtime_error("Impossible binary expression token type.");
             }
 
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);

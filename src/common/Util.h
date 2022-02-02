@@ -5,6 +5,7 @@
 #include <set>
 #include <tuple>
 #include <variant>
+#include <sstream>
 
 namespace util {
   template<typename Data = std::monostate>
@@ -91,5 +92,41 @@ namespace util {
   template<typename... Alts, typename... Ts>
   constexpr bool holds_any_of(std::variant<Ts...> const& v) noexcept {
     return (std::holds_alternative<Alts>(v) || ...);
+  }
+
+  struct left_shift {
+    template<class L, class R>
+    constexpr auto operator()(L &&l, R &&r) const
+    noexcept(noexcept(std::forward<L>(l) << std::forward<R>(r)))
+    -> decltype(std::forward<L>(l) << std::forward<R>(r)) {
+      return std::forward<L>(l) << std::forward<R>(r);
+    }
+  };
+
+  struct right_shift {
+    template<class L, class R>
+    constexpr auto operator()(L &&l, R &&r) const
+    noexcept(noexcept(std::forward<L>(l) >> std::forward<R>(r)))
+    -> decltype(std::forward<L>(l) >> std::forward<R>(r)) {
+      return std::forward<L>(l) >> std::forward<R>(r);
+    }
+  };
+
+  template<class X, class Y, class Op>
+  struct op_valid {
+    template<class U, class L, class R>
+    static auto test(int) -> decltype(std::declval<U>()(std::declval<L>(), std::declval<R>()),void(), std::true_type()) {return std::true_type{};}
+    template<class U, class L, class R>
+    static auto test(...) -> std::false_type {return std::false_type{};}
+    using type = decltype(test<Op, X, Y>(0));
+  };
+
+  template<class X, class Y, class Op> using op_valid_t = typename op_valid<X, Y, Op>::type;
+
+  template <typename... T>
+  std::string toStr(const T &...x) {
+    std::stringstream ss;
+    ((ss << x), ...);
+    return ss.str();
   }
 }

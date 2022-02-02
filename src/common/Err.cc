@@ -33,14 +33,15 @@ namespace err {
   }
 
   void writeLine(ErrorPrintContext &ec, size_t margin, size_t line) {
-    ec.os << std::setfill(' ') << std::setw(margin) << line;
+    auto w = ec.os.width();
+    ec.os << std::setfill(' ') << std::setw((int) margin) << line;
+    ec.os.width(w);
     ec.os << ": ";
     ec.os << ec.sourceLines[line - 1] << '\n';
   }
 
   void indentTo(ErrorPrintContext &ec, size_t margin, size_t col) {
-    std::string indent(margin + col + 2, ' ');
-    ec.os << indent;
+    ec.os << std::string(margin + col + 2, ' ');
   }
 
   class SpanLine : public Line {
@@ -66,9 +67,7 @@ namespace err {
         writeLine(ctx, margin, ++line);
         indentTo(ctx, margin, 0);
       }
-      while (col++ < span.hi.col) {
-        ctx.os << '~';
-      }
+      ctx.os << std::string(span.hi.col - col, '~');
       ctx.os << ' ' << msg << '\n';
     }
   };

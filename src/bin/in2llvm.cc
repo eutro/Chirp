@@ -15,17 +15,19 @@ int main() {
   err::maybeAbort(epc, parsed.errors);
   auto hir = ast::lower::lowerVisitor()->visitProgram(parsed.program);
   err::maybeAbort(epc, hir.errors);
-  type::TTcx ttcx;
-  auto types = hir::infer::inferenceVisitor(ttcx)->visitProgram(hir.program);
-  type::infer::SolveCtx icx(ttcx);
-  type::infer::solveSystem(types.sys, icx, {0});
-  err::maybeAbort(epc, icx.ecx);
+  type::Tcx tcx;
+  auto types = hir::infer::inferenceVisitor(tcx)->visitProgram(hir.program);
+
+  type::infer::Env env{std::move(types.table)};
+  type::infer::addInsns(*env.table);
+  type::infer::ENV = &env;
+  types.root({}, {});
+
+  // err::maybeAbort(epc, icx.ecx);
   auto lir = hir::lower::loweringVisitor()->visitProgram(hir.program);
   char *fileName = std::getenv("CRP_FILENAME");
   char *fileDir = std::getenv("CRP_FILEDIR");
-  auto llvmRes = lir::codegen::generate(ttcx.tcx,
-                                        ttcx.tbcx,
-                                        types.sys,
+  auto llvmRes = lir::codegen::generate(*types.insts,
                                         lir.module,
                                         fileName ? fileName : "module.crp",
                                         fileDir ? fileDir : ".");

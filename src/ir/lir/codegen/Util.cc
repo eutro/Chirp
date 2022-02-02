@@ -11,7 +11,7 @@ namespace lir::codegen {
       }
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-      Ty *uncycled = type::uncycle(cc.tcx, cc.tbcx, ty);
+      Ty *uncycled = type::uncycle(ty);
       return getTyTuple(cc, uncycled);
     } else {
       cc.tyCache[ty] = std::make_tuple(nullptr, nullptr, std::nullopt);
@@ -196,6 +196,56 @@ namespace lir::codegen {
               ),
               std::nullopt
           );
+        },
+        [&](Ty::Union &u) -> TyTuple {
+          if (u.tys.empty()) {
+            return std::make_tuple(
+              llvm::StructType::get(cc.ctx, {}, "!"),
+              cc.db.createStructType(
+                cc.cu->getFile(), "!", cc.cu->getFile(), 1,
+                0, 0, llvm::DINode::DIFlags::FlagPublic,
+                nullptr,
+                cc.db.getOrCreateArray({})
+              ),
+              std::nullopt
+            );
+          } else {
+            std::vector<const TyTuple *> members;
+            members.reserve(u.tys.size());
+            for (Tp m : u.tys) {
+              members.push_back(&getTyTuple(cc, m));
+            }
+            std::vector<std::pair<Idx, std::optional<GCData>>> collected;
+            Idx i = 0;
+            for (const TyTuple *tt : members) {
+              auto &gcd = std::get<2>(*tt);
+              if (gcd) {
+                collected.emplace_back(i, gcd);
+              }
+              i++;
+            }
+            if (!collected.empty()) {
+              // TODO implement garbage collected unions
+              throw std::runtime_error("Garbage collected unions unimplemented");
+            }
+
+            // if the union is bigger than this, we have bigger problems
+            auto disc = llvm::Type::getInt32Ty(cc.ctx);
+            auto op = llvm::StructType::get(cc.ctx, {});
+            auto st = llvm::StructType::get(cc.ctx, {disc, op}, "union");
+            return std::make_tuple(
+              st,
+              cc.db.createStructType(
+                cc.cu->getFile(), "union", cc.cu->getFile(), 1,
+                32, 64, llvm::DINode::DIFlags::FlagPublic,
+                nullptr,
+                cc.db.getOrCreateArray({
+                    cc.db.createBasicType("u32", 32, llvm::dwarf::DW_ATE_signed_fixed)
+                  })
+              ),
+              std::nullopt
+            );
+          }
         },
         [](auto&) -> TyTuple {
           throw std::runtime_error("Type cannot exist after inference");

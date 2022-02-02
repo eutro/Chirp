@@ -119,8 +119,7 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType, v);
   EMPTY_JSON(DefType::Type);
   EMPTY_JSON(DefType::Trait);
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT::Variant, values)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT, variants)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT, values, types)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::Variable, hints);
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, body)
 
@@ -135,8 +134,8 @@ namespace hir {
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(NegExpr, value)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CallExpr, func, args)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefineExpr, idx, value)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(NewExpr, adt, variant, values)
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GetExpr, adt, variant, field, value)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(NewExpr, adt, values)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GetExpr, adt, field, value)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(ForeignExpr, name)
   EMPTY_JSON(DummyExpr)
 

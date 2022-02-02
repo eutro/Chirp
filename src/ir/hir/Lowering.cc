@@ -1,7 +1,8 @@
 #include "Lowering.h"
 #include "Hir.h"
 #include "Infer.h"
-#include "RecurVisitor.h"
+#include "IdxCounter.h"
+
 #include <limits>
 
 namespace hir::lower {
@@ -30,23 +31,6 @@ namespace hir::lower {
       return ret;
     }
 
-    class TyCounter : public RecurVisitor<std::monostate, std::map<Expr*, Idx>, Idx> {
-      std::monostate visitExpr(Expr &it, std::map<Expr*, Idx> &exprTys, Idx &idx) override {
-        exprTys[&it] = idx++;
-        return RecurVisitor::visitExpr(it, exprTys, idx);
-      }
-    };
-
-    class DefCounter : public RecurVisitor<std::monostate, std::map<Idx, Idx>, Idx> {
-    public:
-      void visitBlock(Block &it, std::map<Idx, Idx> &defTys, Idx &idx) override {
-        for (auto &b : it.bindings) {
-          defTys[b] = idx++;
-        }
-        RecurVisitor::visitBlock(it, defTys, idx);
-      }
-    };
-
     std::map<Expr*, Idx> exprTys;
     std::map<Idx, Idx> defTys;
     BlockList visitRootBlock(Block &block, bool func) {
@@ -62,6 +46,7 @@ namespace hir::lower {
         dc.visitBlock(block, defTys, counter);
       }
       BlockList l;
+      l.blockIdx = *block.idx;
       Idx bb = l.push();
       visitBlock(block, l, &bb, true, func);
       return l;
@@ -162,13 +147,13 @@ namespace hir::lower {
         return value;
       };
       switch (e.type) {
-        case LiteralExpr::Int: {
+        case LiteralExpr::Type::Int: {
           return l[*bb].emplace_back(Insn::LiteralInt{removeUnderscores(e.value)});
         }
-        case LiteralExpr::Float: {
+        case LiteralExpr::Type::Float: {
           return l[*bb].emplace_back(Insn::LiteralFloat{removeUnderscores(e.value)});
         }
-        case LiteralExpr::String: {
+        case LiteralExpr::Type::String: {
           std::string value;
           value.reserve(e.value.size());
           for (auto it = e.value.begin() + 1; it != e.value.end() - 1; ++it) {
@@ -246,7 +231,7 @@ namespace hir::lower {
         setTyAndLoc(*e.value, getVar);
         for (auto &v : newE->values) {
           auto value = visitExpr(*v, l, bb, false);
-          l[*bb].emplace_back<false>(Insn::SetField{getVar, newE->variant, i++, value});
+          l[*bb].emplace_back<false>(Insn::SetField{getVar, i++, value});
         }
       } else {
         auto value = visitExpr(*e.value, l, bb, false);
@@ -264,14 +249,14 @@ namespace hir::lower {
       auto obj = l[*bb].emplace_back(Insn::HeapAlloc{}); // type will be added
       Idx i = 0;
       for (auto &v : values) {
-        l[*bb].emplace_back<false>(Insn::SetField{obj, e.variant, i++, v});
+        l[*bb].emplace_back<false>(Insn::SetField{obj, i++, v});
       }
       l[*bb].end.v = Jump::Ret{obj};
       return obj;
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
       auto obj = visitExpr(*e.value, l, bb, false);
-      return l[*bb].emplace_back(Insn::GetField{obj, e.variant, e.field});
+      return l[*bb].emplace_back(Insn::GetField{obj, e.field});
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
       return l[*bb].emplace_back(Insn::ForeignRef{e.name});

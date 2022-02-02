@@ -30,6 +30,9 @@ namespace arena {
     }
   };
 
+  template <typename T>
+  struct InternHook;
+
   template <typename Base,
             typename Set
             = std::set<std::unique_ptr<Base>,
@@ -47,9 +50,21 @@ namespace arena {
 
     template <typename ...Args>
     T *intern(Args &&...args) {
-      return interned.insert(
+      auto insert = interned.insert(
         std::make_unique<T>(std::forward<Args>(args)...)
-      ).first->get();
+      );
+      auto ret = insert.first->get();
+      if (insert.second) {
+        InternHook<T> hook;
+        hook.postIntern(*this, ret);
+      }
+      return ret;
     }
+  };
+
+  template <typename T>
+  struct InternHook {
+    template <typename Base, typename Set>
+    inline void postIntern(InternArena<Base, Set, T> &, T *) {}
   };
 }

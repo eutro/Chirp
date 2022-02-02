@@ -2,71 +2,67 @@
 
 #include "Builtins.h"
 #include "../../type/TypePrint.h"
-#include "../../type/infer/InferenceGraph.h"
-#include "RecurVisitor.h"
+#include "IdxCounter.h"
+#include "../../common/Logging.h"
 
-#include <limits>
-#include <sstream>
-#include <cstddef>
-#include <deque>
 #include <variant>
 
 namespace hir::infer {
   using namespace type::infer;
 
-#define RET_T TVar *
-#define ARGS(TYPE) (TYPE &e, InferenceGraph &ig, std::vector<TVar *>::iterator &tvi)
-#define PASS_ARGS , ig, tvi
+#define RET_T VarRef
+#define ARGS(TYPE) (TYPE &e, InsnList &ig) // NOLINT(bugprone-macro-parentheses)
+#define PASS_ARGS , ig
 
   class InferenceVisitor :
-    public ExprVisitor<TVar*, InferenceGraph&, std::vector<TVar *>::iterator&>,
+    public ExprVisitor<VarRef, InsnList&>,
     public ProgramVisitor<InferResult> {
   public:
     type::Tcx &tcx;
-    type::Tbcx &tbcx;
-    type::TTcx &ttcx;
 
-    InferenceVisitor(type::TTcx &ttcx):
-      tcx(ttcx.tcx),
-      tbcx(ttcx.tbcx),
-      ttcx(ttcx)
-    {}
+    InferenceVisitor(type::Tcx &ttcx):
+      tcx(ttcx)
+    {
+      instSet->tcx = &tcx;
+    }
 
     Program *program = nullptr;
-    std::map<DefIdx, TVar*> varNodes;
-    std::map<DefIdx, Tp> definedTys;
-    Idx counter = 0;
+    std::map<DefIdx, VarRef> varNodes;
+    std::map<DefIdx, VarRef> tyNodes;
 
-    void addBuiltins(System &sys) {
+    std::shared_ptr<type::infer::Inst::ConstructingSet> instSet =
+      std::make_shared<decltype(instSet)::element_type>();
+
+    void addBuiltins(LookupTable &sys) {
+      Idx igIdx = BUILTIN_BLOCKS_START;
+      sys.insertFn(TraitInsn::key(), {(Idx) Builtins::Fn},
+                   {tcx.intern(Ty::FfiFn{tcx.intern(Ty::Placeholder{0}),
+                                         tcx.intern(Ty::Placeholder{1})}),
+                    tcx.intern(Ty::Placeholder{0})},
+                   InstWrapper(
+                       [](const std::vector<Tp> &tys, const auto &) -> std::vector<Tp> {
+                         auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
+                         CheckInsn check;
+                         check({tys.at(1)}, {ffifn.args});
+                         return {ffifn.ret};
+                       },
+                       1, igIdx++, instSet)
+      );
+
+      auto constFn = [&](const std::vector<Tp> &i) {
+        return InstWrapper(ConstInsn(i), 0, igIdx++, instSet);
+      };
       auto implBinOp = [&](Tp ty, Idx trait) {
-        AbstractTraitImpl ati;
-        ati.blockIdx = sys.seqs.size();
-        sys.seqs.emplace_back();
-        ati.inputs = {ty, ty};
-        ati.outputs = {ty};
-        sys.traits[trait].insert(ttcx, {ty}, std::move(ati));
+        sys.insertFn(TraitInsn::key(), {trait}, {ty, ty}, constFn({ty}));
       };
       auto implNeg = [&](Tp ty) {
-        AbstractTraitImpl ati;
-        ati.blockIdx = sys.seqs.size();
-        sys.seqs.emplace_back();
-        ati.inputs = {ty};
-        ati.outputs = {ty};
-        sys.traits[Neg].insert(ttcx, {ty}, std::move(ati));
+        sys.insertFn(TraitInsn::key(), {(Idx)Neg}, {ty}, constFn({ty}));
       };
       auto implEq = [&](Tp ty) {
-        AbstractTraitImpl ati;
-        ati.blockIdx = sys.seqs.size();
-        sys.seqs.emplace_back();
-        ati.inputs = {ty, ty};
-        sys.traits[Eq].insert(ttcx, {ty}, std::move(ati));
+        sys.insertFn(TraitInsn::key(), {(Idx)Eq}, {ty, ty}, constFn({}));
       };
       auto implCmp = [&](Tp ty) {
-        AbstractTraitImpl ati;
-        ati.blockIdx = sys.seqs.size();
-        sys.seqs.emplace_back();
-        ati.inputs = {ty, ty};
-        sys.traits[Cmp].insert(ttcx, {ty}, std::move(ati));
+        sys.insertFn(TraitInsn::key(), {(Idx)Cmp}, {ty, ty}, constFn({}));
       };
 
       for (type::IntSize is : type::INT_SIZE_FIXED) {
@@ -81,7 +77,7 @@ namespace hir::infer {
         }
         implNeg(i);
       }
-      Tp boolTy = boolType();
+      Tp boolTy = tcx.intern(Ty::Bool{});
       implBinOp(boolTy, BitOr);
       implBinOp(boolTy, BitAnd);
 
@@ -94,585 +90,522 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
+    }
 
-      {
-        AbstractTraitImpl ati;
-        ati.blockIdx = sys.seqs.size();
-        sys.seqs.emplace_back();
-        auto args = tcx.intern(Ty::Placeholder{counter++});
-        auto ret = tcx.intern(Ty::Placeholder{counter++});
-        auto fnTy = tcx.intern(Ty::FfiFn{args, ret});
-        ati.inputs = {fnTy, args};
-        ati.outputs = {ret};
-        sys.traits[Fn].insert(ttcx, {fnTy}, std::move(ati));
+    void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
+      if (insns.size() > 1) {
+        std::map<Tp, VarRef> externs;
+        std::map<VarRef, Tp> externsRev;
+        std::map<Insn *, std::vector<Tp>> tys;
+        std::map<Tp, Tp> values;
+        for (Insn *insn : insns) tys[insn];
+        Idx counter = 0;
+        auto setOutputs = [&](Insn *insn, const std::vector<Tp> &outs) {
+          std::vector<Tp> &vars = tys[insn];
+          vars.reserve(outs.size());
+          while (vars.size() < outs.size()) {
+            vars.push_back(tcx.intern(Ty::Placeholder{counter++}));
+          }
+          for (Idx i = 0; i < vars.size(); ++i) {
+            values[vars[i]] = outs[i];
+          }
+        };
+        auto getVar = [&](VarRef vr) {
+          if (vr.insn) {
+            auto found = tys.find(&il.insns.at(*vr.insn));
+            if (found != tys.end()) {
+              while (found->second.size() <= vr.retIdx) {
+                found->second.push_back(tcx.intern(Ty::Placeholder{counter++}));
+              }
+              return found->second.at(vr.retIdx);
+            }
+          }
+          if (externsRev.count(vr)) {
+            return externsRev.at(vr);
+          } else {
+            Ty *tp = tcx.intern(Ty::Placeholder{counter++});
+            externs.insert({tp, vr});
+            return externsRev[vr] = tp;
+          }
+        };
+        LookupKey *idKey = IdentityInsn::key();
+        LookupKey *constructKey = ConstructInsn::key();
+        for (Insn *insn : insns) {
+          std::vector<Tp> inputs;
+          inputs.reserve(insn->inputs.size());
+          for (auto in : insn->inputs) {
+            inputs.push_back(getVar(in));
+          }
+          if (insn->key == idKey) {
+            setOutputs(insn, inputs);
+          } else if (insn->key == constructKey) {
+            ConstructInsn construct;
+            setOutputs(insn, construct(inputs, insn->constArgs));
+          } else {
+            throw std::runtime_error("Bad instruction in cycle: " + insn->key->value);
+          }
+        }
+
+        for (auto &e : tys) {
+          std::vector<VarRef> externalInputs;
+          for (auto &t : e.second) {
+            bool cyclic = false;
+            Idx cycleDepth = 0;
+            std::function<Tp(Tp)> doReplace;
+            auto replaceFn = overloaded {
+              [&](Tp ty, type::PreWalk) {
+                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+                  cycleDepth++;
+                }
+                return ty;
+              },
+              [&](Tp ty, type::PostWalk) {
+                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+                  cycleDepth--;
+                }
+                return ty;
+              },
+              [&](Tp tp) {
+                if (std::holds_alternative<Ty::Placeholder>(tp->v)) {
+                  if (externs.count(tp)) {
+                    externalInputs.push_back(externs.at(tp));
+                    return tcx.intern(Ty::Placeholder{(Idx) externalInputs.size() - 1});
+                  } else if (tp == t) {
+                    cyclic = true;
+                    return tcx.intern(Ty::CyclicRef{cycleDepth});
+                  } else {
+                    return doReplace(values.at(tp));
+                  }
+                }
+                return tp;
+              }
+            };
+            doReplace = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceFn); };
+            Tp replaced = doReplace(values.at(t));
+            if (cyclic) {
+              replaced = tcx.intern(Ty::Cyclic{replaced});
+            }
+            t = replaced;
+          }
+          e.first->key = ConstructInsn::key();
+          e.first->inputs = std::move(externalInputs);
+          e.first->constArgs.clear();
+          std::copy(e.second.begin(), e.second.end(), std::back_inserter(e.first->constArgs));
+        }
       }
     }
 
     InferResult visitProgram(Program &p) override {
-      InferResult res;
       program = &p;
-
-      std::vector<InferenceGraph> graphs;
-      std::vector<std::vector<TVar *>> tvs;
-
-      initBlock(p.topLevel, graphs, tvs.emplace_back());
-      for (auto &ti : p.traitImpls) {
-        for (auto &m : ti.methods) {
-          initBlock(m, graphs, tvs.emplace_back());
-        }
+      InferResult res;
+      res.insts = instSet;
+      visitTopLevel(p.topLevel, res);
+      addBuiltins(*res.table);
+      for (auto &traitImpl : p.traitImpls) {
+        visitTrait(traitImpl, res);
       }
-
-      Idx graphI = 0;
-      std::vector<TVar*>::iterator tvIter;
-      {
-        tvIter = tvs.at(graphI).begin();
-        visitBlock(p.topLevel, graphs.at(graphI), tvIter);
-        auto &topBlock = res.sys.seqs.emplace_back();
-        topBlock.seq = graphs.at(graphI);
-        graphI++;
-        for (auto &ti : p.traitImpls) {
-          auto &map = res.sys.traits[*ti.trait.base];
-          auto &ig = graphs.at(graphI);
-          AbstractTraitImpl ati;
-          ati.blockIdx = res.sys.seqs.size();
-          auto &block = res.sys.seqs.emplace_back();
-          for (Idx param : ti.params) {
-            definedTys[param] = ig.add(tcx, counter).ty;
-          }
-          std::vector<Tp> &tys = ati.inputs;
-          tys.push_back(parseTy(ig, ti.type));
-          {
-            auto tp = parseTyParams(ig, ti.trait.params);
-            std::copy(tp.begin(), tp.end(), std::back_inserter(tys));
-          }
-          ati.outputs = parseTyParams(ig, ti.types);
-          for (auto &m : ti.methods) {
-            tvIter = tvs.at(graphI).begin();
-            visitBlock(m, ig, tvIter);
-            graphI++;
-          }
-          block.seq = ig;
-          map.insert(ttcx, {tys.front()}, std::move(ati));
-        }
-      }
-      addBuiltins(res.sys);
       return res;
     }
 
-    void initBlock(
-      Block &block,
-      std::vector<InferenceGraph> &graphs,
-      std::vector<TVar *> &tvs
-    ) {
-      Idx index = graphs.size();
-      InferenceGraph &graph = graphs.emplace_back();
-      graph.index = index;
-      TVarVisitor(graph, tcx, counter, tvs).visitBlock(block);
-      std::vector<Idx> defs;
-      DefinitionVisitor().visitBlock(block, defs);
-      for (Idx def : defs) {
-        varNodes[def] = &graph.add(tcx, counter);
-      }
+    void topSort(InsnList &ig) {
+      auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
+      ig.optIdCons();
+      ig.topSort(sortFn);
+      ig.opt();
     }
 
-    class TVarVisitor : public RecurVisitor<std::monostate> {
-    public:
-      InferenceGraph &ig;
-      type::Tcx &tcx;
-      Idx &counter;
-      std::vector<TVar *> &tvs;
-      TVarVisitor(
-        decltype(ig) ig,
-        decltype(tcx) tcx,
-        decltype(counter) counter,
-        decltype(tvs) tvs
-      ): ig(ig), tcx(tcx), counter(counter), tvs(tvs) {}
-
-      std::monostate visitExpr(Expr &it) override {
-        tvs.push_back(&ig.add(tcx, counter));
-        RecurVisitor::visitExpr(it);
-        return {};
-      }
-    };
-
-    class DefinitionVisitor : public RecurVisitor<std::monostate, std::vector<Idx>> {
-    public:
-      void visitBlock(Block &it, std::vector<Idx> &vars) override {
-        for (auto b : it.bindings) {
-          vars.push_back(b);
-        }
-        RecurVisitor::visitBlock(it, vars);
-      }
-    };
-
-    Tp unitType() { return tcx.intern(Ty::Tuple{{}}); }
-    Tp boolType() { return tcx.intern(Ty::Bool{}); }
-
-    // TODO proper parsing -_-
-
-    Tp getDefinedType(InferenceGraph &ig, DefIdx id) {
-      auto found = definedTys.find(id);
-      if (found != definedTys.end()) {
-        return found->second;
-      }
-      return definedTys[id] = ig.add(tcx, counter).ty;
+    void visitTopLevel(Block &block, InferResult &res) {
+      InsnList ig;
+      visitRootBlock(block, res, ig, false);
+      ig.insns.push_back(Insn(IdentityInsn::key(), {}, {}, {}));
+      ig.retInsn = *ig.lastInsn().insn;
+      topSort(ig);
+      res.root = InstWrapper(ig, 0, *block.idx, instSet);
     }
 
-    std::optional<Tp> maybeParseTy(InferenceGraph &ig, Type &ty) {
-      DefIdx idx = *ty.base;
-
-      // builtins
-      switch (idx) {
-      case BOOL:
-        return boolType();
-      case I8: case I16: case I32: case I64: case I128:
-        return tcx.intern(Ty::Int{(type::IntSize) (idx - I8)});
-      case U8: case U16: case U32: case U64: case U128:
-        return tcx.intern(Ty::UInt{(type::IntSize) (idx - U8)});
-      case F16: case F32: case F64:
-        return tcx.intern(Ty::Float{(type::FloatSize) (idx - F16)});
-      case TUPLE:
-        return tcx.intern(Ty::Tuple{parseTyParams(ig, ty.params)});
-      case STRING:
-        return tcx.intern(Ty::String{false});
-      case NULSTRING:
-        return tcx.intern(Ty::String{true});
-      case FFIFN: {
-        auto tys = parseTyParams(ig, ty.params);
-        return tcx.intern(Ty::FfiFn{tys.at(0), tys.at(1)});
-      }
-      }
-
-      auto &def = program->bindings.at(idx);
-      if (std::holds_alternative<DefType::Type>(def.defType.v)) {
-        return getDefinedType(ig, idx);
-      } if (std::holds_alternative<DefType::ADT>(def.defType.v)) {
-        auto &adt = std::get<DefType::ADT>(def.defType.v);
-        type::Variants variants;
-        for (Idx i = 0; i < adt.variants.size(); ++i) {
-          variants.insert(i);
+    void visitTrait(TraitImpl &ti, InferResult &res) {
+      InsnList ig;
+      std::vector<Tp> allParams;
+      {
+        allParams.reserve(ti.trait.params.size() + 1);
+        {
+          VarRef vr({}, 0);
+          allParams.push_back(parseTyHint(ti.type, vr, ig));
         }
-        return tcx.intern(Ty::ADT{idx, variants, parseTyParams(ig, ty.params)});
+        {
+          Idx i = 1;
+          for (auto &ty : ti.trait.params) {
+            VarRef vr({}, i++);
+            allParams.push_back(parseTyHint(ty, vr, ig));
+          }
+        }
       }
-
-      return std::nullopt;
+      for (auto &block : ti.methods) {
+        visitRootBlock(block, res, ig, true);
+      }
+      std::vector<VarRef> retTypes;
+      for (auto &rt : ti.types) {
+        retTypes.push_back(parseCompleteTy(rt, ig));
+      }
+      ig.insns.push_back(Insn(IdentityInsn::key(), {}, std::move(retTypes), {}));
+      ig.retInsn = *ig.lastInsn().insn;
+      topSort(ig);
+      res.table->insertFn(
+        TraitInsn::key(),
+        {(Idx)Builtins::Fn},
+        allParams,
+        InstWrapper(ig, ti.types.size(), *ti.methods.front().idx, instSet)
+      );
     }
 
-    void parseTypeHint(InferenceGraph &ig, TVar &target, Type &hint) {
-      if (!hint.base) {
-        return; // explicit placeholder hint
+    std::map<Expr*, Idx> exprTys;
+    std::map<Idx, Idx> defTys;
+    void visitRootBlock(Block &block, InferResult &res, InsnList &ig, bool isFunction) {
+      Idx counter = 0;
+      {
+        TyCounter tc;
+        exprTys.clear();
+        tc.visitBlock(block, exprTys, counter);
       }
-
-      auto type = maybeParseTy(ig, hint);
-      if (type) {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = target.ty;
-        cnstr.tyB = *type;
-        if (hint.source) {
-          cnstr.desc.maybeSpan(hint.source, "type hint");
-        } else {
-          cnstr.desc.msg("implicit type hint");
-        }
-        if (hint.informative) {
-          cnstr.connectTo(target);
-        } else {
-          target.connectTo(cnstr);
-        }
-        return;
+      {
+        DefCounter dc;
+        defTys.clear();
+        dc.visitBlock(block, defTys, counter);
       }
+      visitBlock(block, ig, isFunction);
+      varNodes.clear();
+    }
 
-      auto found = program->bindings.find(*hint.base);
-      if (found != program->bindings.end() &&
-          std::holds_alternative<DefType::Trait>(found->second.defType.v)) {
-        auto &cnstr = ig.add<Constraint::Trait>();
-        cnstr.ty = target.ty;
-        cnstr.tb = parseTb(ig, hint);
-        cnstr.idx = std::numeric_limits<Idx>::max();
-        cnstr.desc.maybeSpan(hint.source, "from trait hint");
-        target.connectTo(cnstr);
+    VarRef visitBlock(Block &block, InsnList &ig, bool isFunction) {
+      if (isFunction) {
+        std::vector<Tp> placeholders;
+        placeholders.reserve(block.bindings.size() - 1);
+        for (Idx i = 0; i < block.bindings.size() - 1; ++i) {
+          placeholders.push_back(tcx.intern(Ty::Placeholder{i}));
+        }
+        ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {VarRef({}, 1)}, {tcx.intern(Ty::Tuple{placeholders})}));
+        for (Idx i = 0; i < block.bindings.size() - 1; ++i) {
+          varNodes.insert({block.bindings[i], ig.lastInsn(i)});
+        }
+        varNodes.insert({block.bindings.back(), VarRef({}, 0)});
       } else {
-        throw std::runtime_error("ICE: index is not a type or trait");
-      }
-    }
-
-    Tp parseTy(InferenceGraph &ig, Type &ty) {
-      if (ty.base) {
-        auto type = maybeParseTy(ig, ty);
-        if (type) {
-          return *type;
+        for (Idx var : block.bindings) {
+          ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
+          varNodes.insert({var, ig.lastInsn()});
         }
-        throw std::runtime_error("ICE: Undefined type");
       }
-      return tcx.intern(Ty::Placeholder{counter++});
-    }
-
-    std::vector<Tp> parseTyParams(InferenceGraph &ig, std::vector<Type> params) {
-      std::vector<Tp> ret;
-      ret.reserve(params.size());
-      for (Type &ty : params) {
-        ret.push_back(parseTy(ig, ty));
+      for (Idx var : block.bindings) {
+        VarRef &node = varNodes.at(var);
+        Definition &def = program->bindings.at(var);
+        auto &varDef = std::get<DefType::Variable>(def.defType.v);
+        for (auto &hint : varDef.hints) {
+          parseTyHint(hint, node, ig);
+        }
+        ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {defTys.at(var)}));
+      }
+      VarRef ret({}, 0);
+      for (Eptr &expr : block.body) {
+        ret = visitExpr(*expr, ig);
       }
       return ret;
     }
-
-    TraitBound *parseTb(InferenceGraph &ig, Type &ty) {
-      return tbcx.intern(TraitBound{ty.base.value(), parseTyParams(ig, ty.params)});
+    
+    Tp parseTyTemplate(Type &ty, std::vector<std::optional<DefIdx>> &outIdcs) {
+      Idx counter = 0;
+      std::map<DefIdx, Tp> placeholders;
+      std::function<Tp(Type&)> visitTy;
+      auto visitParams = [&](Type &ty) {
+        std::vector<Tp> params;
+        for (Type &tp : ty.params) {
+          params.push_back(visitTy(tp));
+        }
+        return params;
+      };
+      visitTy = [&](Type &ty) {
+        if (!ty.base) {
+          outIdcs.emplace_back();
+          return tcx.intern(Ty::Placeholder{counter++});
+        }
+        DefIdx base = *ty.base;
+        if (base < Builtins::LAST_BUILTIN_) {
+          switch (base) {
+            case Fn: case Add: case Sub: case Mul: case Div: case Rem:
+            case BitOr: case BitAnd: case Eq: case Cmp: case Neg:
+              throw std::runtime_error("Trait type hints unimplemented");
+            case BOOL:
+              return tcx.intern(Ty::Bool{});
+            case I8: case I16: case I32: case I64: case I128:
+              return tcx.intern(Ty::Int{(type::IntSize)(base - I8)});
+            case U8: case U16: case U32: case U64: case U128:
+              return tcx.intern(Ty::UInt{(type::IntSize)(base - U8)});
+            case F16: case F32: case F64:
+              return tcx.intern(Ty::Float{(type::FloatSize)(base - F16)});
+            case TUPLE:
+              return tcx.intern(Ty::Tuple{visitParams(ty)});
+            case FFIFN: {
+              auto params = visitParams(ty);
+              return tcx.intern(Ty::FfiFn{params.at(0), params.at(1)});
+            }
+            case STRING: case NULSTRING:
+              return tcx.intern(Ty::String{base == NULSTRING});
+            default:
+              throw std::runtime_error("ICE: Unreachable reached");
+          }
+        } else {
+          auto &def = program->bindings.at(base);
+          return std::visit(overloaded{
+              [&](DefType::Type &) -> Tp {
+                if (!placeholders.count(base)) {
+                  outIdcs.emplace_back(base);
+                  placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
+                }
+                return placeholders[base];
+              },
+              [&](DefType::ADT &) -> Tp {
+                return tcx.intern(Ty::ADT{base, visitParams(ty)});
+              },
+              [](DefType::Trait &) -> Tp {
+                throw std::runtime_error("Trait type hints unimplemented");
+              },
+              [](DefType::Variable &) -> Tp {
+                throw std::runtime_error("ICE: Unexpected definition kind while parsing type");
+              }
+          }, def.defType.v);
+        }
+      };
+      return visitTy(ty);
     }
 
-    RET_T visitBlock ARGS(Block) {
-      for (Idx var : e.bindings) {
-        auto &varDef = std::get<DefType::Variable>(program->bindings.at(var).defType.v);
-        TVar &n = *varNodes.at(var);
-        for (auto &hint : varDef.hints) {
-          parseTypeHint(ig, n, hint);
+    VarRef parseCompleteTy(Type &ty, InsnList &ig) {
+      std::vector<std::optional<DefIdx>> idcs;
+      Tp tmpl = parseTyTemplate(ty, idcs);
+      std::vector<VarRef> inputs;
+      inputs.reserve(idcs.size());
+      for (auto &e : idcs) {
+        if (!e || !tyNodes.count(*e)) {
+          throw std::runtime_error("ICE: Incomplete type");
         }
+        inputs.push_back(tyNodes.at(*e));
       }
-      for (auto it = e.body.begin();;) {
-        TVar &n = *visitExpr(**it PASS_ARGS);
-        if (++it == e.body.end()) {
-          return &n;
-        }
-      }
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(inputs), {tmpl}, "from type", ty.source));
+      return ig.lastInsn();
     }
 
-    RET_T visitExpr ARGS(Expr) override {
-      TVar &n = *ExprVisitor::visitExpr(e PASS_ARGS);
-      n.desc.maybeSpan(e.span, "type of this expression");
-      for (auto &hint : e.hints) {
-        parseTypeHint(ig, n, hint);
+    Tp parseTyHint(Type &ty, VarRef &node, InsnList &ig) {
+      std::vector<std::optional<DefIdx>> idcs;
+      Tp tmpl = parseTyTemplate(ty, idcs);
+      bool doDeconstruct = false;
+      for (auto &entry : idcs) {
+        if (!entry || !tyNodes.count(*entry)) {
+          doDeconstruct = true;
+          break;
+        }
       }
-      return &n;
+      if (doDeconstruct) {
+        ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {node}, {tmpl}, "deconstructed from type hint", ty.source));
+      }
+      std::vector<VarRef> constructed;
+      constructed.reserve(idcs.size());
+      Idx i = 0;
+      for (auto &entry : idcs) {
+        if (entry) {
+          auto found = tyNodes.find(*entry);
+          if (found != tyNodes.end()) {
+            constructed.push_back(found->second);
+            goto cont;
+          } else {
+            if (!doDeconstruct) throw std::runtime_error("ICE: Incredibly shocked and confused");
+            tyNodes.insert({*entry, ig.lastInsn(i)});
+          }
+        }
+        if (!doDeconstruct) throw std::runtime_error("ICE: Incredibly shocked and confused");
+        constructed.push_back(ig.lastInsn(i));
+
+       cont:
+        i++;
+      }
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(constructed), {tmpl}, "constructed from type hint", ty.source));
+      VarRef reconstructed = ig.lastInsn();
+      ig.insns.push_back(Insn(CheckInsn::key(), {}, {node, reconstructed}, {}, "check from type hint", ty.source));
+      node = reconstructed;
+      logging::CHIRP.trace("Parsed hint\n", ig);
+      return tmpl;
+    }
+
+    bool foregoHints = false;
+    VarRef visitExpr ARGS(Expr) override {
+      Idx id = exprTys.at(&e);
+      VarRef node = ExprVisitor::visitExpr(e PASS_ARGS);
+      if (foregoHints) {
+        foregoHints = false;
+      } else {
+        for (auto &hint : e.hints) {
+          parseTyHint(hint, node, ig);
+        }
+      }
+      ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {id}, {}, e.span));
+      return node;
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &ty = *visitBlock(e.block PASS_ARGS);
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = ty.ty;
-        cnstr.tyB = retNode.ty;
-        ty.connectTo(cnstr);
-        cnstr.connectTo(retNode);
-        cnstr.desc.maybeSpan(e.span, "last expression of block");
-      }
-      return &retNode;
+      return visitBlock(e.block, ig, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &varNode = *varNodes.at(e.ref);
-      {
-        auto &cnstr = ig.add<Constraint::Assigned>();
-        cnstr.toTy = retNode.ty;
-        cnstr.fromTy.insert(varNode.ty);
-        cnstr.desc.maybeSpan(e.span, "variable reference");
-        varNode.connectTo(cnstr);
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      return varNodes.at(e.ref);
     }
     RET_T visitCondExpr ARGS(CondExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &predENode = *visitExpr(*e.predE PASS_ARGS);
-      TVar &thenNode = *visitExpr(*e.thenE PASS_ARGS);
-      TVar &elseNode = *visitExpr(*e.elseE PASS_ARGS);
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = boolType();
-        cnstr.tyB = predENode.ty;
-        cnstr.desc.maybeSpan(e.predE->span, "predicate of a conditional");
-        cnstr.connectTo(predENode);
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Assigned>();
-        cnstr.toTy = retNode.ty;
-        cnstr.connectTo(retNode);
-        for (auto p : std::vector<std::pair<TVar&, Expr&>>{
-            {thenNode, *e.thenE},
-            {elseNode, *e.elseE},
-        }) {
-          cnstr.fromTy.insert(p.first.ty);
-          cnstr.desc.maybeSpan(p.second.span, "conditional branch");
-          p.first.connectTo(cnstr);
-        }
-      }
-      return &retNode;
+      VarRef predTy = visitExpr(*e.predE PASS_ARGS);
+      ig.insns.push_back(Insn(CheckInsn::key(), {}, {predTy}, {tcx.intern(Ty::Bool{})}));
+      VarRef thenTy = visitExpr(*e.thenE PASS_ARGS);
+      VarRef elseTy = visitExpr(*e.elseE PASS_ARGS);
+      ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
+      return ig.lastInsn();
     }
     RET_T visitVoidExpr ARGS(VoidExpr) override {
-      TVar &retNode = **tvi++;
-      auto &cnstr = ig.add<Constraint::Concrete>();
-      cnstr.tyA = unitType();
-      cnstr.tyB = retNode.ty;
-      cnstr.desc.maybeSpan(e.span, "void value");
-      cnstr.connectTo(retNode);
-      return &retNode;
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Tuple{})}));
+      return ig.lastInsn();
     }
     RET_T visitLiteralExpr ARGS(LiteralExpr) override {
-      TVar &retNode = **tvi++;
       auto &hints = e.hints;
-      auto ty = ([&]() {
+      Tp ty = ([&]() {
         switch (e.type) {
-        case LiteralExpr::Int:
-          for (auto &h : hints) {
-            if (h.base &&
-                *h.base >= Builtins::I8 &&
-                *h.base <= Builtins::I128) {
-              return tcx.intern(Ty::Int{(type::IntSize)(*h.base - (Idx)Builtins::I8)});
+          case LiteralExpr::Type::Int:
+            for (auto &h : hints) {
+              if (h.base &&
+                  *h.base >= Builtins::I8 &&
+                  *h.base <= Builtins::I128) {
+                return tcx.intern(Ty::Int{(type::IntSize)(*h.base - (Idx)Builtins::I8)});
+              }
+              if (h.base &&
+                  *h.base >= Builtins::U8 &&
+                  *h.base <= Builtins::U128) {
+                return tcx.intern(Ty::UInt{(type::IntSize)(*h.base - (Idx)Builtins::U8)});
+              }
             }
-            if (h.base &&
-                *h.base >= Builtins::U8 &&
-                *h.base <= Builtins::U128) {
-              return tcx.intern(Ty::UInt{(type::IntSize)(*h.base - (Idx)Builtins::U8)});
+            return tcx.intern(Ty::Int{type::IntSize::i64});
+          case LiteralExpr::Type::Float:
+            for (auto &h : hints) {
+              if (h.base &&
+                  *h.base >= Builtins::F16 &&
+                  *h.base <= Builtins::F64) {
+                return tcx.intern(Ty::Float{(type::FloatSize)(*h.base - (Idx)Builtins::F16)});
+              }
             }
-          }
-          return tcx.intern(Ty::Int{type::IntSize::i64});
-        case LiteralExpr::Float:
-          for (auto &h : hints) {
-            if (h.base &&
-                *h.base >= Builtins::F16 &&
-                *h.base <= Builtins::F64) {
-              return tcx.intern(Ty::Float{(type::FloatSize)(*h.base - (Idx)Builtins::F16)});
+            return tcx.intern(Ty::Float{type::FloatSize::f64});
+          case LiteralExpr::Type::String:
+            for (auto &h : hints) {
+              if (h.base && *h.base == Builtins::NULSTRING) {
+                return tcx.intern(Ty::String{true});
+              }
             }
-          }
-          return tcx.intern(Ty::Float{type::FloatSize::f64});
-        case LiteralExpr::String:
-          for (auto &h : hints) {
-            if (h.base && *h.base == Builtins::NULSTRING) {
-              return tcx.intern(Ty::String{true});
-            }
-          }
-          return tcx.intern(Ty::String{false});
-        default: throw 0;
+            return tcx.intern(Ty::String{false});
         }
+        throw std::runtime_error("unreachable");
       })();
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = ty;
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "literal value");
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {ty}));
+      return ig.lastInsn();
     }
     RET_T visitBoolExpr ARGS(BoolExpr) override {
-      TVar &retNode = **tvi++;
-      auto &cnstr = ig.add<Constraint::Concrete>();
-      cnstr.tyA = boolType();
-      cnstr.tyB = retNode.ty;
-      cnstr.desc.maybeSpan(e.span, "literal boolean");
-      cnstr.connectTo(retNode);
-      return &retNode;
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Bool{})}));
+      return ig.lastInsn();
     }
     RET_T visitBinExpr ARGS(BinExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &lhsNode = *visitExpr(*e.lhs PASS_ARGS);
-      TVar &rhsNode = *visitExpr(*e.rhs PASS_ARGS);
+      Idx id = exprTys.at(&e);
+      VarRef lhsNode = visitExpr(*e.lhs PASS_ARGS);
+      VarRef rhsNode = visitExpr(*e.rhs PASS_ARGS);
       Idx trait;
       switch (e.op) {
-      case BinExpr::BitOr: trait = BitOr; break;
-      case BinExpr::BitAnd: trait = BitAnd; break;
-      case BinExpr::Add: trait = Add; break;
-      case BinExpr::Sub: trait = Sub; break;
-      case BinExpr::Mul: trait = Mul; break;
-      case BinExpr::Div: trait = Div; break;
-      case BinExpr::Rem: trait = Rem; break;
-      default: throw 0;
+        case BinExpr::BitOr: trait = BitOr; break;
+        case BinExpr::BitAnd: trait = BitAnd; break;
+        case BinExpr::Add: trait = Add; break;
+        case BinExpr::Sub: trait = Sub; break;
+        case BinExpr::Mul: trait = Mul; break;
+        case BinExpr::Div: trait = Div; break;
+        case BinExpr::Rem: trait = Rem; break;
+        default: throw std::runtime_error("Invalid binary expression type");
       }
-      TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsNode.ty}});
-      auto &tCnstr = ig.add<Constraint::Trait>();
-      {
-        tCnstr.ty = lhsNode.ty;
-        tCnstr.tb = traitBound;
-        tCnstr.idx = retNode.ref.index;
-        tCnstr.desc.maybeSpan(e.span, "binary expression here");
-        lhsNode.connectTo(tCnstr);
-        rhsNode.connectTo(tCnstr);
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = tcx.intern(Ty::TraitRef{lhsNode.ty, traitBound, 0});
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "binary expression here");
-        tCnstr.connectTo(cnstr);
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {id}, "result of operation", e.span));
+      return ig.lastInsn(0);
     }
     RET_T visitCmpExpr ARGS(CmpExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &lhsNode = *visitExpr(*e.lhs PASS_ARGS);
-      TVar &rhsNode = *visitExpr(*e.rhs PASS_ARGS);
-      Idx trait = e.op <= CmpExpr::Eq ? Eq : Cmp;
-      TraitBound *traitBound = tbcx.intern(TraitBound{trait, {rhsNode.ty}});
-      {
-        auto &cnstr = ig.add<Constraint::Trait>();
-        cnstr.ty = lhsNode.ty;
-        cnstr.tb = traitBound;
-        cnstr.idx = retNode.ref.index;
-        cnstr.desc.maybeSpan(e.span, "comparison here");
-        lhsNode.connectTo(cnstr);
-        rhsNode.connectTo(cnstr);
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = boolType();
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "result of this comparison");
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      Idx id = exprTys.at(&e);
+      VarRef lhsTy = visitExpr(*e.lhs PASS_ARGS);
+      VarRef rhsTy = visitExpr(*e.rhs PASS_ARGS);
+      ig.insns.push_back(Insn(TraitInsn::key(), {e.op <= CmpExpr::Eq ? Eq : Cmp}, {lhsTy, rhsTy}, {id}, "comparison made", e.span));
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Bool{})}, "result of comparison", e.span));
+      return ig.lastInsn();
     }
     RET_T visitNegExpr ARGS(NegExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &exprNode = *visitExpr(*e.value PASS_ARGS);
-      TraitBound *traitBound = tbcx.intern(TraitBound{Neg});
-      auto &tCnstr = ig.add<Constraint::Trait>();
-      {
-        tCnstr.ty = exprNode.ty;
-        tCnstr.tb = traitBound;
-        tCnstr.idx = retNode.ref.index;
-        tCnstr.desc.maybeSpan(e.span, "negation here");
-        exprNode.connectTo(tCnstr);
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = tcx.intern(Ty::TraitRef{exprNode.ty, traitBound, 0});
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "result of negation");
-        tCnstr.connectTo(cnstr);
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      Idx id = exprTys.at(&e);
+      VarRef valTy = visitExpr(*e.value PASS_ARGS);
+      ig.insns.push_back(Insn(TraitInsn::key(), {Neg}, {valTy}, {id}, "result of negation", e.span));
+      return ig.lastInsn(0);
     }
     RET_T visitCallExpr ARGS(CallExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &funcNode = *visitExpr(*e.func PASS_ARGS);
-      auto &tCnstr = ig.add<Constraint::Trait>();
-      tCnstr.idx = retNode.ref.index;
-      funcNode.connectTo(tCnstr);
-      std::vector<Tp> argTys;
-      argTys.reserve(e.args.size());
-      for (Eptr &argE : e.args) {
-        TVar &argNode = *visitExpr(*argE PASS_ARGS);
-        argTys.push_back(argNode.ty);
-        argNode.connectTo(tCnstr);
+      Idx id = exprTys.at(&e);
+      VarRef fnTy = visitExpr(*e.func PASS_ARGS);
+      std::vector<VarRef> argTys;
+      std::vector<Tp> placeholders;
+      Idx i = 0;
+      for (Eptr &arg : e.args) {
+        argTys.push_back(visitExpr(*arg PASS_ARGS));
+        placeholders.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
-      Tp argsTy = tcx.intern(Ty::Tuple{argTys});
-      TraitBound *traitBound = tbcx.intern(TraitBound{Fn, {argsTy}});
-      {
-        tCnstr.ty = funcNode.ty;
-        tCnstr.tb = traitBound;
-        tCnstr.desc.maybeSpan(e.span, "call here");
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.tyA = tcx.intern(Ty::TraitRef{funcNode.ty, traitBound, 0});
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "result of function call");
-        tCnstr.connectTo(cnstr);
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(argTys), {tcx.intern(Ty::Tuple{std::move(placeholders)})}));
+      VarRef tupleTy = ig.lastInsn();
+      ig.insns.push_back(Insn(TraitInsn::key(), {(Idx)Builtins::Fn}, {fnTy, tupleTy}, {id}, "function called", e.span));
+      return ig.lastInsn(0);
     }
     RET_T visitDefineExpr ARGS(DefineExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &exprNode = *visitExpr(*e.value PASS_ARGS);
-      TVar &varNode = *varNodes.at(e.idx);
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.desc.maybeSpan(e.span, "definition here");
-        cnstr.tyA = varNode.ty;
-        cnstr.tyB = exprNode.ty;
-        exprNode.connectTo(cnstr);
-        cnstr.connectTo(varNode);
-      }
-      {
-        auto &cnstr = ig.add<Constraint::Concrete>();
-        cnstr.desc.maybeSpan(e.span, "being a definition");
-        cnstr.tyA = unitType();
-        cnstr.tyB = retNode.ty;
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      VarRef varTy = visitExpr(*e.value PASS_ARGS);
+      VarRef &var = varNodes.at(e.idx);
+      ig.insns.at(*var.insn) = Insn(IdentityInsn::key(), {}, {varTy}, {}, "definition", e.span);
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Tuple{})}));
+      return ig.lastInsn();
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
-      TVar &retNode = **tvi++;
+      std::vector<VarRef> args;
       std::vector<Tp> argTys;
+      args.reserve(e.values.size());
       argTys.reserve(e.values.size());
-      auto &cnstr = ig.add<Constraint::Concrete>();
-      for (Eptr &sE : e.values) {
-        TVar &argNode = *visitExpr(*sE PASS_ARGS);
-        argTys.push_back(argNode.ty);
-        argNode.connectTo(cnstr);
+      Idx i = 0;
+      for (const auto &se : e.values) {
+        args.push_back(visitExpr(*se PASS_ARGS));
+        argTys.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
-      for (Idx globalRef : e.globalRefs) {
-        varNodes.at(globalRef)->connectTo(cnstr);
-      }
-      {
-        cnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
-        cnstr.tyB = retNode.ty;
-        cnstr.desc.maybeSpan(e.span, "construction here");
-        cnstr.connectTo(retNode);
-      }
-      return &retNode;
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, argTys});
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(args), {tyTemplate}, "construction", e.span));
+      return ig.lastInsn();
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
-      TVar &retNode = **tvi++;
-      TVar &objTy = *visitExpr(*e.value PASS_ARGS);
-      auto &cnstr = ig.add<Constraint::Assigned>();
-      std::vector<Tp> argTys;
+      VarRef objTy = visitExpr(*e.value PASS_ARGS);
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
-      Idx size = 0;
-      std::optional<Idx> fieldTyIdx;
-      for (Idx v = 0; v < adt.variants.size(); ++v) {
-        if (v == e.variant) {
-          fieldTyIdx = size + e.field;
-        }
-        size += adt.variants[v].values.size();
+      size_t fieldCount = adt.values.size();
+      std::vector<Tp> params;
+      for (Idx i = 0; i < fieldCount; ++i) {
+        params.push_back(tcx.intern(Ty::Placeholder{i}));
       }
-      argTys.reserve(size);
-      for (Idx i = 0; i < size; ++i) {
-        Tp ty;
-        if (i == *fieldTyIdx) {
-          cnstr.connectTo(retNode);
-          ty = retNode.ty;
-        } else {
-          TVar &argNode = ig.add(tcx, counter);
-          cnstr.connectTo(argNode);
-          ty = argNode.ty;
-        }
-        argTys.push_back(ty);
-      }
-      TVar &gottenNode = ig.add(tcx, counter);
-      {
-        cnstr.fromTy.insert(objTy.ty);
-        cnstr.toTy = gottenNode.ty;
-        objTy.connectTo(gottenNode);
-        gottenNode.connectTo(cnstr);
-        cnstr.desc.maybeSpan(e.span, "field taken here");
-      }
-      {
-        auto &cCnstr = ig.add<Constraint::Concrete>();
-        cCnstr.tyA = tcx.intern(Ty::ADT{e.adt, {e.variant}, argTys});
-        cCnstr.tyB = gottenNode.ty;
-        cCnstr.desc.maybeSpan(e.span, "field being taken");
-        cCnstr.connectTo(gottenNode);
-      }
-      return &retNode;
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params)});
+      ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {objTy}, {tyTemplate}, "field taken", e.span));
+      return ig.lastInsn(e.field);
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
-      TVar &retNode = **tvi++;
-      return &retNode;
+      ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unimplemented foreign"}, "unimplemented foreign", e.span));
+      VarRef origNode = ig.lastInsn();
+      VarRef updatedNode = origNode;
+      for (auto &hint : e.hints) {
+        parseTyHint(hint, updatedNode, ig);
+      }
+      ig.insns.at(*origNode.insn) = Insn(IdentityInsn::key(), {}, {updatedNode}, {}, "foreign value", e.span);
+      foregoHints = true;
+      return updatedNode;
     }
     RET_T visitDummyExpr ARGS(DummyExpr) override {
-      TVar &n = **tvi++; // propagate error
-      auto &cnstr = ig.add<Constraint::Concrete>();
-      cnstr.tyA = tcx.intern(Ty::Err{});
-      cnstr.tyB = n.ty;
-      cnstr.connectTo(n);
-      return &n;
+      ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"dummy expr"}));
+      return ig.lastInsn();
     }
   };
 
-  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::TTcx &ttcx) {
+  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::Tcx &ttcx) {
     return std::make_unique<InferenceVisitor>(ttcx);
   }
 }

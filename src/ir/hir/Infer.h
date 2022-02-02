@@ -4,16 +4,16 @@
 #include "../../type/Type.h"
 #include "../../type/infer/Public.h"
 
-#include <unordered_set>
-
 namespace hir::infer {
   using type::Ty;
   using type::TraitBound;
   using Tp = Ty *;
 
   struct InferResult {
-    type::infer::System sys;
+    std::shared_ptr<type::infer::Inst::Set> insts;
+    std::unique_ptr<type::infer::LookupTable> table = type::infer::LookupTable::create();
+    type::infer::Fn root;
   };
 
-  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::TTcx &ttcx);
+  std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::Tcx &ttcx);
 }
