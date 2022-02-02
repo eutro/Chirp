@@ -42,9 +42,9 @@ namespace type::infer {
       static OutputFn outputFor() {
         if constexpr (util::op_valid_t<std::ostream&, const T&, util::left_shift>::value &&
         !std::is_same_v<Fn, T>) {
-          return streamOutput<T>;
+          return &TypeData::streamOutput<T>;
         } else {
-          return hexOutput;
+          return &TypeData::hexOutput;
         }
       }
 
