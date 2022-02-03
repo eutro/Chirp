@@ -244,7 +244,7 @@ namespace type::infer {
             }
           }
         } else {
-          return nullptr;
+          return std::nullopt;
         }
       }
     }
