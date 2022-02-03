@@ -41,6 +41,8 @@ namespace hir::infer {
                     tcx.intern(Ty::Placeholder{0})},
                    InstWrapper(
                        [](const std::vector<Tp> &tys, const auto &) -> std::vector<Tp> {
+                         LogInsn log;
+                         log({tys.at(0)}, {(Idx)0});
                          auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
                          CheckInsn check;
                          check({tys.at(1)}, {ffifn.args});
@@ -93,16 +95,20 @@ namespace hir::infer {
 
       sys.insertFn(LookupKey::intern("union-dispatch"), {},{},
                    InstWrapper(
-                       [&](const std::vector<Tp> &tys, const std::vector<Constant> &cs) -> std::vector<Tp> {
+                       [](const std::vector<Tp> &tys, const std::vector<Constant> &cs) -> std::vector<Tp> {
                          Idx splitUnion = constant_cast<Idx>(cs.at(1));
                          auto &lookup = *constant_cast<std::function<type::infer::Fn(const std::vector<Tp> &)>*>(cs.at(2));
                          std::vector<Tp> callTys(tys);
-                         auto &uTy = std::get<Ty::Union>(callTys.at(splitUnion)->v);
-                         Idx i = 0;
+                         Tp dispatchingTy = callTys.at(splitUnion);
+                         auto &_tcx = *dispatchingTy->tcx;
+                         auto &uTy = std::get<Ty::Union>(dispatchingTy->v);
                          std::vector<std::vector<Tp>> rets;
-                         for (Tp ty : uTy.tys) {
-                           callTys[splitUnion] = ty;
-                           rets.push_back(lookup(callTys)(callTys, {i++}));
+                         {
+                           Idx i = 0;
+                           for (Tp ty : uTy.tys) {
+                             callTys[splitUnion] = ty;
+                             rets.push_back(lookup(callTys)(callTys, {i++}));
+                           }
                          }
                          std::vector<std::vector<Tp>> transpose(rets.front().size(), std::vector<Tp>(rets.size()));
                          for (Idx x = 0; x < rets.size(); ++x) {
@@ -113,8 +119,32 @@ namespace hir::infer {
                          std::vector<Tp> unionedRets;
                          unionedRets.reserve(transpose.size());
                          for (auto &t : transpose) {
-                           unionedRets.push_back(type::unionOf(*t.front()->tcx, t));
+                           unionedRets.push_back(type::unionOf(_tcx, t));
                          }
+                         std::vector<Constant> logIdcs;
+                         std::vector<Tp> logVals;
+                         {
+                           Idx i = 0;
+                           for (Tp ty : tys) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(ty);
+                           }
+                           logIdcs.emplace_back(i++);
+                           logVals.push_back(_tcx.intern(Ty::Placeholder{splitUnion}));
+                           for (Tp retTy : unionedRets) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(retTy);
+                           }
+                           logIdcs.emplace_back(i++);
+                           logVals.push_back(_tcx.intern(Ty::Placeholder{0}));
+                           for (auto &retSet : transpose) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(_tcx.intern(Ty::Tuple{retSet}));
+                           }
+                         }
+                         LogInsn log;
+                         // [arg0, ..., argN, Placeholder{dispatchedUnion}, ret0, ..., retM, Placeholder{0}, fRet0, ... fRetM]
+                         log(logVals, logIdcs);
                          return unionedRets;
                        },
                        // return count set to 1; at the time of writing, this is correct in all cases, but undesirable

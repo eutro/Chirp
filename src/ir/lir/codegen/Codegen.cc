@@ -32,14 +32,7 @@ namespace lir::codegen {
   }
 
   bool maybeTemp(LocalCC &lcc, Insn &insn, llvm::Value *value, Value &out) {
-    const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc, insn.ty);
-    if (gcData) {
-      auto alloca = addTemporary(lcc, value->getType(), gcData->metadata);
-      lcc.ib.CreateStore(value, alloca);
-      out = {alloca, value->getType(), Value::Pointer};
-      return true;
-    }
-    return false;
+    return maybeTemp(lcc, getChirpTy(lcc, insn.ty), value, out);
   }
 
   Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::SetVar &i) {
@@ -82,15 +75,21 @@ namespace lir::codegen {
       return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
     }
     auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(insn.ty))->v));
-    llvm::Value *cast = gcAlloc(lcc, structTy);
+    llvm::Value *cast = lcc.ib.CreatePointerCast(gcAlloc(lcc, structTy)->stripPointerCasts(), ty);
     Value ret;
-    if (maybeTemp(lcc, insn, cast, ret))return ret;
+    if (maybeTemp(lcc, insn, cast, ret)) return ret;
     return {cast, ty, Value::Direct};
   }
 
   Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::CallTrait &i) {
     auto impl = lcc.inst.loggedRefs.at(i.trait);
-    llvm::Value *value = cc.emitCall.at(impl.first).at(impl.second)(insn, i, cc, lcc);
+    std::vector<Value *> callArgs;
+    callArgs.reserve(i.args.size() + 1);
+    callArgs.push_back(&lcc.vals.at(i.obj));
+    for (Insn *arg : i.args) {
+      callArgs.push_back(&lcc.vals.at(arg));
+    }
+    llvm::Value *value = cc.emitCall.at(impl.first).at(impl.second)(i.method, callArgs, cc, lcc);
     if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
         std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
       if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
@@ -443,14 +442,14 @@ namespace lir::codegen {
         for (const BlockList &bl : trait.methods) {
           funcs.push_back(getBbFunc(bl, allInsts[{blockIdx, instIdx}], cc));
         }
-        emitCalls.emplace(instIdx, [&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
-          auto func = funcs.at(ct.method);
+        emitCalls.emplace(instIdx, [&funcs](Idx method, const std::vector<Value*> &callArgs, CC &cc, LocalCC &lcc) -> llvm::Value * {
+          auto func = funcs.at(method);
           std::vector<llvm::Value *> args;
-          args.reserve(ct.args.size() + 1 /* receiver */);
-          for (auto &i : ct.args) {
-            args.push_back(lcc.load(i));
+          args.reserve(callArgs.size());
+          for (Idx i = 1; i < callArgs.size(); ++i) {
+            args.push_back(lcc.load(*callArgs.at(i)));
           }
-          args.push_back(lcc.load(ct.obj));
+          args.push_back(lcc.load(*callArgs.front()));
           return lcc.ib.CreateCall(func->getFunctionType(), func, args);
         });
       }

@@ -280,9 +280,9 @@ namespace lir::codegen {
                   ib.SetInsertPoint(entry);
                   llvm::Argument *self = gcMetaFn->getArg(0);
                   llvm::StructType *erasedUnionTy = unionTy(cc, llvm::StructType::get(cc.ctx, false));
-                  llvm::Value *castVal = ib.CreatePointerCast(self, erasedUnionTy->getPointerTo());
+                  llvm::Value *castErasedVal = ib.CreatePointerCast(self, erasedUnionTy->getPointerTo());
                   llvm::Argument *visitor = gcMetaFn->getArg(1);
-                  llvm::Value *disc = ib.CreateLoad(i32Ty, ib.CreateStructGEP(erasedUnionTy, castVal, 0));
+                  llvm::Value *disc = ib.CreateLoad(i32Ty, ib.CreateStructGEP(erasedUnionTy, castErasedVal, 0));
                   llvm::BasicBlock *end = llvm::BasicBlock::Create(cc.ctx, "end", gcMetaFn);
                   llvm::SwitchInst *switchI = ib.CreateSwitch(disc, end, collected.size());
                   for (auto &p : collected) {
@@ -295,6 +295,7 @@ namespace lir::codegen {
                       meta = llvm::ConstantPointerNull::get(cc.gcMetaTy->getPointerTo());
                     }
                     llvm::StructType *sTy = unionTy(cc, getTy(cc, u.tys[i]));
+                    llvm::Value *castVal = ib.CreatePointerCast(self, sTy->getPointerTo());
                     llvm::Value *valueGep = ib.CreatePointerCast(ib.CreateStructGEP(sTy, castVal, 1), i8PtrPtrTy);
                     ib.CreateCall(cc.visitFnTy, visitor, {valueGep, meta});
                     ib.CreateBr(end);
@@ -563,5 +564,16 @@ namespace lir::codegen {
       retVal->setName("union.ref");
       return lcc.ib.CreatePointerCast(retVal, outUnionTy);
     }
+  }
+
+  bool maybeTemp(LocalCC &lcc, Tp ty, llvm::Value *value, Value &out) {
+    const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc.cc, ty);
+    if (gcData) {
+      auto alloca = addTemporary(lcc, value->getType(), gcData->metadata);
+      lcc.ib.CreateStore(value, alloca);
+      out = {alloca, value->getType(), Value::Pointer};
+      return true;
+    }
+    return false;
   }
 }

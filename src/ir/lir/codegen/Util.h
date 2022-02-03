@@ -26,7 +26,8 @@ namespace lir::codegen {
   using Tp = Ty *;
   struct LocalCC;
   struct CC;
-  using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
+  struct Value;
+  using EmitFn = std::function<llvm::Value*(Idx method, const std::vector<Value*> &callArgs, CC&, LocalCC&)>;
   constexpr const char *GC_METHOD = "shadow-stack";
 
   struct GCData {
@@ -47,6 +48,10 @@ namespace lir::codegen {
     };
     Type loadTy;
     Value(): ref([](){return nullptr;}), ty(nullptr), loadTy(Direct) {}
+    explicit Value(llvm::Value *v) :
+      ref([=]() { return v; }),
+      ty(v->getType()),
+      loadTy(Direct) {}
     Value(llvm::Value *v, llvm::Type *ty, Type loadTy):
       ref([=](){return v;}),
       ty(ty),
@@ -147,4 +152,6 @@ namespace lir::codegen {
   llvm::AllocaInst *addTemporary(LocalCC &lcc, llvm::Type *ty, llvm::Value *meta);
 
   void ensureMetaTy(CC &cc);
+
+  bool maybeTemp(LocalCC &lcc, Tp ty, llvm::Value *value, Value &out);
 }
