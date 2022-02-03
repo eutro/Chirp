@@ -120,7 +120,9 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 
-  llvm::StructType *unionTy(CC &cc, type::Ty::Union &v);
+  llvm::StructType *unionTy(CC &cc, llvm::Type *valueType);
+
+  bool isEnum(CC &cc, Ty::Union &u);
 
   llvm::Value *gcAlloc(LocalCC &lcc, llvm::Type *structTy);
 

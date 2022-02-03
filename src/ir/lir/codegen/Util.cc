@@ -1,6 +1,7 @@
 #include "Util.h"
 #include "../../../type/TypePrint.h"
-#include <llvm-13/llvm/IR/Constants.h>
+
+#include <llvm/IR/Constants.h>
 
 namespace lir::codegen {
   const TyTuple &getTyTuple(CC &cc, type::Ty *ty) {
@@ -204,96 +205,106 @@ namespace lir::codegen {
         [&](Ty::Union &u) -> TyTuple {
           if (u.tys.empty()) {
             return std::make_tuple(
-              llvm::StructType::create(cc.ctx, {}, "!"),
-              cc.db.createStructType(
-                cc.cu->getFile(), "!", cc.cu->getFile(), 1,
-                0, 0, llvm::DINode::DIFlags::FlagPublic,
-                nullptr,
-                cc.db.getOrCreateArray({})
-              ),
-              std::nullopt
+                llvm::StructType::create(cc.ctx, {}, "!"),
+                cc.db.createStructType(
+                    cc.cu->getFile(), "!", cc.cu->getFile(), 1,
+                    0, 0, llvm::DINode::DIFlags::FlagPublic,
+                    nullptr,
+                    cc.db.getOrCreateArray({})
+                ),
+                std::nullopt
             );
           } else {
             std::string name = util::toStr(ty);
-            auto sType = llvm::StructType::create(cc.ctx, name); // opaque
-            std::vector<const TyTuple *> members;
-            auto tup = std::make_tuple(
-              llvm::PointerType::getUnqual(sType),
-              cc.db.createUnspecifiedType(name),
-              std::make_optional(GCData{nullptr})
-            );
-            cc.tyCache[ty] = tup;
-            auto &optRef = std::get<2>(tup);
-            members.reserve(u.tys.size());
-            for (Tp m : u.tys) {
-              members.push_back(&getTyTuple(cc, m));
-            }
-            std::vector<std::pair<Idx, GCData>> collected;
-            Idx i = 0;
-            for (const TyTuple *tt : members) {
-              auto &gcd = std::get<2>(*tt);
-              if (gcd) {
-                collected.emplace_back(i, *gcd);
+            /* TODO enums
+            if (isEnum(cc, u)) {
+              return std::make_tuple(
+                  llvm::StructType::create(cc.ctx, llvm::IntegerType::getInt32Ty(cc.ctx), name),
+                  cc.db.createBasicType(name, 32, llvm::dwarf::DW_ATE_unsigned),
+                  std::nullopt
+              );
+            } else */ {
+              auto sType = llvm::StructType::create(cc.ctx, name); // opaque
+              std::vector<const TyTuple *> members;
+              auto tup = std::make_tuple(
+                  llvm::PointerType::getUnqual(sType),
+                  cc.db.createUnspecifiedType(name),
+                  std::make_optional(GCData{nullptr})
+              );
+              cc.tyCache[ty] = tup;
+              auto &optRef = std::get<2>(tup);
+              members.reserve(u.tys.size());
+              for (Tp m : u.tys) {
+                members.push_back(&getTyTuple(cc, m));
               }
-              i++;
-            }
-            if (!collected.empty()) {
-              auto i8PtrTy = llvm::Type::getInt8PtrTy(cc.ctx);
-              auto i8PtrPtrTy = i8PtrTy->getPointerTo();
-              ensureMetaTy(cc);
-
-              auto gcMetaFn = llvm::Function::Create(
-                cc.metaFnTy,
-                llvm::GlobalValue::PrivateLinkage,
-                name + ".mark",
-                cc.mod
-              );
-              optRef->metadata = new llvm::GlobalVariable(
-                cc.mod,
-                cc.gcMetaTy,
-                true,
-                llvm::GlobalVariable::PrivateLinkage,
-                llvm::ConstantStruct::get(
-                  cc.gcMetaTy,
-                  {
-                    gcMetaFn,
-                    llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0))
-                  }
-                ),
-                name + ".meta"
-              );
-              cc.deferred.emplace_back([&u, // lifetime of the tcx it's from
-                                        gcMetaFn, collected, i8PtrPtrTy]
-                                       (CC &cc) {
-                llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(cc.ctx);
-                llvm::IRBuilder<> ib(cc.ctx);
-                llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", gcMetaFn);
-                ib.SetInsertPoint(entry);
-                llvm::Argument *self = gcMetaFn->getArg(0);
-                auto sType = unionTy(cc, u);
-                llvm::Value *castVal = ib.CreatePointerCast(self, sType->getPointerTo());
-                llvm::Argument *visitor = gcMetaFn->getArg(1);
-                llvm::Value *disc = ib.CreateLoad(i32Ty, ib.CreateStructGEP(sType, castVal, 0));
-                llvm::Value *valueGep = ib.CreatePointerCast(ib.CreateStructGEP(sType, castVal, 1), i8PtrPtrTy);
-                llvm::BasicBlock *end = llvm::BasicBlock::Create(cc.ctx, "end", gcMetaFn);
-                llvm::SwitchInst *switchI = ib.CreateSwitch(disc, end, collected.size());
-                for (auto &p : collected) {
-                  Idx i = p.first;
-                  llvm::BasicBlock *bb = llvm::BasicBlock::Create(cc.ctx, util::toStr("union.case.", i), gcMetaFn);
-                  switchI->addCase(llvm::ConstantInt::get(i32Ty, i), bb);
-                  ib.SetInsertPoint(bb);
-                  llvm::Constant *meta = p.second.metadata;
-                  if (!meta) {
-                    meta = llvm::ConstantPointerNull::get(cc.gcMetaTy->getPointerTo());
-                  }
-                  ib.CreateCall(cc.visitFnTy, visitor, {valueGep, meta});
-                  ib.CreateBr(end);
+              std::vector<std::pair<Idx, GCData>> collected;
+              Idx i = 0;
+              for (const TyTuple *tt : members) {
+                auto &gcd = std::get<2>(*tt);
+                if (gcd) {
+                  collected.emplace_back(i, *gcd);
                 }
-                ib.SetInsertPoint(end);
-                ib.CreateRetVoid();
-              });
+                i++;
+              }
+              if (!collected.empty()) {
+                auto i8PtrTy = llvm::Type::getInt8PtrTy(cc.ctx);
+                auto i8PtrPtrTy = i8PtrTy->getPointerTo();
+                ensureMetaTy(cc);
+
+                auto gcMetaFn = llvm::Function::Create(
+                    cc.metaFnTy,
+                    llvm::GlobalValue::PrivateLinkage,
+                    name + ".mark",
+                    cc.mod
+                );
+                optRef->metadata = new llvm::GlobalVariable(
+                    cc.mod,
+                    cc.gcMetaTy,
+                    true,
+                    llvm::GlobalVariable::PrivateLinkage,
+                    llvm::ConstantStruct::get(
+                        cc.gcMetaTy,
+                        {
+                            gcMetaFn,
+                            llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0))
+                        }
+                    ),
+                    name + ".meta"
+                );
+                cc.deferred.emplace_back([&u, // lifetime of the tcx it's from
+                                             gcMetaFn, collected, i8PtrPtrTy]
+                                             (CC &cc) {
+                  llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(cc.ctx);
+                  llvm::IRBuilder<> ib(cc.ctx);
+                  llvm::BasicBlock *entry = llvm::BasicBlock::Create(cc.ctx, "entry", gcMetaFn);
+                  ib.SetInsertPoint(entry);
+                  llvm::Argument *self = gcMetaFn->getArg(0);
+                  llvm::StructType *erasedUnionTy = unionTy(cc, llvm::StructType::get(cc.ctx, false));
+                  llvm::Value *castVal = ib.CreatePointerCast(self, erasedUnionTy->getPointerTo());
+                  llvm::Argument *visitor = gcMetaFn->getArg(1);
+                  llvm::Value *disc = ib.CreateLoad(i32Ty, ib.CreateStructGEP(erasedUnionTy, castVal, 0));
+                  llvm::BasicBlock *end = llvm::BasicBlock::Create(cc.ctx, "end", gcMetaFn);
+                  llvm::SwitchInst *switchI = ib.CreateSwitch(disc, end, collected.size());
+                  for (auto &p : collected) {
+                    Idx i = p.first;
+                    llvm::BasicBlock *bb = llvm::BasicBlock::Create(cc.ctx, util::toStr("union.case.", i), gcMetaFn);
+                    switchI->addCase(llvm::ConstantInt::get(i32Ty, i), bb);
+                    ib.SetInsertPoint(bb);
+                    llvm::Constant *meta = p.second.metadata;
+                    if (!meta) {
+                      meta = llvm::ConstantPointerNull::get(cc.gcMetaTy->getPointerTo());
+                    }
+                    llvm::StructType *sTy = unionTy(cc, getTy(cc, u.tys[i]));
+                    llvm::Value *valueGep = ib.CreatePointerCast(ib.CreateStructGEP(sTy, castVal, 1), i8PtrPtrTy);
+                    ib.CreateCall(cc.visitFnTy, visitor, {valueGep, meta});
+                    ib.CreateBr(end);
+                  }
+                  ib.SetInsertPoint(end);
+                  ib.CreateRetVoid();
+                });
+              }
+              return tup;
             }
-            return tup;
           }
         },
         [](auto&) -> TyTuple {
@@ -343,12 +354,14 @@ namespace lir::codegen {
     return llvm::StructType::get(cc.ctx, fieldTys);
   }
 
-  llvm::StructType *unionTy(CC &cc, Ty::Union &u) {
+  llvm::StructType *unionTy(CC &cc, llvm::Type *valueType) {
     // if the union is bigger than this, we have bigger problems
     auto disc = llvm::Type::getInt32Ty(cc.ctx);
-    auto fillerTy = llvm::ArrayType::get(llvm::Type::getInt8PtrTy(cc.ctx), 0); // I sure do hope the align is good enough
-    auto op = llvm::StructType::get(cc.ctx, {fillerTy}, false);
-    return llvm::StructType::get(cc.ctx, {disc, op});
+    return llvm::StructType::get(cc.ctx, {disc, valueType});
+  }
+
+  bool isEnum(CC &cc, Ty::Union &u) {
+    return std::all_of(u.tys.begin(), u.tys.end(), isZeroSize);
   }
 
   llvm::Value *LocalCC::load(Value &v) {
@@ -471,20 +484,22 @@ namespace lir::codegen {
     llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(lcc.cc.ctx);
     llvm::Type *outUnionTy = getTy(lcc.cc, outTy);
     auto &outU = std::get<Ty::Union>(outTy->v);
-    auto sTy = unionTy(lcc.cc, outU);
-    auto innerUnionise = [&](llvm::Value *inV, llvm::Value *ptr, Idx discIdx) {
+    auto innerUnionise = [&](Value &inV, Idx discIdx) {
+      llvm::StructType *sTy = unionTy(lcc.cc, inV.ty);
+      llvm::Value *ptr = gcAlloc(lcc, sTy);
       llvm::Value *rawValuePtr = lcc.ib.CreateStructGEP(sTy, ptr, 1, "union.value");
-      llvm::Value *valuePtr = lcc.ib.CreatePointerCast(rawValuePtr, inV->getType()->getPointerTo(), "union.value.cast");
-      lcc.ib.CreateStore(inV, valuePtr);
+      llvm::Value *valuePtr = lcc.ib.CreatePointerCast(rawValuePtr, inV.ty->getPointerTo(), "union.value.cast");
+      lcc.ib.CreateStore(lcc.load(inV), valuePtr);
       llvm::Value *idxPtr = lcc.ib.CreateStructGEP(sTy, ptr, 0, "union.idx");
       lcc.ib.CreateStore(llvm::ConstantInt::get(i32Ty, discIdx), idxPtr);
+      return lcc.ib.CreatePointerCast(ptr, outUnionTy);
     };
     if (std::holds_alternative<Ty::Union>(inTy->v)) {
       auto found = lcc.cc.unionConversions.find({inTy, outTy});
       if (found == lcc.cc.unionConversions.end()) {
         llvm::Type *inUnionTy = getTy(lcc.cc, inTy);
         auto &inU = std::get<Ty::Union>(inTy->v);
-        llvm::Type *uStructTy = unionTy(lcc.cc, inU);
+        llvm::Type *uStructTy = unionTy(lcc.cc, llvm::StructType::get(lcc.cc.ctx, false));
         llvm::FunctionType *conversionType = llvm::FunctionType::get(outUnionTy, {inUnionTy}, false);
         llvm::Function *convert = llvm::Function::Create(conversionType, llvm::GlobalValue::PrivateLinkage,
                                                          "union.convert", lcc.cc.mod);
@@ -503,27 +518,31 @@ namespace lir::codegen {
         llvm::AllocaInst *unionRef = lcc.ib.CreateAlloca(inPtrTy, nullptr, "union.in.ref");
         lcc.ib.CreateStore(castInput, unionRef);
         gcRoot(lcc.cc, lcc.ib, unionRef, getTy<std::optional<GCData>>(lcc.cc, inTy)->metadata);
-        llvm::Value *retVal = gcAlloc(lcc, sTy); // might collect and move the input union
-        retVal->setName("union.out.ptr");
-        // no collections may happen after this
         llvm::Value *loaded = lcc.ib.CreateLoad(inPtrTy, unionRef);
         llvm::Value *discGep = lcc.ib.CreateStructGEP(uStructTy, loaded, 0);
         llvm::Value *inUnionDisc = lcc.ib.CreateLoad(i32Ty, discGep, "union.in.idx");
-        llvm::Value *rawValueGep = lcc.ib.CreateStructGEP(uStructTy, loaded, 1, "union.in.value");
         llvm::BasicBlock *cont = llvm::BasicBlock::Create(lcc.cc.ctx, "union.cont");
-        retVal->setName("union.ref");
-        llvm::PHINode *phi = llvm::PHINode::Create(retVal->getType(), inU.tys.size() + 1, "union.out", cont);
+        llvm::PHINode *phi = llvm::PHINode::Create(outUnionTy, inU.tys.size() + 1, "union.out", cont);
         llvm::SwitchInst *switchI = lcc.ib.CreateSwitch(inUnionDisc, cont, inU.tys.size());
-        phi->addIncoming(llvm::PoisonValue::get(retVal->getType()), lcc.ib.GetInsertBlock());
+        phi->addIncoming(llvm::PoisonValue::get(outUnionTy), lcc.ib.GetInsertBlock());
         for (Idx i = 0; i < inU.tys.size(); ++i) {
           llvm::BasicBlock *bb = llvm::BasicBlock::Create(lcc.cc.ctx, util::toStr("union.case.", i), convert);
           switchI->addCase(llvm::ConstantInt::get(i32Ty, i), bb);
           lcc.ib.SetInsertPoint(bb);
           Tp branchCTy = inU.tys[i];
           llvm::Type *branchTy = getTy(lcc.cc, branchCTy);
-          llvm::Value *castGep = lcc.ib.CreatePointerCast(rawValueGep, branchTy->getPointerTo(), "union.ptr.cast");
-          llvm::Value *branchVal = lcc.ib.CreateLoad(branchTy, castGep, "union.val");
-          innerUnionise(branchVal, retVal, i);
+          Value branchVal([&lcc, unionRef, branchTy]() {
+                    auto sTy = unionTy(lcc.cc, branchTy);
+                    llvm::PointerType *sTyPtr = sTy->getPointerTo();
+                    llvm::Value *loaded = lcc.ib.CreateLoad(sTyPtr, lcc.ib.CreatePointerCast(unionRef, sTyPtr->getPointerTo()));
+                    llvm::Value *rawValueGep = lcc.ib.CreateStructGEP(sTy, loaded, 1, "union.in.value");
+                    llvm::Value *castGep = lcc.ib.CreatePointerCast(rawValueGep, branchTy->getPointerTo(), "union.ptr.cast");
+                    return castGep;
+                  },
+                  branchTy,
+                  Value::Pointer);
+          llvm::Value *retVal = innerUnionise(branchVal, i); // might collect and move the input union
+          retVal->setName("union.out.ptr");
           lcc.ib.CreateBr(cont);
           phi->addIncoming(retVal, bb);
         }
@@ -540,9 +559,8 @@ namespace lir::codegen {
       }
       auto it = std::lower_bound(outU.tys.begin(), outU.tys.end(), inTy);
       Idx discIdx = std::distance(outU.tys.begin(), it);
-      llvm::Value *retVal = gcAlloc(lcc, sTy);
+      llvm::Value *retVal = innerUnionise(inValue, discIdx);
       retVal->setName("union.ref");
-      innerUnionise(lcc.load(inValue), retVal, discIdx);
       return lcc.ib.CreatePointerCast(retVal, outUnionTy);
     }
   }
