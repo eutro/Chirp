@@ -119,6 +119,10 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 
+  llvm::StructType *unionTy(CC &cc, type::Ty::Union &v);
+
+  llvm::Value *gcAlloc(LocalCC &lcc, llvm::Type *structTy);
+
   llvm::DILocation *locFromSpan(CC &cc, LocalCC &lcc, const loc::SrcLoc &loc);
 
   Tp getChirpTy(LocalCC &lcc, Idx i);

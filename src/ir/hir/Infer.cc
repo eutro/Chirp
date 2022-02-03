@@ -488,7 +488,11 @@ namespace hir::infer {
       ig.insns.push_back(Insn(CheckInsn::key(), {}, {predTy}, {tcx.intern(Ty::Bool{})}));
       VarRef thenTy = visitExpr(*e.thenE PASS_ARGS);
       VarRef elseTy = visitExpr(*e.elseE PASS_ARGS);
-      ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
+      if (e.pos == Pos::Stmt) {
+        ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Tuple{})}));
+      } else {
+        ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
+      }
       return ig.lastInsn();
     }
     RET_T visitVoidExpr ARGS(VoidExpr) override {

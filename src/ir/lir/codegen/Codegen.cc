@@ -88,21 +88,13 @@ namespace lir::codegen {
           } while(0)
 
         [&](Insn::HeapAlloc &i) -> Value {
-          auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
-          auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
           auto ty = getTy(lcc, insn.ty);
           if (!ty->isPointerTy()) {
             // zero-sized type
             return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
           }
-          auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
           auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(insn.ty))->v));
-          auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
-          auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
-          auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
-          auto align = llvm::ConstantExpr::getTruncOrBitCast(rawAlign, i32Ty);
-          auto call = lcc.ib.CreateCall(gcAlloc, {size, align});
-          llvm::Value *cast = lcc.ib.CreatePointerCast(call, ty);
+          llvm::Value *cast = gcAlloc(lcc, structTy);
           MAYBE_TEMP(cast);
           return {cast, ty, Value::Direct};
         },

@@ -4,18 +4,23 @@ defn z = 4
 
 defn putI(x: i64): #() = foreign
 defn println(): #() = foreign
+defn id(x) = x
 
 putI(
-  if x < y < z {
-    x + y
-  } else {
-    x + (if y < z { z } else { x })
-  }
+  if x < y < z
+  then x + y
+  else x + (if y < z then z else x)
 )
-if x < y
- then if y < z
-      then 1
-      else 1.0
- else if x < z { "h" }
-      else "n": cstr
 println()
+
+id(
+  if x < y
+  then
+    if y < z
+    then 1
+    else 1.0
+  else
+    if x < z
+    then "h"
+    else "n": cstr
+)
