@@ -1,5 +1,6 @@
 #include "Util.h"
 #include "../../../type/TypePrint.h"
+#include <llvm-13/llvm/IR/Constants.h>
 
 namespace lir::codegen {
   const TyTuple &getTyTuple(CC &cc, type::Ty *ty) {
@@ -462,13 +463,22 @@ namespace lir::codegen {
     return lcc.ib.CreatePointerCast(call, structTy->getPointerTo());
   }
 
-  llvm::Value *unionise(LocalCC &lcc, llvm::Value *inValue, Tp inTy, Tp outTy) {
-    if (inTy == outTy) return inValue;
+  llvm::Value *unionise(LocalCC &lcc, Value &inValue, Tp inTy, Tp outTy) {
+    if (inTy == outTy) return lcc.load(inValue);
     if (!std::holds_alternative<Ty::Union>(outTy->v)) {
       throw std::runtime_error("ICE: Attempted to unionise to non-union type");
     }
     llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(lcc.cc.ctx);
     llvm::Type *outUnionTy = getTy(lcc.cc, outTy);
+    auto &outU = std::get<Ty::Union>(outTy->v);
+    auto sTy = unionTy(lcc.cc, outU);
+    auto innerUnionise = [&](llvm::Value *inV, llvm::Value *ptr, Idx discIdx) {
+      llvm::Value *rawValuePtr = lcc.ib.CreateStructGEP(sTy, ptr, 1, "union.value");
+      llvm::Value *valuePtr = lcc.ib.CreatePointerCast(rawValuePtr, inV->getType()->getPointerTo(), "union.value.cast");
+      lcc.ib.CreateStore(inV, valuePtr);
+      llvm::Value *idxPtr = lcc.ib.CreateStructGEP(sTy, ptr, 0, "union.idx");
+      lcc.ib.CreateStore(llvm::ConstantInt::get(i32Ty, discIdx), idxPtr);
+    };
     if (std::holds_alternative<Ty::Union>(inTy->v)) {
       auto found = lcc.cc.unionConversions.find({inTy, outTy});
       if (found == lcc.cc.unionConversions.end()) {
@@ -478,6 +488,7 @@ namespace lir::codegen {
         llvm::FunctionType *conversionType = llvm::FunctionType::get(outUnionTy, {inUnionTy}, false);
         llvm::Function *convert = llvm::Function::Create(conversionType, llvm::GlobalValue::PrivateLinkage,
                                                          "union.convert", lcc.cc.mod);
+        convert->setGC(GC_METHOD);
         found = lcc.cc.unionConversions.insert({{inTy, outTy}, llvm::FunctionCallee(conversionType, convert)}).first;
 
         auto insertBlock = lcc.ib.GetInsertBlock();
@@ -486,15 +497,24 @@ namespace lir::codegen {
         llvm::BasicBlock *entry = llvm::BasicBlock::Create(lcc.cc.ctx, "entry", convert);
         lcc.ib.SetInsertPoint(entry);
         llvm::Argument *arg = convert->getArg(0);
-        arg->setName("union.in.val");
-        llvm::Value *castInput = lcc.ib.CreatePointerCast(inValue, uStructTy->getPointerTo());
-        llvm::Value *discGep = lcc.ib.CreateStructGEP(uStructTy, castInput, 1);
+        arg->setName("union.in");
+        auto inPtrTy = uStructTy->getPointerTo();
+        llvm::Value *castInput = lcc.ib.CreatePointerCast(arg, inPtrTy);
+        llvm::AllocaInst *unionRef = lcc.ib.CreateAlloca(inPtrTy, nullptr, "union.in.ref");
+        lcc.ib.CreateStore(castInput, unionRef);
+        gcRoot(lcc.cc, lcc.ib, unionRef, getTy<std::optional<GCData>>(lcc.cc, inTy)->metadata);
+        llvm::Value *retVal = gcAlloc(lcc, sTy); // might collect and move the input union
+        retVal->setName("union.out.ptr");
+        // no collections may happen after this
+        llvm::Value *loaded = lcc.ib.CreateLoad(inPtrTy, unionRef);
+        llvm::Value *discGep = lcc.ib.CreateStructGEP(uStructTy, loaded, 0);
         llvm::Value *inUnionDisc = lcc.ib.CreateLoad(i32Ty, discGep, "union.in.idx");
-        llvm::Value *rawValueGep = lcc.ib.CreateStructGEP(uStructTy, castInput, 1, "union.in.value");
+        llvm::Value *rawValueGep = lcc.ib.CreateStructGEP(uStructTy, loaded, 1, "union.in.value");
         llvm::BasicBlock *cont = llvm::BasicBlock::Create(lcc.cc.ctx, "union.cont");
-        llvm::PHINode *phi = llvm::PHINode::Create(outUnionTy, inU.tys.size() + 1, "union.out", cont);
+        retVal->setName("union.ref");
+        llvm::PHINode *phi = llvm::PHINode::Create(retVal->getType(), inU.tys.size() + 1, "union.out", cont);
         llvm::SwitchInst *switchI = lcc.ib.CreateSwitch(inUnionDisc, cont, inU.tys.size());
-        phi->addIncoming(llvm::PoisonValue::get(outUnionTy), lcc.ib.GetInsertBlock());
+        phi->addIncoming(llvm::PoisonValue::get(retVal->getType()), lcc.ib.GetInsertBlock());
         for (Idx i = 0; i < inU.tys.size(); ++i) {
           llvm::BasicBlock *bb = llvm::BasicBlock::Create(lcc.cc.ctx, util::toStr("union.case.", i), convert);
           switchI->addCase(llvm::ConstantInt::get(i32Ty, i), bb);
@@ -503,33 +523,26 @@ namespace lir::codegen {
           llvm::Type *branchTy = getTy(lcc.cc, branchCTy);
           llvm::Value *castGep = lcc.ib.CreatePointerCast(rawValueGep, branchTy->getPointerTo(), "union.ptr.cast");
           llvm::Value *branchVal = lcc.ib.CreateLoad(branchTy, castGep, "union.val");
-          branchVal = unionise(lcc, branchVal, branchCTy, outTy);
-          branchVal->setName(util::toStr("union.out.", i));
+          innerUnionise(branchVal, retVal, i);
           lcc.ib.CreateBr(cont);
-          phi->addIncoming(branchVal, bb);
+          phi->addIncoming(retVal, bb);
         }
         cont->insertInto(convert);
         lcc.ib.SetInsertPoint(cont);
-        lcc.ib.CreateRet(phi);
+        lcc.ib.CreateRet(lcc.ib.CreatePointerCast(phi, outUnionTy));
 
         lcc.ib.SetInsertPoint(insertBlock, insertPoint);
       }
-      return lcc.ib.CreateCall(found->second, {inValue});
+      return lcc.ib.CreateCall(found->second, {lcc.load(inValue)});
     } else {
-      auto &outU = std::get<Ty::Union>(outTy->v);
       if (!std::binary_search(outU.tys.begin(), outU.tys.end(), inTy)) {
         throw std::runtime_error("ICE: Attempted to unionise into unrelated union");
       }
       auto it = std::lower_bound(outU.tys.begin(), outU.tys.end(), inTy);
       Idx discIdx = std::distance(outU.tys.begin(), it);
-      auto sTy = unionTy(lcc.cc, outU);
       llvm::Value *retVal = gcAlloc(lcc, sTy);
       retVal->setName("union.ref");
-      llvm::Value *idxPtr = lcc.ib.CreateStructGEP(sTy, retVal, 0, "union.idx");
-      lcc.ib.CreateStore(llvm::ConstantInt::get(i32Ty, discIdx), idxPtr);
-      llvm::Value *rawValuePtr = lcc.ib.CreateStructGEP(sTy, retVal, 1, "union.value");
-      llvm::Value *valuePtr = lcc.ib.CreatePointerCast(rawValuePtr, inValue->getType()->getPointerTo(), "union.value.cast");
-      lcc.ib.CreateStore(inValue, valuePtr);
+      innerUnionise(lcc.load(inValue), retVal, discIdx);
       return lcc.ib.CreatePointerCast(retVal, outUnionTy);
     }
   }

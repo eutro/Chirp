@@ -2,16 +2,7 @@ defn x = 2
 defn y = 3
 defn z = 4
 
-defn putI(x: i64): #() = foreign
-defn println(): #() = foreign
 defn id(x) = x
-
-putI(
-  if x < y < z
-  then x + y
-  else x + (if y < z then z else x)
-)
-println()
 
 id(
   if x < y

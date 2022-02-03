@@ -27,6 +27,7 @@ namespace lir::codegen {
   struct LocalCC;
   struct CC;
   using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
+  constexpr const char *GC_METHOD = "shadow-stack";
 
   struct GCData {
     llvm::GlobalVariable *metadata;
@@ -137,7 +138,7 @@ namespace lir::codegen {
     return getTy<T>(lcc.cc, getChirpTy(lcc, i));
   }
 
-  llvm::Value *unionise(LocalCC &lcc, llvm::Value *inValue, Tp inTy, Tp outTy);
+  llvm::Value *unionise(LocalCC &lcc, Value &inValue, Tp inTy, Tp outTy);
 
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);
 

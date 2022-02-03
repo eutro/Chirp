@@ -24,8 +24,6 @@
 #include <vector>
 
 namespace lir::codegen {
-  constexpr const char *GC_METHOD = "shadow-stack";
-
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     if (insn.span) {
       auto &loc = insn.span->lo;
@@ -127,9 +125,11 @@ namespace lir::codegen {
             llvm::Instruction *jump = &bb->getInstList().back();
             lcc.ib.SetInsertPoint(jump);
             Tp inTy = getChirpTy(lcc, ic.ref->ty);
-            llvm::Value *inValue = lcc.load(ic.ref);
+            llvm::Value *inValue;
             if (outTy != inTy) {
-              inValue = unionise(lcc, inValue, inTy, outTy);
+              inValue = unionise(lcc, lcc.vals.at(ic.ref), inTy, outTy);
+            } else {
+              inValue = lcc.load(ic.ref);
             }
             phi->addIncoming(inValue, bb);
           }
