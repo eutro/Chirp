@@ -302,7 +302,7 @@ namespace hir::infer {
       for (auto &traitImpl : p.traitImpls) {
         visitTrait(traitImpl, res);
       }
-      res.ecx = std::move(ecx);
+      res.errors = std::move(ecx);
       return res;
     }
 

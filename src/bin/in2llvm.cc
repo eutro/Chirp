@@ -17,6 +17,7 @@ int main() {
   err::maybeAbort(epc, hir.errors);
   type::Tcx tcx;
   auto types = hir::infer::inferenceVisitor(tcx)->visitProgram(hir.program);
+  err::maybeAbort(epc, types.errors);
 
   type::infer::Env env{std::move(types.table)};
   type::infer::addInsns(*env.table);

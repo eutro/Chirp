@@ -116,6 +116,18 @@ namespace type::infer {
 
   bool tryUnify(Tp lhs, Tp rhs) {
     if (lhs == rhs) return true;
+    if (std::holds_alternative<Ty::Undetermined>(lhs->v) ||
+        std::holds_alternative<Ty::Undetermined>(rhs->v)) {
+      return true; // it's fine
+    }
+    bool leftUnion;
+    if ((leftUnion = std::holds_alternative<Ty::Union>(lhs->v)) ||
+        std::holds_alternative<Ty::Union>(rhs->v)) {
+      auto &u = std::get<Ty::Union>((leftUnion ? lhs : rhs)->v);
+      for (auto &t : u.tys) {
+        if (std::holds_alternative<Ty::Undetermined>(t->v)) return true;
+      }
+    }
     if (lhs->v.index() == rhs->v.index()) {
       if (std::visit(
           overloaded{

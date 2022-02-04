@@ -1,6 +1,6 @@
 // m*table boxes!
 
-defn box(x) = λ.xI
+defn box(x) = λ.x
 defn unbox(b) = b()
 defn box_set<T>(x: T, y, size: i64) =
   let memcpy(dest: T, src: T, size: i64): T = foreign in:
