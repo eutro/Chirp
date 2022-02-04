@@ -134,6 +134,7 @@ namespace err {
     }
   }
 
+  LocationError::LocationError(const LocationError &e) noexcept: std::runtime_error(e.what()), locations(e.locations) {}
   LocationError::LocationError(const std::string &msg) : runtime_error(msg) {}
   LocationError::LocationError(const std::string &msg, std::vector<Location> locations)
       : runtime_error(msg), locations(std::move(locations)) {}
@@ -142,7 +143,6 @@ namespace err {
     locations.push_back(std::move(loc));
     return *this;
   }
-
   void LocationError::addToContext(ErrorContext &ecx) {
     Location &err = ecx.err().msg(what());
     for (auto &loc : locations) {

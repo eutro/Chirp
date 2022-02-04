@@ -50,7 +50,7 @@ namespace err {
 
     LocationError &add(Location loc);
 
-    LocationError(const LocationError &) noexcept = default;
+    LocationError(const LocationError &e) noexcept;
     LocationError(const std::string &arg, std::vector<Location> locations);
     LocationError(const std::string &msg);
 
