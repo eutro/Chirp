@@ -99,7 +99,7 @@ namespace lir::codegen {
                               argLlTys = std::move(argLlTys),
                               refs = std::move(refs)](CC &cc) {
       bool isUnionOut = std::holds_alternative<Ty::Union>(retCrpTy->v);
-      Ty::Union dispatchedUTy = std::get<Ty::Union>(argTys.at(dispatchIdx)->v);
+      Ty::Union dispatchedUTy = std::get<Ty::Union>(type::uncycle(argTys.at(dispatchIdx))->v);
       std::vector<Tp> &retRawTys = std::get<Ty::Tuple>(allRetTys.at(dispatchIdx)->v).t;
       llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(cc.ctx);
 

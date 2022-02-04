@@ -2,10 +2,11 @@ defn cons(x, y) = λifpair,ifnull.ifpair(x, y)
 defn nil = λifpair,ifnull.ifnull()
 
 defn map(f, l) = l(λ car, cdr.cons(f(car), map(f, cdr)), λ.nil)
-defn foldl(f, i, l) = l(λ car, cdr.foldl(f, f(i, car), cdr), λ.i)
+defn foldl(f, i, l) = let ip = i, il = l in loop: il(λ car, cdr.loop(f(ip, car), cdr), λ.ip)
+defn rangeR(n) = if n == 0 then nil else cons(n, rangeR(n - 1))
 defn inc(x) = x + 1
 defn add(x, y) = x + y
 
 defn printf(s: cstr, i: i64): #() = foreign
 
-printf("%ll\n", foldl(add, map(inc, cons(1, cons(2, cons(3, nil))))))
+printf("%lld\n": cstr, foldl(add, 0, map(inc, rangeR(10))))

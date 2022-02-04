@@ -76,6 +76,14 @@ std::ostream &operator<<(std::ostream &os, Ty *t) {
         [&](Ty::FfiFn &f) {
           os << "ffifn<" << f.args << ", " << f.ret << ">";
         },
+        [&](Ty::Undetermined &u) {
+          os << "?{";
+          for (auto it = u.ref.begin(); it != u.ref.end();) {
+            os << *it;
+            if (++it != u.ref.end()) os << ",";
+          }
+          os << "}";
+        },
     }, t->v);
   return os;
 }

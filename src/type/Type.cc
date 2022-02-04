@@ -70,7 +70,10 @@ namespace type {
     }
     std::set<Tp> tySet;
     for (Tp ty : tys) {
-      if (std::holds_alternative<Ty::Union>(ty->v)) {
+      if (std::holds_alternative<Ty::Union>(ty->v) ||
+          (std::holds_alternative<Ty::Cyclic>(ty->v) &&
+              std::holds_alternative<Ty::Union>(std::get<Ty::Cyclic>(ty->v).ty->v) &&
+                  (ty = uncycle(ty), true))) {
         auto &unioned = std::get<Ty::Union>(ty->v);
         std::copy(unioned.tys.begin(), unioned.tys.end(), std::inserter(tySet, tySet.end()));
       } else {

@@ -99,7 +99,7 @@ namespace hir::infer {
                          Idx splitUnion = constant_cast<Idx>(cs.at(1));
                          auto &lookup = *constant_cast<std::function<type::infer::Fn(const std::vector<Tp> &)>*>(cs.at(2));
                          std::vector<Tp> callTys(tys);
-                         Tp dispatchingTy = callTys.at(splitUnion);
+                         Tp dispatchingTy = type::uncycle(callTys.at(splitUnion));
                          auto &_tcx = *dispatchingTy->tcx;
                          auto &uTy = std::get<Ty::Union>(dispatchingTy->v);
                          std::vector<std::vector<Tp>> rets;
@@ -281,7 +281,32 @@ namespace hir::infer {
       ig.insns.push_back(Insn(IdentityInsn::key(), {}, {}, {}));
       ig.retInsn = *ig.lastInsn().insn;
       topSort(ig);
-      res.root = InstWrapper(ig, 0, *block.idx, instSet);
+      InstWrapper wrapper(ig, 0, *block.idx, instSet);
+      res.root = [wrapper = std::move(wrapper), instSet = instSet](const auto &tys, const auto &cs) {
+        auto ret = wrapper(tys, cs);
+        // garbage collect unreferenced instantiations
+        std::set<Inst::Ref> live;
+        std::function<void(Inst::Ref)> mark = [&](Inst::Ref ref) {
+          if (!live.insert(ref).second) return;
+          for (auto &e : (*instSet)[ref].loggedRefs) {
+            mark(e.second);
+          }
+        };
+        auto &rootCalls = instSet->entities.at(wrapper.entityIdx);
+        for (auto &e : rootCalls) {
+          mark({wrapper.entityIdx, e.first});
+        }
+        for (auto &e : instSet->entities) {
+          for (auto it = e.second.begin(); it != e.second.end();) {
+            if (!live.count({e.first, it->first})) {
+              it = e.second.erase(it);
+            } else {
+              ++it;
+            }
+          }
+        }
+        return ret;
+      };
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {

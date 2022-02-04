@@ -68,6 +68,7 @@ namespace type::infer {
               [](Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
               [](Ty::Cyclic &t) -> TT { throw std::runtime_error("Cyclic pattern matching unsupported"); },
               [](Ty::CyclicRef &t) -> TT { throw std::runtime_error("Cyclic pattern matching unsupported"); },
+              [](Ty::Undetermined &t) -> TT { throw std::runtime_error("Undetermined pattern matching unsupported"); },
               [](Ty::FfiFn &t) -> TT { return {util::index_of_type_v<Ty::FfiFn, TyV>, {}}; },
           },
           ty->v);
@@ -198,6 +199,25 @@ namespace type::infer {
     template <typename... Arg>
     DTree(Arg &&...arg): v(std::forward<Arg>(arg)...) {}
 
+    friend std::ostream &operator<<(std::ostream &os, const DTree &tree) {
+      std::visit(overloaded {
+          [&](const Leaf &l) { os << "Leaf(" << l.value << ")"; },
+          [&](const Fail &) { os << "Fail"; },
+          [&](const Switch &s) {
+            os << "Switch[" << s.col << "]" << "{";
+            for (auto it = s.mapping.begin(); it != s.mapping.end();) {
+              os << it->first << ": " << it->second;
+              if (++it != s.mapping.end()) os << ", ";
+              else if (s.fallback) {
+                os << ", _: " << *s.fallback;
+              }
+            }
+            os << "}";
+          },
+      }, tree.v);
+      return os;
+    }
+
   private:
     struct StackVal {
       Tp ty;
@@ -217,7 +237,8 @@ namespace type::infer {
           }
           StackVal stackVal = stack.back();
           stack.pop_back();
-          if (stackVal.splittableUnion && std::holds_alternative<Ty::Union>(stackVal.ty->v)) {
+          Tp ty = type::uncycle(stackVal.ty);
+          if (stackVal.splittableUnion && std::holds_alternative<Ty::Union>(ty->v)) {
             Idx splitIdx = *stackVal.splittableUnion;
             return [splitIdx, this](const std::vector<Tp> &args, const std::vector<Constant> &constArgs) -> std::vector<Tp> {
               std::optional<Fn> unionDispatch = ENV->table->lookupFn(LookupKey::intern("union-dispatch"), {}, {});
@@ -232,7 +253,6 @@ namespace type::infer {
               return (*unionDispatch)(args, callArgs);
             };
           } else {
-            Tp ty = type::uncycle(stackVal.ty);
             Ctor c(ty);
             auto found = s.mapping.find(c);
             if (found == s.mapping.end()) {
@@ -491,6 +511,7 @@ namespace type::infer {
         for (const auto &t : args) {
           s << " " << t;
         }
+        s << "\n in tree: " << *overloads.tree;
         throw std::runtime_error(s.str());
       }
       return *lookedUp;
