@@ -1,4 +1,5 @@
 #include "RegEx.h"
+#include "../common/Util.h"
 
 #include <climits>
 
@@ -56,7 +57,7 @@ namespace fsm::re {
             if (*start == '\\') {
               ++start;
               if (start == end) {
-                throw std::runtime_error("Expected character after \\");
+                throw util::ICE("Expected character after \\");
               }
               nextSym = *start;
               readEscape(nextSym);
@@ -65,7 +66,7 @@ namespace fsm::re {
             if (start != end && *start == '-') {
               ++start;
               if (start == end || *start == ']') {
-                throw std::runtime_error("Expected character after -");
+                throw util::ICE("Expected character after -");
               }
               char endSym = *start;
               for (char sym = nextSym - 1; sym++ != endSym;) {
@@ -76,7 +77,7 @@ namespace fsm::re {
             }
           }
           if (start == end) {
-            throw std::runtime_error("Unmatched [");
+            throw util::ICE("Unmatched [");
           }
           ++start;
           if (invert) {
@@ -92,7 +93,7 @@ namespace fsm::re {
         }
         case ')': {
           if (groupStack.size() == 1) {
-            throw std::runtime_error("Unmatched )");
+            throw util::ICE("Unmatched )");
           }
           std::vector<RegEx<char>> top = std::move(groupStack.back());
           groupStack.pop_back();
@@ -115,7 +116,7 @@ namespace fsm::re {
         case '\\': {
           ++start;
           if (start == end) {
-            throw std::runtime_error("Expected character after \\");
+            throw util::ICE("Expected character after \\");
           }
           char c = *start;
           if (readEscape(c)) {
@@ -161,7 +162,7 @@ namespace fsm::re {
     std::vector<RegEx<char>> top = std::move(groupStack.back());
     groupStack.pop_back();
     if (!groupStack.empty()) {
-      throw std::runtime_error("Unmatched (");
+      throw util::ICE("Unmatched (");
     }
     RegEx<char> ret(Type::Concat);
     if (top.size() == 1) {

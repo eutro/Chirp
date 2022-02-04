@@ -57,11 +57,18 @@ int main() {
   err::maybeAbort(epc, hir.errors);
   type::Tcx tcx;
   auto types = hir::infer::inferenceVisitor(tcx)->visitProgram(hir.program);
+  err::maybeAbort(epc, types.ecx);
 
   type::infer::Env env{std::move(types.table)};
   type::infer::addInsns(*env.table);
   type::infer::ENV = &env;
-  types.root({}, {});
+  try {
+    types.root({}, {});
+  } catch (err::LocationError &e) {
+    err::ErrorContext ecx;
+    e.addToContext(ecx);
+    err::maybeAbort(epc, ecx);
+  }
 
   err::ErrorPrintContext stdoutEpc(epc.sourceLines, std::cout);
   auto printBlock = [&](hir::Block &b) {

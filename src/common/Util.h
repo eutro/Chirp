@@ -129,4 +129,14 @@ namespace util {
     ((ss << x), ...);
     return ss.str();
   }
+
+  class ICE : public std::runtime_error {
+  public:
+    ICE(const std::string &msg): std::runtime_error("ICE: " + msg) {}
+  };
+
+  class Unreachable : public ICE {
+  public:
+    Unreachable(): ICE("Unreachable reached") {}
+  };
 }

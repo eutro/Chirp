@@ -26,6 +26,7 @@ namespace hir::infer {
       instSet->tcx = &tcx;
     }
 
+    err::ErrorContext ecx;
     Program *program = nullptr;
     std::map<DefIdx, VarRef> varNodes;
     std::map<DefIdx, VarRef> tyNodes;
@@ -45,7 +46,7 @@ namespace hir::infer {
                          log({tys.at(0)}, {(Idx)0});
                          auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
                          CheckInsn check;
-                         check({tys.at(1)}, {ffifn.args});
+                         check({tys.at(1), ffifn.args}, {});
                          return {ffifn.ret};
                        },
                        1, igIdx++, instSet)
@@ -203,7 +204,43 @@ namespace hir::infer {
             ConstructInsn construct;
             setOutputs(insn, construct(inputs, insn->constArgs));
           } else {
-            throw std::runtime_error("Bad instruction in cycle: " + insn->key->value);
+            err::Location loc;
+            loc.maybeSpan(insn->src, "Suggestion: add type hints here");
+            loc.msg("Instructions in cycle:");
+            std::map<Insn *, Idx> idcs;
+            Idx idx = insns.size();
+            for (Insn *i : insns) idcs[i] = idx--;
+            for (auto iit = insns.rbegin(); iit != insns.rend(); ++iit) {
+              auto i = *iit;
+              if (i->src && i->reason) {
+                std::stringstream ss;
+                ss << idcs[i] << ". " << *i->reason << " ('" << i->key->value << "' instruction" ;
+                if (i->key != constructKey && i->key != idKey) {
+                  ss << ", not allowed";
+                }
+                ss << ")";
+                std::vector<Idx> deps;
+                for (auto &input : i->inputs) {
+                  if (input.insn) {
+                    Insn *depInsn = &il.insns.at(*input.insn);
+                    if (idcs.count(depInsn)) {
+                      deps.push_back(idcs.at(depInsn));
+                    }
+                  }
+                }
+                if (!deps.empty()) {
+                  ss << " depends on: ";
+                  for (auto it = deps.begin(); it != deps.end();) {
+                    ss << *it;
+                    if (++it != deps.end()) {
+                      ss << ", ";
+                    }
+                  }
+                }
+                loc.span(*i->src, ss.str());
+              }
+            }
+            throw err::LocationError(util::toStr("Bad instruction in cycle: '", insn->key->value, "'"), {loc});
           }
         }
 
@@ -265,14 +302,19 @@ namespace hir::infer {
       for (auto &traitImpl : p.traitImpls) {
         visitTrait(traitImpl, res);
       }
+      res.ecx = std::move(ecx);
       return res;
     }
 
     void topSort(InsnList &ig) {
       auto sortFn = [this](auto &&...arg){ doSorting(arg...); };
-      ig.optIdCons();
-      ig.topSort(sortFn);
-      ig.opt();
+      try {
+        ig.optIdCons();
+        ig.topSort(sortFn);
+        ig.opt();
+      } catch (err::LocationError &le) {
+        le.addToContext(ecx);
+      }
     }
 
     void visitTopLevel(Block &block, InferResult &res) {
@@ -435,7 +477,7 @@ namespace hir::infer {
             case STRING: case NULSTRING:
               return tcx.intern(Ty::String{base == NULSTRING});
             default:
-              throw std::runtime_error("ICE: Unreachable reached");
+              throw util::Unreachable();
           }
         } else {
           auto &def = program->bindings.at(base);
@@ -454,7 +496,7 @@ namespace hir::infer {
                 throw std::runtime_error("Trait type hints unimplemented");
               },
               [](DefType::Variable &) -> Tp {
-                throw std::runtime_error("ICE: Unexpected definition kind while parsing type");
+                throw util::ICE("Unexpected definition kind while parsing type");
               }
           }, def.defType.v);
         }
@@ -469,7 +511,7 @@ namespace hir::infer {
       inputs.reserve(idcs.size());
       for (auto &e : idcs) {
         if (!e || !tyNodes.count(*e)) {
-          throw std::runtime_error("ICE: Incomplete type");
+          throw util::ICE("Incomplete type");
         }
         inputs.push_back(tyNodes.at(*e));
       }
@@ -500,11 +542,11 @@ namespace hir::infer {
             constructed.push_back(found->second);
             goto cont;
           } else {
-            if (!doDeconstruct) throw std::runtime_error("ICE: Incredibly shocked and confused");
+            if (!doDeconstruct) throw util::ICE("Incredibly shocked and confused");
             tyNodes.insert({*entry, ig.lastInsn(i)});
           }
         }
-        if (!doDeconstruct) throw std::runtime_error("ICE: Incredibly shocked and confused");
+        if (!doDeconstruct) throw util::ICE("Incredibly shocked and confused");
         constructed.push_back(ig.lastInsn(i));
 
        cont:
@@ -589,7 +631,7 @@ namespace hir::infer {
             }
             return tcx.intern(Ty::String{false});
         }
-        throw std::runtime_error("unreachable");
+        throw util::Unreachable();
       })();
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {ty}));
       return ig.lastInsn();
@@ -611,7 +653,7 @@ namespace hir::infer {
         case BinExpr::Mul: trait = Mul; break;
         case BinExpr::Div: trait = Div; break;
         case BinExpr::Rem: trait = Rem; break;
-        default: throw std::runtime_error("Invalid binary expression type");
+        default: throw util::ICE("Invalid binary expression type");
       }
       ig.insns.push_back(Insn(TraitInsn::key(), {trait}, {lhsNode, rhsNode}, {id}, "result of operation", e.span));
       return ig.lastInsn(0);

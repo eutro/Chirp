@@ -30,7 +30,7 @@ namespace type::infer {
     rets.reserve(insns.size());
     std::vector<Tp> insnArgs;
     if (ENV->stack.size() >= CHIRP_MAX_STACK_DEPTH) {
-      throw std::runtime_error("Exceeded max recursion depth\n");
+      throw err::LocationError("Exceeded max recursion depth.");
     }
     ENV->stack.push_back(nullptr);
     for (const Insn &insn : insns) {
@@ -38,32 +38,33 @@ namespace type::infer {
       insnArgs.clear();
       insnArgs.reserve(insn.inputs.size());
       try {
-        for (auto ref : insn.inputs) {
-          const std::vector<Tp> *source;
-          if (ref.insn) {
-            if (*ref.insn < rets.size()) {
-              source = &rets.at(*ref.insn);
+        try {
+          for (auto ref : insn.inputs) {
+            const std::vector<Tp> *source;
+            if (ref.insn) {
+              if (*ref.insn < rets.size()) {
+                source = &rets.at(*ref.insn);
+              } else {
+                throw util::ICE("Invocation of non-topological InsnList");
+              }
             } else {
-              throw std::runtime_error("ICE: Invocation of non-topological InsnList");
+              source = &args;
             }
-          } else {
-            source = &args;
+            if (ref.retIdx < source->size()) {
+              insnArgs.push_back(source->at(ref.retIdx));
+            } else {
+              throw util::ICE("Variable reference out of bounds");
+            }
           }
-          if (ref.retIdx < source->size()) {
-            insnArgs.push_back(source->at(ref.retIdx));
-          } else {
-            throw std::runtime_error("ICE: Variable reference out of bounds");
-          }
+          auto fn = ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
+          rets.push_back(fn(insnArgs, insn.constArgs));
+        } catch (std::runtime_error &e) {
+          throw err::LocationError(e.what());
         }
-        auto fn = ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
-        rets.push_back(fn(insnArgs, insn.constArgs));
-      } catch (int i) {}/* catch (std::runtime_error &e) {
-        std::cerr << "Thrown at: " << insn << "\n";
-        throw e;
-      } catch (std::exception &e) {
-        std::cerr << "Thrown at: " << insn << "\n";
-        throw std::runtime_error(e.what());
-        }*/
+      } catch (err::LocationError &le) {
+        le.add(err::Location().maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
+        throw le;
+      }
     }
     ENV->stack.pop_back();
     return rets.at(retInsn);
@@ -280,7 +281,7 @@ namespace type::infer {
         if (allSame) continue;
       } else if (insn.key == LogInsn::key()) {
         if (insn.inputs.size() != insn.constArgs.size()) {
-          throw std::runtime_error("LogInsn inputs/constArgs length mismatch");
+          throw util::ICE("LogInsn inputs/constArgs length mismatch");
         }
         std::copy(insn.constArgs.begin(), insn.constArgs.end(), std::back_inserter(logIdcs));
         std::copy(insn.inputs.begin(), insn.inputs.end(), std::back_inserter(logVars));

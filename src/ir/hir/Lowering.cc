@@ -258,7 +258,7 @@ namespace hir::lower {
       return l[*bb].emplace_back(Insn::ForeignRef{e.name});
     }
     RET_T visitDummyExpr ARGS(DummyExpr) override {
-      throw std::runtime_error("Dummy expression");
+      throw util::ICE("Dummy expression");
     }
   };
 

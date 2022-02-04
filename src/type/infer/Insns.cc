@@ -1,7 +1,8 @@
 #include "Insns.h"
 
+#include "../TypePrint.h"
+
 #include <utility>
-#include <sstream>
 
 namespace type::infer {
   std::vector<Tp> IdentityInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
@@ -54,7 +55,7 @@ namespace type::infer {
             overloaded{
                 [&](Ty::Tuple &lt, Ty::Tuple &rt) {
                   if (lt.t.size() != rt.t.size()) {
-                    throw std::runtime_error("ICE: Tuple size mismatch when deconstructing");
+                    throw err::LocationError("Tuple size mismatch when deconstructing");
                   }
                   auto ltIt = lt.t.begin();
                   auto rtIt = rt.t.begin();
@@ -64,7 +65,7 @@ namespace type::infer {
                 },
                 [&](Ty::ADT &lt, Ty::ADT &rt) {
                   if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
-                    throw std::runtime_error("ICE: ADT type mismatch when deconstructing");
+                    throw err::LocationError("ADT type mismatch when deconstructing");
                   }
                   auto ltIt = lt.s.begin();
                   auto rtIt = rt.s.begin();
@@ -84,11 +85,10 @@ namespace type::infer {
     doDeconstruct(targetTy, type::uncycle(ty));
     for (Tp tp : out) {
       if (std::holds_alternative<Ty::Err>(tp->v)) {
-        std::stringstream ss;
-        ss << "ICE: Failed deconstruction";
-        ss << "\n to: " << targetTy;
-        ss << "\n from: " << ty;
-        throw std::runtime_error(ss.str());
+        err::Location loc;
+        loc.msg(util::toStr(" to: ", targetTy));
+        loc.msg(util::toStr(" from: ", ty));
+        throw err::LocationError("Failed deconstruction", {loc});
       }
     }
     return out;
@@ -100,7 +100,7 @@ namespace type::infer {
   }
 
   std::vector<Tp> TrapInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-    throw std::runtime_error("ICE: trap in type inference");
+    throw util::ICE("Trap in type inference");
   }
 
   bool tryUnify(Tp lhs, Tp rhs);
@@ -142,7 +142,12 @@ namespace type::infer {
   std::vector<Tp> CheckInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     Tp ty = type::uncycle(tys.front());
     for (auto it = tys.begin() + 1; it != tys.end(); ++it) {
-      tryUnify(ty, type::uncycle(*it));
+      if (!tryUnify(ty, type::uncycle(*it))) {
+        err::Location loc;
+        loc.msg(util::toStr(" expected: ", ty));
+        loc.msg(util::toStr(" got: ", *it));
+        throw err::LocationError("Mismatched types", {loc});
+      }
     }
     return std::vector<Tp>();
   }
@@ -261,7 +266,7 @@ namespace type::infer {
 
   std::vector<Tp> LogInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const {
     if (tys.size() != cs.size()) {
-      throw std::runtime_error("Type and index list size mismatch");
+      throw util::ICE("Type and index list size mismatch");
     }
     for (Idx i = 0; i < tys.size(); ++i) {
       InstWrapper::CURRENT_INST->loggedTys[constant_cast<Idx>(cs.at(i))] = tys.at(i);

@@ -21,7 +21,13 @@ int main() {
   type::infer::Env env{std::move(types.table)};
   type::infer::addInsns(*env.table);
   type::infer::ENV = &env;
-  types.root({}, {});
+  try {
+    types.root({}, {});
+  } catch (err::LocationError &e) {
+    err::ErrorContext ecx;
+    e.addToContext(ecx);
+    err::maybeAbort(epc, ecx);
+  }
 
   // err::maybeAbort(epc, icx.ecx);
   auto lir = hir::lower::loweringVisitor()->visitProgram(hir.program);

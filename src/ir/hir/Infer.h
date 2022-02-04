@@ -13,6 +13,7 @@ namespace hir::infer {
     std::shared_ptr<type::infer::Inst::Set> insts;
     std::unique_ptr<type::infer::LookupTable> table = type::infer::LookupTable::create();
     type::infer::Fn root;
+    err::ErrorContext ecx;
   };
 
   std::unique_ptr<ProgramVisitor<InferResult>> inferenceVisitor(type::Tcx &ttcx);

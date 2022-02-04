@@ -44,6 +44,19 @@ namespace err {
     Location &err();
   };
 
+  class LocationError : std::runtime_error {
+  public:
+    std::vector<Location> locations;
+
+    LocationError &add(Location loc);
+
+    LocationError(const LocationError &) noexcept = default;
+    LocationError(const std::string &arg, std::vector<Location> locations);
+    LocationError(const std::string &msg);
+
+    void addToContext(ErrorContext &ecx);
+  };
+
   void printErrors(ErrorPrintContext &epc, ErrorContext &ec);
   void maybeAbort(ErrorPrintContext &epc, ErrorContext &ec);
 }

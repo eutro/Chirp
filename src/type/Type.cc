@@ -18,7 +18,7 @@ namespace type {
       case IntSize::i32: return 32;
       case IntSize::i64: return 64;
       case IntSize::i128: return 128;
-      default: throw std::runtime_error("unreachable");
+      default: throw util::Unreachable();
     }
   }
   Idx bitCount(FloatSize f) {
@@ -26,7 +26,7 @@ namespace type {
       case FloatSize::f16: return 16;
       case FloatSize::f32: return 32;
       case FloatSize::f64: return 64;
-      default: throw std::runtime_error("unreachable");
+      default: throw util::Unreachable();
     }
   }
 

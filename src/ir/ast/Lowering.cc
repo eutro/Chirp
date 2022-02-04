@@ -629,7 +629,7 @@ namespace ast::lower {
       case Tok::TStr:
         expr->type = hir::LiteralExpr::Type::String;
         break;
-      default: throw std::runtime_error("Impossible literal expression token type.");
+      default: throw util::ICE("Impossible literal expression token type.");
       }
       return expr;
     }
@@ -701,7 +701,7 @@ namespace ast::lower {
             case Tok::TGt:
               cmp = hir::CmpExpr::Op::Gt;
               break;
-            default: throw std::runtime_error("Impossible binary expression token type.");
+            default: throw util::ICE("Impossible binary expression token type.");
             }
 
             auto predE = withSpan<hir::BlockExpr>(std::nullopt);

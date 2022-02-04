@@ -36,7 +36,7 @@ namespace lir::codegen {
       case type::FloatSize::f16: lt = llvm::Type::getHalfTy(cc.ctx); break;
       case type::FloatSize::f32: lt = llvm::Type::getFloatTy(cc.ctx); break;
       case type::FloatSize::f64: lt = llvm::Type::getDoubleTy(cc.ctx); break;
-      default: throw std::runtime_error("unreachable");
+      default: throw util::Unreachable();
     }
     Idx bitC = type::bitCount(v.s);
     return std::make_tuple(
@@ -304,7 +304,7 @@ namespace lir::codegen {
   
   template <typename T>
   TyTuple getTyTuple(CC &cc, Tp ty, T &) {
-    throw std::runtime_error(util::toStr("Type ", ty, " cannot exist after inference"));
+    throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
   }
   
   const TyTuple &getTyTuple(CC &cc, type::Ty *ty) {
@@ -313,7 +313,7 @@ namespace lir::codegen {
       if (std::get<0>(found->second)) {
         return found->second;
       } else {
-        throw std::runtime_error("Recursive flat type has infinite size");
+        throw util::ICE("Recursive flat type has infinite size");
       }
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
@@ -383,7 +383,7 @@ namespace lir::codegen {
         return ib.CreateLoad(v.ty, ref);
       case Value::Direct:
         return ref;
-      default: throw std::runtime_error("unreachable");
+      default: throw util::Unreachable();
     }
   }
 
@@ -393,8 +393,8 @@ namespace lir::codegen {
         return v.ref();
       case Value::Direct:
         // allocate temporary?
-        throw std::runtime_error("Attempted to get reference to direct value");
-      default: throw std::runtime_error("unreachable");
+        throw util::ICE("Attempted to get reference to direct value");
+      default: throw util::Unreachable();
     }
   }
   
@@ -491,7 +491,7 @@ namespace lir::codegen {
   llvm::Value *unionise(LocalCC &lcc, Value &inValue, Tp inTy, Tp outTy) {
     if (inTy == outTy) return lcc.load(inValue);
     if (!std::holds_alternative<Ty::Union>(outTy->v)) {
-      throw std::runtime_error("ICE: Attempted to unionise to non-union type");
+      throw util::ICE("Attempted to unionise to non-union type");
     }
     llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(lcc.cc.ctx);
     llvm::Type *outUnionTy = getTy(lcc.cc, outTy);
@@ -567,7 +567,7 @@ namespace lir::codegen {
       return lcc.ib.CreateCall(found->second, {lcc.load(inValue)});
     } else {
       if (!std::binary_search(outU.tys.begin(), outU.tys.end(), inTy)) {
-        throw std::runtime_error("ICE: Attempted to unionise into unrelated union");
+        throw util::ICE("Attempted to unionise into unrelated union");
       }
       auto it = std::lower_bound(outU.tys.begin(), outU.tys.end(), inTy);
       Idx discIdx = std::distance(outU.tys.begin(), it);

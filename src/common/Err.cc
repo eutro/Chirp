@@ -133,4 +133,20 @@ namespace err {
       std::exit(1);
     }
   }
+
+  LocationError::LocationError(const std::string &msg) : runtime_error(msg) {}
+  LocationError::LocationError(const std::string &msg, std::vector<Location> locations)
+      : runtime_error(msg), locations(std::move(locations)) {}
+
+  LocationError &LocationError::add(Location loc) {
+    locations.push_back(std::move(loc));
+    return *this;
+  }
+
+  void LocationError::addToContext(ErrorContext &ecx) {
+    Location &err = ecx.err().msg(what());
+    for (auto &loc : locations) {
+      err.chain(loc);
+    }
+  }
 }

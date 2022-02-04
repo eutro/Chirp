@@ -61,14 +61,14 @@ namespace type::infer {
               [](Ty::Int &t) -> TT { return {util::index_of_type_v<Ty::Int, TyV>, {(Idx) t.s}}; },
               [](Ty::UInt &t) -> TT { return {util::index_of_type_v<Ty::UInt, TyV>, {(Idx) t.s}}; },
               [](Ty::Float &t) -> TT { return {util::index_of_type_v<Ty::Float, TyV>, {(Idx) t.s}}; },
-              [](Ty::Placeholder &t) -> TT { throw std::runtime_error("Wildcard does not have a constructor"); },
+              [](Ty::Placeholder &t) -> TT { throw util::ICE("Wildcard does not have a constructor"); },
               [](Ty::ADT &t) -> TT { return {util::index_of_type_v<Ty::ADT, TyV>, {t.i, (Idx) t.s.size()}}; },
               [](Ty::Union &t) -> TT { return {util::index_of_type_v<Ty::Union, TyV>, {(Idx) t.tys.size()}}; },
               [](Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
               [](Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
-              [](Ty::Cyclic &t) -> TT { throw std::runtime_error("Cyclic pattern matching unsupported"); },
-              [](Ty::CyclicRef &t) -> TT { throw std::runtime_error("Cyclic pattern matching unsupported"); },
-              [](Ty::Undetermined &t) -> TT { throw std::runtime_error("Undetermined pattern matching unsupported"); },
+              [](Ty::Cyclic &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
+              [](Ty::CyclicRef &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
+              [](Ty::Undetermined &t) -> TT { throw util::ICE("Undetermined pattern matching unsupported"); },
               [](Ty::FfiFn &t) -> TT { return {util::index_of_type_v<Ty::FfiFn, TyV>, {}}; },
           },
           ty->v);
@@ -245,7 +245,7 @@ namespace type::infer {
               std::function<type::infer::Fn(const std::vector<Tp> &)> recursiveLookup = [this](const std::vector<Tp> &cArgs) {
                 std::optional<Fn> decided = this->decide(cArgs);
                 if (!decided) {
-                  throw std::runtime_error("Undefined function");
+                  throw err::LocationError("Undefined function");
                 }
                 return *decided;
               };
@@ -320,7 +320,7 @@ namespace type::infer {
         }
       }
       if (rows != 1) {
-        throw std::runtime_error("Overload resolution is ambiguous");
+        throw err::LocationError("Overload resolution is ambiguous");
       }
       logging::CHIRP.debug("Wildcard matrix: built Leaf\n\n");
       v = Leaf{m.rows.front().val};
@@ -484,37 +484,39 @@ namespace type::infer {
       const std::vector<Constant> &constants,
       const std::vector<Tp> &args
     ) override {
-      auto found = fns.find({fn, constants});
-      if (found == fns.end()) {
-        std::stringstream s;
-        s << "Undefined function: " << fn->value;
-        if (!constants.empty()) {
-          s << "\n with constants:";
-          for (const auto &c : constants) {
-            s << " " << c;
-          }
-        }
-        throw std::runtime_error(s.str());
+      {
+        auto found = fns.find({fn, constants});
+        if (found == fns.end()) goto fail;
+        OverloadLookup &overloads = found->second;
+        std::optional<Fn> lookedUp = overloads.lookup(args);
+        if (!lookedUp) goto fail;
+        return *lookedUp;
       }
-      OverloadLookup &overloads = found->second;
-      std::optional<Fn> lookedUp = overloads.lookup(args);
-      if (!lookedUp) {
-        std::stringstream s;
-        s << "Undefined function: " << fn->value;
-        if (!constants.empty()) {
-          s << "\n with constants:";
-          for (const auto &c : constants) {
-            s << " " << c;
+      fail:
+      {
+        err::Location loc;
+        {
+          std::stringstream s;
+          if (!constants.empty()) {
+            s << " with constants:";
+            for (const auto &c : constants) {
+              s << " " << c;
+            }
           }
+          loc.msg(s.str());
         }
-        s << "\n with types:";
-        for (const auto &t : args) {
-          s << " " << t;
+        {
+          std::stringstream s;
+          s << " with types:";
+          for (const auto &t : args) {
+            s << " " << t;
+          }
+          loc.msg(s.str());
         }
-        s << "\n in tree: " << *overloads.tree;
-        throw std::runtime_error(s.str());
+        loc.msg(" trace:");
+        throw err::LocationError(util::toStr("Failed lookup for ", fn->value), {loc});
       }
-      return *lookedUp;
+
     }
     void insertFn(
       LookupKey *fn,

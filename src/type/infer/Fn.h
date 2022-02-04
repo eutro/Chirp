@@ -104,7 +104,7 @@ namespace type::infer {
   template<typename T>
   const T &constant_cast(const Constant &c) {
     if (c.size != sizeof(T) || c.ty != Constant::TypeData::of<T>()) {
-      throw std::runtime_error("Bad constant cast");
+      throw util::ICE("Bad constant cast");
     }
     return *(T*)c.raw;
   }

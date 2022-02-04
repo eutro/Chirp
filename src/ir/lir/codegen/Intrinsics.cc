@@ -49,7 +49,7 @@ namespace lir::codegen {
 
     if (dispatchIdx != 0 || retTys.size() != 1) {
       throw std::runtime_error(util::toStr(
-          "Unsupported union dispatch with ",
+          "ICE: Unsupported union dispatch with ",
           retTys.size(),
           " return types and index ",
           dispatchIdx
