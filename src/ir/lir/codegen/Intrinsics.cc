@@ -162,8 +162,8 @@ namespace lir::codegen {
                        -> llvm::Value * {
         std::vector<llvm::Value *> args;
         args.reserve(callArgs.size() - 1);
-        for (auto &arg : callArgs) {
-          args.push_back(lcc.load(*arg));
+        for (auto it = callArgs.begin() + 1; it != callArgs.end(); ++it) {
+          args.push_back(lcc.load(**it));
         }
         return lcc.ib.CreateCall(fnTy, lcc.load(*callArgs.front()), args);
       });
