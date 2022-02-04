@@ -77,7 +77,7 @@ namespace lir::codegen {
     }
     llvm::Type *retLlTy = std::get<0>(retTup);
     llvm::FunctionType *funcTy = llvm::FunctionType::get(retLlTy, argLlTys, false);
-    std::string name = util::toStr(retCrpTy, ".dispatch");
+    std::string name = util::toStr(argTys.front(), ".dispatch");
     llvm::Function *func = llvm::Function::Create(funcTy,
                                                   llvm::GlobalValue::PrivateLinkage,
                                                   name,
@@ -98,6 +98,7 @@ namespace lir::codegen {
                               argTys = std::move(argTys),
                               argLlTys = std::move(argLlTys),
                               refs = std::move(refs)](CC &cc) {
+      bool isUnionOut = std::holds_alternative<Ty::Union>(retCrpTy->v);
       Ty::Union dispatchedUTy = std::get<Ty::Union>(argTys.at(dispatchIdx)->v);
       std::vector<Tp> &retRawTys = std::get<Ty::Tuple>(allRetTys.at(dispatchIdx)->v).t;
       llvm::IntegerType *i32Ty = llvm::Type::getInt32Ty(cc.ctx);
@@ -140,7 +141,7 @@ namespace lir::codegen {
         Tp localRetTy = retRawTys.at(i);
         Value out(ret);
         maybeTemp(lcc, localRetTy, ret, out);
-        llvm::Value *unionised = unionise(lcc, out, localRetTy, retCrpTy);
+        llvm::Value *unionised = isUnionOut ? unionise(lcc, out, localRetTy, retCrpTy) : lcc.load(out);
         phi->addIncoming(unionised, ib.GetInsertBlock());
         ib.CreateBr(end);
       }

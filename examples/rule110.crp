@@ -44,9 +44,7 @@ defn nine = λf.λx.f(f(f(f(f(f(f(f(f(x)))))))))
 putS("Static:\n")
 printL(nine(printAndStep)(
 
-// specify the pattern
 cons(tru,
-//
 
 nil)))
 
