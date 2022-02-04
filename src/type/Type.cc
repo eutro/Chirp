@@ -64,7 +64,7 @@ namespace type {
     return uncycle(*ty->tcx, ty);
   }
 
-  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys) {
+  Tp unionOf(Tcx &tcx, const std::vector<Tp> &tys) {
     if (tys.empty()) {
       return tcx.intern(Ty::Union{{}});
     }
@@ -82,9 +82,7 @@ namespace type {
     } else if (tySet.size() == 1) {
       return *tySet.begin();
     } else {
-      tys.clear();
-      std::copy(tySet.begin(), tySet.end(), std::back_inserter(tys));
-      return tcx.intern(Ty::Union{tys});
+      return tcx.intern(Ty::Union{std::vector<Tp>(tySet.begin(), tySet.end())});
     }
   }
 }

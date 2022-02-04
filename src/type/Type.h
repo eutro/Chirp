@@ -175,7 +175,7 @@ namespace type {
   struct PreWalk {};
   struct PostWalk {};
 
-  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys);
+  Tp unionOf(Tcx &tcx, const std::vector<Tp> &tys);
 
   template <bool IGNORED = false, typename TR>
   Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
