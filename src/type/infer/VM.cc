@@ -55,12 +55,12 @@ namespace type::infer {
             throw std::runtime_error("ICE: Variable reference out of bounds");
           }
         }
-        auto &fn = *ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
+        auto fn = ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
         rets.push_back(fn(insnArgs, insn.constArgs));
-      } catch (std::runtime_error &e) {
+      } catch (int i) {}/* catch (std::runtime_error &e) {
         std::cerr << "Thrown at: " << insn << "\n";
         throw e;
-      }/* catch (std::exception &e) {
+      } catch (std::exception &e) {
         std::cerr << "Thrown at: " << insn << "\n";
         throw std::runtime_error(e.what());
         }*/

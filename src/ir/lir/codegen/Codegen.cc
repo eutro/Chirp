@@ -24,231 +24,230 @@
 #include <vector>
 
 namespace lir::codegen {
-  constexpr const char *GC_METHOD = "shadow-stack";
+  template <typename I>
+  llvm::Value *fieldGep(LocalCC &lcc, llvm::Value *loaded, I &i) {
+    auto structTy = adtTy(lcc.cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(i.obj->ty))->v));
+    auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo());
+    return lcc.ib.CreateStructGEP(structTy, castPtr, i.field);
+  }
+
+  bool maybeTemp(LocalCC &lcc, Insn &insn, llvm::Value *value, Value &out) {
+    return maybeTemp(lcc, getChirpTy(lcc, insn.ty), value, out);
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::SetVar &i) {
+    lcc.ib.CreateStore(lcc.load(i.value), lcc.reference(i.var));
+    return {}; // ignored
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::GetVar &i) {
+    return lcc.varFor(i.var);
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::SetField &i) {
+    auto loaded = lcc.load(i.obj);
+    if (!loaded->getType()->isPointerTy()) {
+      // setting field of zero-sized type:
+      // noop
+      return {};
+    }
+    lcc.ib.CreateStore(lcc.load(i.value), fieldGep(lcc, loaded, i));
+    return {};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::GetField &i) {
+    llvm::Type *ty = getTy(lcc, insn.ty);
+    llvm::Type *objTy = getTy(lcc, i.obj->ty);
+    if (!objTy->isPointerTy()) {
+      return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
+    }
+    return {
+        [&](){return fieldGep(lcc, lcc.load(i.obj), i);},
+        ty,
+        Value::Pointer
+    };
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::HeapAlloc &i) {
+    auto ty = getTy(lcc, insn.ty);
+    if (!ty->isPointerTy()) {
+      // zero-sized type
+      return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
+    }
+    auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(insn.ty))->v));
+    llvm::Value *cast = lcc.ib.CreatePointerCast(gcAlloc(lcc, structTy)->stripPointerCasts(), ty);
+    Value ret;
+    if (maybeTemp(lcc, insn, cast, ret)) return ret;
+    return {cast, ty, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::CallTrait &i) {
+    auto impl = lcc.inst.loggedRefs.at(i.trait);
+    std::vector<Value *> callArgs;
+    callArgs.reserve(i.args.size() + 1);
+    callArgs.push_back(&lcc.vals.at(i.obj));
+    for (Insn *arg : i.args) {
+      callArgs.push_back(&lcc.vals.at(arg));
+    }
+    llvm::Value *value = cc.emitCall.at(impl.first).at(impl.second)(i.method, callArgs, cc, lcc);
+    if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
+        std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
+      if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
+        if (call->getFunction() == call->getCalledFunction()) {
+          // force TCO if it's self-recursive
+          call->setTailCallKind(llvm::CallInst::TCK_MustTail);
+        } else {
+          // otherwise just encourage it
+          call->setTailCallKind(llvm::CallInst::TCK_Tail);
+        }
+      }
+    } else {
+      Value ret;
+      if (maybeTemp(lcc, insn, value, ret)) return ret;
+    }
+    return {value, value->getType(), Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::PhiNode &i) {
+    Tp outTy = getChirpTy(lcc, insn.ty);
+    llvm::Type *ty = getTy(lcc.cc, outTy);
+    auto phi = lcc.ib.CreatePHI(ty, i.branches.size());
+    for (auto &ic : i.branches) {
+      llvm::BasicBlock *bb = lcc.bbs.at(ic.block);
+      llvm::Instruction *jump = &bb->getInstList().back();
+      lcc.ib.SetInsertPoint(jump);
+      Tp inTy = getChirpTy(lcc, ic.ref->ty);
+      llvm::Value *inValue;
+      if (outTy != inTy) {
+        inValue = unionise(lcc, lcc.vals.at(ic.ref), inTy, outTy);
+      } else {
+        inValue = lcc.load(ic.ref);
+      }
+      phi->addIncoming(inValue, bb);
+    }
+    lcc.ib.SetInsertPoint(phi->getParent());
+    Value ret;
+    if (maybeTemp(lcc, insn, phi, ret)) return ret;
+    return {phi, ty, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::NewTuple &i) {
+    {
+      for (auto &v : i.values) {
+        if (!llvm::isa<llvm::Constant>(lcc.load(v))) {
+          goto not_const;
+        }
+      }
+      std::vector<llvm::Constant *> vs;
+      vs.reserve(i.values.size());
+      for (auto &v : i.values) {
+        vs.push_back(llvm::cast<llvm::Constant>(lcc.load(v)));
+      }
+      auto ty = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
+      return {llvm::ConstantStruct::get(ty, vs), ty, Value::Direct};
+    } not_const: {
+    auto ty = getTy(lcc, insn.ty);
+    auto alloca = lcc.ib.CreateAlloca(ty);
+    Idx idx = 0;
+    auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
+    for (auto &v : i.values) {
+      auto gep = lcc.ib.CreateInBoundsGEP(ty, alloca, {
+          llvm::ConstantInt::get(i32Ty, 0),
+          llvm::ConstantInt::get(i32Ty, idx++),
+      });
+      lcc.ib.CreateStore(lcc.load(v), gep);
+    }
+    return {alloca, ty, Value::Pointer};
+  }
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::ForeignRef &i) {
+    auto crpTy = lcc.inst.loggedTys.at(insn.ty);
+    if (std::holds_alternative<Ty::FfiFn>(crpTy->v)) {
+      auto fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(crpTy->v));
+      auto modFn = cc.mod.getOrInsertFunction(i.symbol, fnTy);
+      llvm::Value *callee = modFn.getCallee();
+      return {callee, callee->getType(), Value::Direct};
+    } else {
+      auto ty = getTy(cc, crpTy);
+      auto global = cc.mod.getOrInsertGlobal(i.symbol, ty);
+      return {global, ty, Value::Pointer};
+    }
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::LiteralString &i) {
+    auto cTy = lcc.inst.loggedTys.at(insn.ty);
+    bool nulTerminate = std::get<Ty::String>(cTy->v).nul;
+    size_t len = i.value.size() + nulTerminate;
+    auto charTy = llvm::Type::getInt8Ty(cc.ctx);
+    llvm::ArrayType *charArrayTy = llvm::ArrayType::get(charTy, len);
+    std::vector<llvm::Constant *> constantChars;
+    constantChars.reserve(len);
+    for (auto c : i.value) {
+      constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, c)));
+    }
+    if (nulTerminate) {
+      constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0)));
+    }
+    llvm::Constant *charsConstant = llvm::ConstantArray::get(charArrayTy, constantChars);
+    auto globalVar = new llvm::GlobalVariable(cc.mod,
+                                              charArrayTy,
+                                              true,
+                                              llvm::GlobalValue::PrivateLinkage,
+                                              charsConstant);
+    globalVar->setName("str");
+    auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
+    std::array<llvm::Constant *, 2> indices = {const0, const0};
+    llvm::Constant *charPtrConst = llvm::ConstantExpr::
+    getInBoundsGetElementPtr(charArrayTy, globalVar, indices);
+    if (nulTerminate) {
+      return {charPtrConst, charTy->getPointerTo(), Value::Direct};
+    }
+    auto stringStructTy = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
+    llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
+    llvm::Constant *constant = llvm::ConstantStruct::get(stringStructTy, {lenConst, charPtrConst});
+    return {constant, stringStructTy, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::LiteralInt &i) {
+    Ty *cTy = lcc.inst.loggedTys.at(insn.ty);
+    auto ty = getTy(cc, cTy);
+    auto *intTy = llvm::cast<llvm::IntegerType>(ty);
+    return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::LiteralFloat &i) {
+    auto ty = getTy(lcc, insn.ty);
+    return {llvm::ConstantFP::get(ty, i.value), ty, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::LiteralBool &i) {
+    auto ty = getTy(lcc, insn.ty);
+    return {llvm::ConstantInt::get(ty, i.value), ty, Value::Direct};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::BlockStart &i) {
+    loc::SrcLoc &loc = insn.span->lo;
+    llvm::DILexicalBlock *block = cc.db.createLexicalBlock(
+        lcc.scopes.back(),
+        cc.cu->getFile(),
+        loc.line, loc.col
+    );
+    lcc.scopes.push_back(block);
+    return {};
+  }
+
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::BlockEnd &i) {
+    lcc.scopes.pop_back();
+    return {};
+  }
 
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     if (insn.span) {
       auto &loc = insn.span->lo;
       lcc.ib.SetCurrentDebugLocation(locFromSpan(cc, lcc, loc));
     }
-    lcc.vals[&insn] = std::visit(overloaded {
-        [&](Insn::SetVar &i) -> Value {
-          lcc.ib.CreateStore(lcc.load(i.value), lcc.reference(i.var));
-          return {}; // ignored
-        },
-        [&](Insn::GetVar &i) -> Value {
-          return lcc.varFor(i.var);
-        },
-
-#define FIELD_GEP \
-          auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);                  \
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(i.obj->ty))->v)); \
-          auto castPtr = lcc.ib.CreatePointerCast(loaded, structTy->getPointerTo()); \
-          auto gep = lcc.ib.CreateInBoundsGEP(structTy, castPtr, {                \
-              llvm::ConstantInt::get(i32Ty, 0),                         \
-              llvm::ConstantInt::get(i32Ty, i.field)                    \
-            })
-
-        [&](Insn::SetField &i) -> Value {
-          auto loaded = lcc.load(i.obj);
-          if (!loaded->getType()->isPointerTy()) {
-            // setting field of zero-sized type:
-            // noop
-            return {};
-          }
-          FIELD_GEP;
-          lcc.ib.CreateStore(lcc.load(i.value), gep);
-          return {};
-        },
-        [&](Insn::GetField &i) -> Value {
-          llvm::Type *ty = getTy(lcc, insn.ty);
-          llvm::Type *objTy = getTy(lcc, i.obj->ty);
-          if (!objTy->isPointerTy()) {
-            return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
-          }
-          return {
-            [&](){
-              auto loaded = lcc.load(i.obj);
-              FIELD_GEP;
-              return gep;
-            },
-            ty,
-            Value::Pointer
-          };
-        },
-
-#define MAYBE_TEMP(VALUE)                                               \
-          do {                                                          \
-            const std::optional<GCData> &gcData = getTy<std::optional<GCData>>(lcc, insn.ty); \
-            if (gcData) {                                               \
-              auto alloca = addTemporary(lcc, (VALUE)->getType(), gcData->metadata); \
-              lcc.ib.CreateStore(VALUE, alloca);                        \
-              return {alloca, (VALUE)->getType(), Value::Pointer}; \
-            }                                                           \
-          } while(0)
-
-        [&](Insn::HeapAlloc &i) -> Value {
-          auto i32Ty = llvm::IntegerType::getInt32Ty(cc.ctx);
-          auto i8PtrTy = llvm::IntegerType::getInt8PtrTy(cc.ctx);
-          auto ty = getTy(lcc, insn.ty);
-          if (!ty->isPointerTy()) {
-            // zero-sized type
-            return {llvm::ConstantExpr::getNullValue(ty), ty, Value::Direct};
-          }
-          auto gcAlloc = cc.mod.getOrInsertFunction("chirpGcAlloc", i8PtrTy, i32Ty, i32Ty);
-          auto structTy = adtTy(cc, std::get<type::Ty::ADT>(type::uncycle(lcc.inst.loggedTys.at(insn.ty))->v));
-          auto rawSize = llvm::ConstantExpr::getSizeOf(structTy);
-          auto rawAlign = llvm::ConstantExpr::getAlignOf(structTy);
-          auto size = llvm::ConstantExpr::getTruncOrBitCast(rawSize, i32Ty);
-          auto align = llvm::ConstantExpr::getTruncOrBitCast(rawAlign, i32Ty);
-          auto call = lcc.ib.CreateCall(gcAlloc, {size, align});
-          llvm::Value *cast = lcc.ib.CreatePointerCast(call, ty);
-          MAYBE_TEMP(cast);
-          return {cast, ty, Value::Direct};
-        },
-
-        [&](Insn::CallTrait &i) -> Value {
-          auto impl = lcc.inst.loggedRefs.at(i.trait);
-          llvm::Value *value = cc.emitCall.at(impl.first).at(impl.second)(insn, i, cc, lcc);
-          if (std::holds_alternative<Jump::Ret>(lcc.bb->end.v) &&
-              std::get<Jump::Ret>(lcc.bb->end.v).value == &insn) {
-            if (auto call = llvm::dyn_cast_or_null<llvm::CallInst>(value)) {
-              if (call->getFunction() == call->getCalledFunction()) {
-                // force TCO if it's self-recursive
-                call->setTailCallKind(llvm::CallInst::TCK_MustTail);
-              } else {
-                // otherwise just encourage it
-                call->setTailCallKind(llvm::CallInst::TCK_Tail);
-              }
-            }
-          } else {
-            MAYBE_TEMP(value);
-          }
-          return {value, value->getType(), Value::Direct};
-        },
-        [&](Insn::PhiNode &i) -> Value {
-          Tp outTy = getChirpTy(lcc, insn.ty);
-          llvm::Type *ty = getTy(lcc.cc, outTy);
-          auto phi = lcc.ib.CreatePHI(ty, i.branches.size());
-          for (auto &ic : i.branches) {
-            llvm::BasicBlock *bb = lcc.bbs.at(ic.block);
-            llvm::Instruction *jump = &bb->getInstList().back();
-            lcc.ib.SetInsertPoint(jump);
-            Tp inTy = getChirpTy(lcc, ic.ref->ty);
-            llvm::Value *inValue = lcc.load(ic.ref);
-            if (outTy != inTy) {
-              inValue = unionise(lcc, inValue, inTy, outTy);
-            }
-            phi->addIncoming(inValue, bb);
-          }
-          lcc.ib.SetInsertPoint(phi->getParent());
-          MAYBE_TEMP(phi);
-          return {phi, ty, Value::Direct};
-        },
-        [&](Insn::NewTuple &i) -> Value {
-          {
-            for (auto &v : i.values) {
-              if (!llvm::isa<llvm::Constant>(lcc.load(v))) {
-                goto not_const;
-              }
-            }
-            std::vector<llvm::Constant *> vs;
-            vs.reserve(i.values.size());
-            for (auto &v : i.values) {
-              vs.push_back(llvm::cast<llvm::Constant>(lcc.load(v)));
-            }
-            auto ty = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
-            return {llvm::ConstantStruct::get(ty, vs), ty, Value::Direct};
-          } not_const: {
-            auto ty = getTy(lcc, insn.ty);
-            auto alloca = lcc.ib.CreateAlloca(ty);
-            Idx idx = 0;
-            auto i32Ty = llvm::Type::getInt32Ty(cc.ctx);
-            for (auto &v : i.values) {
-              auto gep = lcc.ib.CreateInBoundsGEP(ty, alloca, {
-                  llvm::ConstantInt::get(i32Ty, 0),
-                  llvm::ConstantInt::get(i32Ty, idx++),
-                });
-              lcc.ib.CreateStore(lcc.load(v), gep);
-            }
-            return {alloca, ty, Value::Pointer};
-          }
-        },
-        [&](Insn::ForeignRef &i) -> Value {
-          auto crpTy = lcc.inst.loggedTys.at(insn.ty);
-          if (std::holds_alternative<Ty::FfiFn>(crpTy->v)) {
-            auto fnTy = ffiFnTy(cc, std::get<Ty::FfiFn>(crpTy->v));
-            auto modFn = cc.mod.getOrInsertFunction(i.symbol, fnTy);
-            llvm::Value *callee = modFn.getCallee();
-            return {callee, callee->getType(), Value::Direct};
-          } else {
-            auto ty = getTy(cc, crpTy);
-            auto global = cc.mod.getOrInsertGlobal(i.symbol, ty);
-            return {global, ty, Value::Pointer};
-          }
-        },
-        [&](Insn::LiteralString &i) -> Value {
-          auto cTy = lcc.inst.loggedTys.at(insn.ty);
-          bool nulTerminate = std::get<Ty::String>(cTy->v).nul;
-          size_t len = i.value.size() + nulTerminate;
-          auto charTy = llvm::Type::getInt8Ty(cc.ctx);
-          llvm::ArrayType *charArrayTy = llvm::ArrayType::get(charTy, len);
-          std::vector<llvm::Constant *> constantChars;
-          constantChars.reserve(len);
-          for (auto c : i.value) {
-            constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, c)));
-          }
-          if (nulTerminate) {
-            constantChars.push_back(llvm::ConstantInt::get(cc.ctx, llvm::APInt(8, 0)));
-          }
-          llvm::Constant *charsConstant = llvm::ConstantArray::get(charArrayTy, constantChars);
-          auto globalVar = new llvm::GlobalVariable(cc.mod,
-                                                    charArrayTy,
-                                                    true,
-                                                    llvm::GlobalValue::PrivateLinkage,
-                                                    charsConstant);
-          globalVar->setName("str");
-          auto const0 = llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, 0));
-          std::array<llvm::Constant *, 2> indices = {const0, const0};
-          llvm::Constant *charPtrConst = llvm::ConstantExpr::
-            getInBoundsGetElementPtr(charArrayTy, globalVar, indices);
-          if (nulTerminate) {
-            return {charPtrConst, charTy->getPointerTo(), Value::Direct};
-          }
-          auto stringStructTy = llvm::cast<llvm::StructType>(getTy(lcc, insn.ty));
-          llvm::Constant *lenConst = llvm::ConstantInt::get(cc.ctx, llvm::APInt(64, len));
-          llvm::Constant *constant = llvm::ConstantStruct::get(stringStructTy, {lenConst, charPtrConst});
-          return {constant, stringStructTy, Value::Direct};
-        },
-        [&](Insn::LiteralInt &i) -> Value {
-          Ty *cTy = lcc.inst.loggedTys.at(insn.ty);
-          auto ty = getTy(cc, cTy);
-          auto *intTy = llvm::cast<llvm::IntegerType>(ty);
-          return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};
-        },
-        [&](Insn::LiteralFloat &i) -> Value {
-          auto ty = getTy(lcc, insn.ty);
-          return {llvm::ConstantFP::get(ty, i.value), ty, Value::Direct};
-        },
-        [&](Insn::LiteralBool &i) -> Value {
-          auto ty = getTy(lcc, insn.ty);
-          return {llvm::ConstantInt::get(ty, i.value), ty, Value::Direct};
-        },
-        [&](Insn::BlockStart &i) -> Value {
-          loc::SrcLoc &loc = insn.span->lo;
-          llvm::DILexicalBlock *block = cc.db.createLexicalBlock(
-              lcc.scopes.back(),
-              cc.cu->getFile(),
-              loc.line, loc.col
-          );
-          lcc.scopes.push_back(block);
-          return {};
-        },
-        [&](Insn::BlockEnd &i) -> Value {
-          lcc.scopes.pop_back();
-          return {};
-        },
-    }, insn.v);
+    lcc.vals[&insn] = std::visit([&](auto &i) { return emitInsn(insn, cc, lcc, i); }, insn.v);
     lcc.ib.SetCurrentDebugLocation(nullptr);
   }
 
@@ -443,14 +442,14 @@ namespace lir::codegen {
         for (const BlockList &bl : trait.methods) {
           funcs.push_back(getBbFunc(bl, allInsts[{blockIdx, instIdx}], cc));
         }
-        emitCalls.emplace(instIdx, [&funcs](Insn &insn, Insn::CallTrait &ct, CC &cc, LocalCC &lcc) -> llvm::Value * {
-          auto func = funcs.at(ct.method);
+        emitCalls.emplace(instIdx, [&funcs](Idx method, const std::vector<Value*> &callArgs, CC &cc, LocalCC &lcc) -> llvm::Value * {
+          auto func = funcs.at(method);
           std::vector<llvm::Value *> args;
-          args.reserve(ct.args.size() + 1 /* receiver */);
-          for (auto &i : ct.args) {
-            args.push_back(lcc.load(i));
+          args.reserve(callArgs.size());
+          for (Idx i = 1; i < callArgs.size(); ++i) {
+            args.push_back(lcc.load(*callArgs.at(i)));
           }
-          args.push_back(lcc.load(ct.obj));
+          args.push_back(lcc.load(*callArgs.front()));
           return lcc.ib.CreateCall(func->getFunctionType(), func, args);
         });
       }

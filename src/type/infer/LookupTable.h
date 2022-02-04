@@ -13,7 +13,7 @@ namespace type::infer {
 
   struct LookupTable {
     virtual ~LookupTable() = default;
-    virtual Fn *lookupFn(
+    virtual Fn lookupFn(
       LookupKey *fn, 
       const std::vector<Constant> &constants, 
       const std::vector<Tp> &params

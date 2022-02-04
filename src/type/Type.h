@@ -120,6 +120,10 @@ namespace type {
       Tp ret;
       BIN_OPS(FfiFn)
     };
+    struct Undetermined {
+      std::vector<Idx> ref;
+      BIN_OPS(Undetermined)
+    };
     std::variant<
       Err,
       Bool,
@@ -133,7 +137,8 @@ namespace type {
       String,
       Cyclic,
       CyclicRef,
-      FfiFn> v;
+      FfiFn,
+      Undetermined> v;
     Tcx *tcx;
 
     template <typename ... Arg>
@@ -157,6 +162,7 @@ struct arena::InternHook<type::Ty> {
 
 ITER_HASH(type::Substs)
 ITER_HASH(std::set<Idx>)
+ITER_HASH(std::vector<Idx>)
 
 #define IMPL_OPS(TYPE, LHSA, RHSA)                               \
   namespace std { template <> struct hash<type::TYPE> {          \
@@ -175,7 +181,7 @@ namespace type {
   struct PreWalk {};
   struct PostWalk {};
 
-  Tp unionOf(Tcx &tcx, std::vector<Tp> &tys);
+  Tp unionOf(Tcx &tcx, const std::vector<Tp> &tys);
 
   template <bool IGNORED = false, typename TR>
   Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
@@ -186,6 +192,7 @@ namespace type {
     switch (ty->v.index()) {
       case util::index_of_type_v<Ty::Placeholder, VTy>:
       case util::index_of_type_v<Ty::CyclicRef, VTy>:
+      case util::index_of_type_v<Ty::Undetermined, VTy>:
         ty = tr(ty);
         break;
       case util::index_of_type_v<Ty::ADT, VTy>: {
@@ -258,26 +265,5 @@ namespace type {
     std::set<T> set;
     for (auto &s : tys) set.insert(replaceTy(tcx, s, tr));
     return set;
-  }
-
-  template <typename T>
-  bool isComplete(T ty) {
-    bool isComplete = true;
-    auto checker = overloaded {
-        [&](Tp ty) -> Tp {
-          if (!std::holds_alternative<Ty::CyclicRef>(ty->v)) {
-            isComplete = false;
-          }
-          return ty;
-        },
-        [&](Tp ty, type::PostWalk) -> Tp {
-          if (std::holds_alternative<Ty::Err>(ty->v)) {
-            isComplete = false;
-          }
-          return ty;
-        },
-    };
-    replaceTy<true>(ty, checker);
-    return isComplete;
   }
 }

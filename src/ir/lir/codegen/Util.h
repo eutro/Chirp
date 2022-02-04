@@ -26,7 +26,9 @@ namespace lir::codegen {
   using Tp = Ty *;
   struct LocalCC;
   struct CC;
-  using EmitFn = std::function<llvm::Value*(Insn&, Insn::CallTrait&, CC&, LocalCC&)>;
+  struct Value;
+  using EmitFn = std::function<llvm::Value*(Idx method, const std::vector<Value*> &callArgs, CC&, LocalCC&)>;
+  constexpr const char *GC_METHOD = "shadow-stack";
 
   struct GCData {
     llvm::GlobalVariable *metadata;
@@ -46,6 +48,10 @@ namespace lir::codegen {
     };
     Type loadTy;
     Value(): ref([](){return nullptr;}), ty(nullptr), loadTy(Direct) {}
+    explicit Value(llvm::Value *v) :
+      ref([=]() { return v; }),
+      ty(v->getType()),
+      loadTy(Direct) {}
     Value(llvm::Value *v, llvm::Type *ty, Type loadTy):
       ref([=](){return v;}),
       ty(ty),
@@ -119,6 +125,12 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
 
+  llvm::StructType *unionTy(CC &cc, llvm::Type *valueType);
+
+  bool isEnum(CC &cc, Ty::Union &u);
+
+  llvm::Value *gcAlloc(LocalCC &lcc, llvm::Type *structTy);
+
   llvm::DILocation *locFromSpan(CC &cc, LocalCC &lcc, const loc::SrcLoc &loc);
 
   Tp getChirpTy(LocalCC &lcc, Idx i);
@@ -133,11 +145,13 @@ namespace lir::codegen {
     return getTy<T>(lcc.cc, getChirpTy(lcc, i));
   }
 
-  llvm::Value *unionise(LocalCC &lcc, llvm::Value *inValue, Tp inTy, Tp outTy);
+  llvm::Value *unionise(LocalCC &lcc, Value &inValue, Tp inTy, Tp outTy);
 
   void gcRoot(CC &cc, llvm::IRBuilder<> &ib, llvm::Value *reference, llvm::Value *meta);
 
   llvm::AllocaInst *addTemporary(LocalCC &lcc, llvm::Type *ty, llvm::Value *meta);
 
   void ensureMetaTy(CC &cc);
+
+  bool maybeTemp(LocalCC &lcc, Tp ty, llvm::Value *value, Value &out);
 }

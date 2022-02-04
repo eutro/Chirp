@@ -32,17 +32,27 @@ defn step(list) =
 
 // io
 defn putI(i: i64): #() = foreign
+defn putS(s: string): #() = foreign
 defn println(): #() = foreign
 defn printB(b) = putI(b(1, 0))
 defn printL(list) =
   list(λl,tail.{printB(l),printL(tail)}, println)
 defn printAndStep(list) = {printL(list), step(list)}
 
-printL(
-(λf.λx.f(f(f(f(f(f(f(f(f(x))))))))))(printAndStep)(
+defn nine = λf.λx.f(f(f(f(f(f(f(f(f(x)))))))))
 
-// specify the pattern
+putS("Static:\n")
+printL(nine(printAndStep)(
+
 cons(tru,
-//
+
+nil)))
+
+defn convBool(x) = if x then tru else fls
+
+putS("Dynamic:\n")
+printL(nine(printAndStep)(
+
+cons(convBool(true),
 
 nil)))

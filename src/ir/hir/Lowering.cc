@@ -116,19 +116,15 @@ namespace hir::lower {
       l[*bb].end = Jump::CondBr{pred, &l[thenB], &l[elseB]};
       Insn *thenV = visitExpr(*e.thenE, l, &thenB, tail);
       Insn *elseV = visitExpr(*e.elseE, l, &elseB, tail);
-      if (tail) {
-        return nullptr; // ignored
+      *bb = l.push();
+      l[elseB].end = l[thenB].end = Jump::Br{&l[*bb]};
+      if (e.pos == Pos::Stmt) {
+        return voidValue(l, bb);
       } else {
-        *bb = l.push();
-        l[elseB].end = l[thenB].end = Jump::Br{&l[*bb]};
-        if (e.pos == Pos::Stmt) {
-          return voidValue(l, bb);
-        } else {
-          return l[*bb].emplace_back(Insn::PhiNode{{
-                {thenV, &l[thenB]},
-                {elseV, &l[elseB]},
-              }});
-        }
+        return l[*bb].emplace_back(Insn::PhiNode{{
+              {thenV, &l[thenB]},
+              {elseV, &l[elseB]},
+            }});
       }
     }
     RET_T visitVoidExpr ARGS(VoidExpr) override {

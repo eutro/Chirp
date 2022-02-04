@@ -123,6 +123,7 @@ namespace type::infer {
               [](Ty::UInt &l, Ty::UInt &r) {return l.s == r.s;},
               [](Ty::Float &l, Ty::Float &r) {return l.s == r.s;},
               [](Ty::ADT &l, Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
+              [](Ty::Undetermined &l, Ty::Undetermined &r) {return false;},
               [](Ty::Union &l, Ty::Union &r) {return false;},
               [](Ty::Tuple &l, Ty::Tuple &r) {return tryUnify(l.t, r.t);},
               [](Ty::String &l, Ty::String &r) {return l.nul == r.nul;},
@@ -147,8 +148,7 @@ namespace type::infer {
   }
 
   std::vector<Tp> UnionInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
-    std::vector<Tp> tysC = tys;
-    return {unionOf(*tys.at(0)->tcx, tysC)};
+    return {unionOf(*tys.at(0)->tcx, tys)};
   }
 
   ConstInsn::ConstInsn(std::vector<Tp> ret) : ret(std::move(ret)) {}
@@ -161,6 +161,7 @@ namespace type::infer {
     std::vector<Tp> *ret;
     std::optional<std::vector<Tp>> retSafe;
     Inst::Ref ref;
+    Tcx &tcx = *insts->tcx;
 
     do {
       bool hasMemo;
@@ -169,20 +170,83 @@ namespace type::infer {
         retSafe = *ret;
         break;
       } else {
+        std::vector<Tp> recurTys;
         if (retSafe) {
           *ret = *retSafe;
         } else {
-          *ret = std::vector<Tp>(returnCount, insts->tcx->intern(Ty::Union{}));
+          // to allow stuff like:
+          // defn cons(x, y) = λifpair,ifnull.ifpair(x, y)
+          // defn nil = λifpair,ifnull.ifnull()
+          // defn rangeR(n) = if n == 0 then nil else cons(n, rangeR(n - 1))
+          *ret = std::vector<Tp>();
+          ret->reserve(returnCount);
+          for (Idx i = 0; i < returnCount; ++i) {
+            ret->push_back(tcx.intern(Ty::Undetermined{{ref.first, ref.second, i}}));
+          }
+          recurTys = *ret;
         }
         auto oldRef = CURRENT_REF;
         auto oldInst = CURRENT_INST;
         CURRENT_REF = &ref;
         CURRENT_INST = &(*insts)[ref];
-        retSafe = *ret = fn(tys, {});
+        retSafe = *ret = fn(tys, cs);
         CURRENT_REF = oldRef;
         CURRENT_INST = oldInst;
+
+        isRetry = insts->finishCall(ref, isRetry);
+        if (isRetry) {
+          for (Idx i = 0; i < ret->size(); ++i) {
+            Tp udt = recurTys.at(i);
+            Tp &udtVal = retSafe->at(i);
+            if (udtVal == udt) {
+              udtVal = tcx.intern(Ty::Union{}); // never type
+              continue;
+            }
+            udtVal = type::uncycle(udtVal);
+            if (std::holds_alternative<Ty::Union>(udtVal->v)) {
+              auto &u = std::get<Ty::Union>(udtVal->v);
+              if (std::binary_search(u.tys.begin(), u.tys.end(), udt)) {
+                std::vector<Tp> nU;
+                for (Tp tp : u.tys) {
+                  if (tp != udt) nU.push_back(tp);
+                }
+                udtVal = type::unionOf(tcx, nU);
+              }
+            }
+          }
+          for (Idx i = 0; i < ret->size(); ++i) {
+            Tp udt = recurTys.at(i);
+            Tp &udtVal = retSafe->at(i);
+            Idx cycleDepth = 0;
+            bool isCyclic = false;
+            std::function<Tp(Tp)> replaceTy;
+            auto replaceUdt = overloaded {
+              [&](Tp ty, type::PreWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) ++cycleDepth; return ty;},
+              [&](Tp ty, type::PostWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) --cycleDepth; return ty;},
+              [&](Tp ty) {
+                if (ty == udt) {
+                  isCyclic = true;
+                  return tcx.intern(Ty::CyclicRef{cycleDepth});
+                }
+                if (std::holds_alternative<Ty::Undetermined>(ty->v)) {
+                  auto &ud = std::get<Ty::Undetermined>(ty->v);
+                  if (ud.ref[0] == ref.first && ud.ref[1] == ref.second) {
+                    return replaceTy(recurTys.at(ud.ref[2]));
+                  }
+                }
+                return ty;
+              },
+            };
+            replaceTy = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceUdt); };
+            Tp newVal = replaceTy(udtVal);
+            if (isCyclic) {
+              newVal = tcx.intern(Ty::Cyclic{newVal});
+            }
+            udtVal = newVal;
+          }
+        }
       }
-    } while ((isRetry = insts->finishCall(ref, isRetry)));
+    } while (isRetry);
 
     if (CURRENT_REF) {
       Idx refIdx = constant_cast<Idx>(cs.at(0));

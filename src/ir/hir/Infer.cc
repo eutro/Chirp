@@ -41,6 +41,8 @@ namespace hir::infer {
                     tcx.intern(Ty::Placeholder{0})},
                    InstWrapper(
                        [](const std::vector<Tp> &tys, const auto &) -> std::vector<Tp> {
+                         LogInsn log;
+                         log({tys.at(0)}, {(Idx)0});
                          auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
                          CheckInsn check;
                          check({tys.at(1)}, {ffifn.args});
@@ -90,6 +92,65 @@ namespace hir::infer {
         implEq(ty);
         implCmp(ty);
       }
+
+      sys.insertFn(LookupKey::intern("union-dispatch"), {},{},
+                   InstWrapper(
+                       [](const std::vector<Tp> &tys, const std::vector<Constant> &cs) -> std::vector<Tp> {
+                         Idx splitUnion = constant_cast<Idx>(cs.at(1));
+                         auto &lookup = *constant_cast<std::function<type::infer::Fn(const std::vector<Tp> &)>*>(cs.at(2));
+                         std::vector<Tp> callTys(tys);
+                         Tp dispatchingTy = type::uncycle(callTys.at(splitUnion));
+                         auto &_tcx = *dispatchingTy->tcx;
+                         auto &uTy = std::get<Ty::Union>(dispatchingTy->v);
+                         std::vector<std::vector<Tp>> rets;
+                         {
+                           Idx i = 0;
+                           for (Tp ty : uTy.tys) {
+                             callTys[splitUnion] = ty;
+                             rets.push_back(lookup(callTys)(callTys, {i++}));
+                           }
+                         }
+                         std::vector<std::vector<Tp>> transpose(rets.front().size(), std::vector<Tp>(rets.size()));
+                         for (Idx x = 0; x < rets.size(); ++x) {
+                           for (Idx y = 0; y < rets[x].size(); ++y) {
+                             transpose[y][x] = rets[x][y];
+                           }
+                         }
+                         std::vector<Tp> unionedRets;
+                         unionedRets.reserve(transpose.size());
+                         for (auto &t : transpose) {
+                           unionedRets.push_back(type::unionOf(_tcx, t));
+                         }
+                         std::vector<Constant> logIdcs;
+                         std::vector<Tp> logVals;
+                         {
+                           Idx i = 0;
+                           for (Tp ty : tys) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(ty);
+                           }
+                           logIdcs.emplace_back(i++);
+                           logVals.push_back(_tcx.intern(Ty::Placeholder{splitUnion}));
+                           for (Tp retTy : unionedRets) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(retTy);
+                           }
+                           logIdcs.emplace_back(i++);
+                           logVals.push_back(_tcx.intern(Ty::Placeholder{0}));
+                           for (auto &retSet : transpose) {
+                             logIdcs.emplace_back(i++);
+                             logVals.push_back(_tcx.intern(Ty::Tuple{retSet}));
+                           }
+                         }
+                         LogInsn log;
+                         // [arg0, ..., argN, Placeholder{dispatchedUnion}, ret0, ..., retM, Placeholder{0}, fRet0, ... fRetM]
+                         log(logVals, logIdcs);
+                         return unionedRets;
+                       },
+                       // return count set to 1; at the time of writing, this is correct in all cases, but undesirable
+                       1,
+                       igIdx++, instSet)
+      );
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
@@ -220,7 +281,32 @@ namespace hir::infer {
       ig.insns.push_back(Insn(IdentityInsn::key(), {}, {}, {}));
       ig.retInsn = *ig.lastInsn().insn;
       topSort(ig);
-      res.root = InstWrapper(ig, 0, *block.idx, instSet);
+      InstWrapper wrapper(ig, 0, *block.idx, instSet);
+      res.root = [wrapper = std::move(wrapper), instSet = instSet](const auto &tys, const auto &cs) {
+        auto ret = wrapper(tys, cs);
+        // garbage collect unreferenced instantiations
+        std::set<Inst::Ref> live;
+        std::function<void(Inst::Ref)> mark = [&](Inst::Ref ref) {
+          if (!live.insert(ref).second) return;
+          for (auto &e : (*instSet)[ref].loggedRefs) {
+            mark(e.second);
+          }
+        };
+        auto &rootCalls = instSet->entities.at(wrapper.entityIdx);
+        for (auto &e : rootCalls) {
+          mark({wrapper.entityIdx, e.first});
+        }
+        for (auto &e : instSet->entities) {
+          for (auto it = e.second.begin(); it != e.second.end();) {
+            if (!live.count({e.first, it->first})) {
+              it = e.second.erase(it);
+            } else {
+              ++it;
+            }
+          }
+        }
+        return ret;
+      };
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {
@@ -457,7 +543,11 @@ namespace hir::infer {
       ig.insns.push_back(Insn(CheckInsn::key(), {}, {predTy}, {tcx.intern(Ty::Bool{})}));
       VarRef thenTy = visitExpr(*e.thenE PASS_ARGS);
       VarRef elseTy = visitExpr(*e.elseE PASS_ARGS);
-      ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
+      if (e.pos == Pos::Stmt) {
+        ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Tuple{})}));
+      } else {
+        ig.insns.push_back(Insn(UnionInsn::key(), {}, {thenTy, elseTy}, {}));
+      }
       return ig.lastInsn();
     }
     RET_T visitVoidExpr ARGS(VoidExpr) override {

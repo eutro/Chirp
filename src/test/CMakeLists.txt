@@ -11,6 +11,3 @@ target_link_libraries(try_lower_hir parser astlower hirjson)
 
 add_executable(try_lower_lir try_lower_lir.cc)
 target_link_libraries(try_lower_lir parser astlower hirlower lirdisas)
-
-add_executable(infer_test infer_test.cc)
-target_link_libraries(infer_test type typeinfer)
