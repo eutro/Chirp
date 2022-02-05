@@ -1,4 +1,1 @@
-defn typeof<T>(x: T): type<T> = T
-
-defn Ouroboros = Ouroboros
-Ouroboros
+defn x = x

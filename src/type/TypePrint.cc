@@ -52,6 +52,10 @@ static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::ADT &t) 
   }
 }
 static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Union &t) {
+  if (t.tys.empty()) {
+    os << "!";
+    return;
+  }
   os << "(";
   for (auto iter = t.tys.begin(); iter != t.tys.end();) {
     os << *iter;
