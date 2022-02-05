@@ -57,6 +57,8 @@ namespace type::infer {
           }
           auto fn = ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
           rets.push_back(fn(insnArgs, insn.constArgs));
+        } catch (err::LocationError &e) {
+          throw e;
         } catch (std::runtime_error &e) {
           throw err::LocationError(e.what());
         }
@@ -152,6 +154,7 @@ namespace type::infer {
   }
 
   void InsnList::opt() {
+    logging::CHIRP.trace("Optimising InsnList:\n", *this, "\n");
     std::vector<Insn> outInsns;
     std::map<VarRef, VarRef> mappedRelocations;
     std::map<VarRef, VarRef> unmappedRelocations;

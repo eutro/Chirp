@@ -140,6 +140,7 @@ namespace ast::lower {
       builtinType("ffifn", DefType::Type{2,2});
       builtinType("string", DefType::Type{0,0});
       builtinType("cstr", DefType::Type{0,0});
+      builtinType("type", DefType::Type{1,1});
     }
 
     LoweringVisitor() {
@@ -311,8 +312,6 @@ namespace ast::lower {
         }
       }
 
-      Idx arity = params.size();
-
       for (auto &p : params) {
         introduceDef(bindings, hir::Definition{
             p.name.ident.value,
@@ -367,10 +366,8 @@ namespace ast::lower {
 
       hir::TraitImpl &fnImpl = program.traitImpls.emplace_back();
       fnImpl.source = source;
-      fnImpl.params.reserve(closed.size() + arity);
 
       hir::Type &adtType = fnImpl.type;
-      adtType.informative = true;
       adtType.base = typeIdx;
       adtType.params.reserve(closed.size());
       for (auto &cv : closed) {
@@ -380,7 +377,6 @@ namespace ast::lower {
               DefType::Type{}
           });
         adtType.params.emplace_back().base = paramIdx;
-        fnImpl.params.push_back(paramIdx);
       }
 
       hir::Type fnArgsTy;
@@ -397,7 +393,6 @@ namespace ast::lower {
           fnArgsTy.params.emplace_back().base = paramIdx;
           std::get<DefType::Variable>(program.bindings.at(block.bindings[i++]).defType.v)
                      .hints.emplace_back().base = paramIdx;
-          fnImpl.params.push_back(paramIdx);
         }
       }
       hir::Type &fnType = fnImpl.trait;
@@ -407,7 +402,6 @@ namespace ast::lower {
             body.span,
             DefType::Type{}
         });
-      fnImpl.params.push_back(retIdx);
       block.body.back()->hints.emplace_back().base = retIdx;
 
       fnType.params = {fnArgsTy};
@@ -501,7 +495,6 @@ namespace ast::lower {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
         hir::Type &fType = fe->hints.emplace_back();
-        fType.informative = true;
         if (it.arguments) {
           fType.base = hir::FFIFN;
           fType.params.reserve(2);
@@ -571,12 +564,48 @@ namespace ast::lower {
       } else {
         auto &adt = std::get<TypeDefn::ADT>(it.val);
         hir::Type ty;
-        ty.base = *idx - 1; // type of the ADT introduced
+        Idx adtIdx = *idx - 1; // type of the ADT introduced
+        ty.base = adtIdx;
         for (const auto &paramTy : adt.types) {
           ty.params.push_back(visitType(*paramTy));
         }
         ty.source = ((Type &)it).span;
         typeDef.value = std::move(ty);
+        {
+          hir::TraitImpl &ti = program.traitImpls.emplace_back();
+          ti.source = *typeDef.value->source;
+          ti.type.source = ti.source;
+          ti.type.base = hir::TYPETOKEN;
+          ti.type.params = {*typeDef.value};
+          ti.types.emplace_back(*typeDef.value);
+          ti.trait.base = hir::Fn;
+          hir::Type &argsTy = ti.trait.params.emplace_back();
+          argsTy.base = hir::TUPLE;
+          argsTy.params = typeDef.value->params;
+
+          hir::Block &ctor = ti.methods.emplace_back();
+          ctor.idx = blockIdx++;
+          ctor.bindings.reserve(argsTy.params.size());
+          for (Idx i = 0; i < argsTy.params.size(); ++i) {
+            ctor.bindings.push_back(introduceDef(hir::Definition{
+              util::toStr("arg_", i),
+              argsTy.params.at(i).source,
+              DefType::Variable{}
+            }));
+          }
+          auto &newExpr = (hir::NewExpr &) *ctor.body.emplace_back(withSpan<hir::NewExpr>(typeDef.value->source));
+          newExpr.adt = adtIdx;
+          for (Idx i : ctor.bindings) {
+            auto varE = withSpan<hir::VarExpr>(program.bindings.at(i).source);
+            varE->ref = i;
+            newExpr.values.push_back(std::move(varE));
+          }
+          ctor.bindings.push_back(introduceDef(hir::Definition{
+              "construct",
+              argsTy.source,
+              DefType::Variable{}
+          }));
+        }
       }
       return withSpan<hir::VoidExpr>(((Statement &)it).span);
     }
@@ -587,7 +616,6 @@ namespace ast::lower {
       impl.trait = visitType(*it.type);
       // TODO lower trait implementations
       throw util::ICE("TODO");
-      return withSpan<hir::VoidExpr>(it.span);
     }
 
     Eptr visitExpr(Expr &it, hir::Pos pos) override {
@@ -741,16 +769,19 @@ namespace ast::lower {
     }
 
     Eptr visitVarExpr(VarExpr &it, hir::Pos pos) override {
-      auto lookup = bindings.lookup(it.name.ident.value);
-      if (lookup) {
+      if (auto lookup = bindings.lookup(it.name.ident.value)) {
         auto expr = withSpan<hir::VarExpr>(it.span);
         expr->ref = *lookup;
         return expr;
+      } else if (auto typeLookup = typeBindings.lookup(it.name.ident.value)) {
+        auto expr = withSpan<hir::VarExpr>(it.span);
+        expr->ref = *typeLookup;
+        return expr;
       } else {
         errs
-          .err()
-          .msg("Name '" + it.name.ident.value + "' is not defined")
-          .span(it.span, "here");
+            .err()
+            .msg("Name '" + it.name.ident.value + "' is not defined")
+            .span(it.span, "here");
         return withSpan<hir::DummyExpr>(it.span);
       }
     }

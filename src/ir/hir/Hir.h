@@ -20,7 +20,6 @@ namespace hir {
 
   class Type {
   public:
-    bool informative = false;
     std::optional<loc::Span> source;
     std::optional<DefIdx> base;
     std::vector<Type> params;
@@ -91,7 +90,6 @@ namespace hir {
 
   class TraitImpl {
   public:
-    std::vector<DefIdx> params;
     Type type, trait;
     loc::Span source;
     std::vector<Type> types;

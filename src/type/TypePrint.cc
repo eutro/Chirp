@@ -87,6 +87,9 @@ static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Undeterm
   }
   os << "}";
 }
+static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::TypeToken &u) {
+  os << "type<" << u.ty << ">";
+}
 
 std::ostream &operator<<(std::ostream &os, Tp ty) {
   std::visit([&](const auto &t) { printIt(os, ty, t); }, ty->v);

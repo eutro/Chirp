@@ -154,7 +154,10 @@ namespace hir::infer {
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
-      if (insns.size() > 1) {
+      Insn *frontInsn = insns.front();
+      if (insns.size() > 1 ||
+          std::any_of(frontInsn->inputs.begin(), frontInsn->inputs.end(),
+                      [&](VarRef &vr) { return vr.insn && &il.insns.at(*vr.insn) == frontInsn; })) {
         std::map<Tp, VarRef> externs;
         std::map<VarRef, Tp> externsRev;
         std::map<Insn *, std::vector<Tp>> tys;
@@ -203,6 +206,7 @@ namespace hir::infer {
             ConstructInsn construct;
             setOutputs(insn, construct(inputs, insn->constArgs));
           } else {
+            logging::CHIRP.debug("InsnList:\n", il, "\n");
             err::Location loc;
             loc.maybeSpan(insn->src, "Suggestion: add type hints here");
             loc.msg("Instructions in cycle:");
@@ -368,9 +372,11 @@ namespace hir::infer {
         }
         return ret;
       };
+      tyNodes.clear();
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {
+      logging::CHIRP.trace("Visiting trait at ", ti.source, "\n");
       InsnList ig;
       std::vector<Tp> allParams;
       {
@@ -403,6 +409,7 @@ namespace hir::infer {
         allParams,
         InstWrapper(ig, ti.types.size(), *ti.methods.front().idx, instSet)
       );
+      tyNodes.clear();
     }
 
     std::map<Expr*, Idx> exprTys;
@@ -512,6 +519,10 @@ namespace hir::infer {
             }
             case STRING: case NULSTRING:
               return tcx.intern(Ty::String{base == NULSTRING});
+            case TYPETOKEN: {
+              auto params = visitParams(ty);
+              return tcx.intern(Ty::TypeToken{params.at(0)});
+            }
             default:
               throw util::Unreachable();
           }
@@ -541,7 +552,7 @@ namespace hir::infer {
     }
 
     VarRef parseCompleteTy(Type &ty, InsnList &ig) {
-      logging::CHIRP.trace("Parsing type at: ", ty.source ? util::toStr(ty.source->lo, "-", ty.source->hi) : "unknown source", "\n");
+      logging::CHIRP.trace("Parsing type at: ", ty.source, "\n");
       std::vector<std::optional<DefIdx>> idcs;
       Tp tmpl = parseTyTemplate(ty, idcs);
       std::vector<VarRef> inputs;
@@ -551,7 +562,7 @@ namespace hir::infer {
           Definition &def = program->bindings.at(*e);
           if (std::holds_alternative<DefType::Type>(def.defType.v)) { // should be always
             if (auto val = std::get<DefType::Type>(def.defType.v).value) {
-              tyNodes.insert({*e, parseCompleteTy(*val, ig)});
+              tyNodes.insert({*e, parseCompleteTy(*val, ig)}); // FIXME this is uh very fragile
               goto notFail;
             }
           }
@@ -565,6 +576,7 @@ namespace hir::infer {
     }
 
     Tp parseTyHint(Type &ty, VarRef &node, InsnList &ig) {
+      logging::CHIRP.trace("Parsing type hint at: ", ty.source, "\n");
       std::vector<std::optional<DefIdx>> idcs;
       Tp tmpl = parseTyTemplate(ty, idcs);
       bool doDeconstruct = false;
@@ -601,7 +613,7 @@ namespace hir::infer {
       VarRef reconstructed = ig.lastInsn();
       ig.insns.push_back(Insn(CheckInsn::key(), {}, {reconstructed, node}, {}, "check from type hint", ty.source));
       node = reconstructed;
-      logging::CHIRP.trace("Parsed hint\n", ig);
+      logging::CHIRP.trace("Parsed hint\n", ig, "\n");
       return tmpl;
     }
 
@@ -623,6 +635,15 @@ namespace hir::infer {
       return visitBlock(e.block, ig, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
+      if (std::holds_alternative<DefType::Type>(program->bindings.at(e.ref).defType.v)) {
+        Tp tyTemplate = tcx.intern(Ty::TypeToken{tcx.intern(Ty::Placeholder{0})});
+        Type ty;
+        ty.source = e.span;
+        ty.base = e.ref;
+        ig.insns.push_back(Insn(ConstructInsn::key(), {}, {parseCompleteTy(ty, ig)},
+                                {tyTemplate}, "type referenced", e.span));
+        return ig.lastInsn();
+      }
       return varNodes.at(e.ref);
     }
     RET_T visitCondExpr ARGS(CondExpr) override {

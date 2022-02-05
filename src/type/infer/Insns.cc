@@ -1,4 +1,5 @@
 #include "Insns.h"
+#include "../../common/Logging.h"
 
 #include <utility>
 
@@ -34,6 +35,7 @@ namespace type::infer {
     return replaceTy(*targetTy->tcx, targetTy, replacer);
   }
   std::vector<Tp> TyTemplate::deconstruct(Tp ty) const {
+    logging::CHIRP.trace("Deconstructing ", targetTy, " from ", ty, "\n");
     Idx rets = 0;
     auto countRets = [&rets](Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
@@ -46,48 +48,67 @@ namespace type::infer {
     std::function<void(Tp, Tp)> doDeconstruct = [&doDeconstruct, &out](Tp tmplTy, Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(tmplTy->v)) {
         out.at(std::get<Ty::Placeholder>(tmplTy->v).i) = ty;
-      } else if (tmplTy->v.index() != ty->v.index()) {
-        return; // not our problem
       } else {
-        std::visit(
-            overloaded{
-                [&](const Ty::Tuple &lt, const Ty::Tuple &rt) {
-                  if (lt.t.size() != rt.t.size()) {
-                    throw err::LocationError("Tuple size mismatch when deconstructing");
+        if (tmplTy == ty) {
+          return;
+        }
+        ty = type::uncycle(ty);
+        if (tmplTy->v.index() != ty->v.index()) {
+          throw err::LocationError(util::toStr("Base type mismatch in ", tmplTy, " and ", ty));
+        } else {
+          std::visit(
+              overloaded{
+                  [&](const Ty::Tuple &lt, const Ty::Tuple &rt) {
+                    if (lt.t.size() != rt.t.size()) {
+                      throw err::LocationError(util::toStr("Tuple size mismatch in ", tmplTy, " and ", ty));
+                    }
+                    auto ltIt = lt.t.begin();
+                    auto rtIt = rt.t.begin();
+                    for (; ltIt != lt.t.end(); ++ltIt, ++rtIt) {
+                      doDeconstruct(*ltIt, *rtIt);
+                    }
+                  },
+                  [&](const Ty::ADT &lt, const Ty::ADT &rt) {
+                    if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
+                      throw err::LocationError(util::toStr("Base type mismatch when deconstructing in ", tmplTy, " and ", ty));
+                    }
+                    auto ltIt = lt.s.begin();
+                    auto rtIt = rt.s.begin();
+                    for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
+                      doDeconstruct(*ltIt, *rtIt);
+                    }
+                  },
+                  [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
+                    doDeconstruct(lt.args, rt.args);
+                    doDeconstruct(lt.ret, rt.ret);
+                  },
+                  [&](const Ty::TypeToken &lt, const Ty::TypeToken &rt) {
+                    doDeconstruct(lt.ty, rt.ty);
+                  },
+                  [&](const auto &, const auto &) {
+                    throw err::LocationError(util::toStr("Mismatched types: ", tmplTy, " and ", ty));
                   }
-                  auto ltIt = lt.t.begin();
-                  auto rtIt = rt.t.begin();
-                  for (; ltIt != lt.t.end(); ++ltIt, ++rtIt) {
-                    doDeconstruct(*ltIt, *rtIt);
-                  }
-                },
-                [&](const Ty::ADT &lt, const Ty::ADT &rt) {
-                  if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
-                    throw err::LocationError("ADT type mismatch when deconstructing");
-                  }
-                  auto ltIt = lt.s.begin();
-                  auto rtIt = rt.s.begin();
-                  for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
-                    doDeconstruct(*ltIt, *rtIt);
-                  }
-                },
-                [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
-                  doDeconstruct(lt.args, rt.args);
-                  doDeconstruct(lt.ret, rt.ret);
-                },
-                [](const auto &, const auto &) {}
-            },
-            tmplTy->v, ty->v);
+              },
+              tmplTy->v, ty->v);
+        };
       }
     };
-    doDeconstruct(targetTy, type::uncycle(ty));
-    for (Tp tp : out) {
-      if (std::holds_alternative<Ty::Err>(tp->v)) {
-        err::Location loc;
-        loc.msg(util::toStr(" to: ", targetTy));
-        loc.msg(util::toStr(" from: ", ty));
-        throw err::LocationError("Failed deconstruction", {loc});
+    try {
+      doDeconstruct(targetTy, ty);
+      for (Tp tp : out) {
+        if (std::holds_alternative<Ty::Err>(tp->v)) {
+          throw err::LocationError("Not all results in output");
+        }
       }
+    } catch (err::LocationError &e) {
+      err::Location loc;
+      loc.msg(util::toStr(" to: ", targetTy));
+      loc.msg(util::toStr(" from: ", ty));
+      loc.msg(e.what());
+      for (auto &l : e.locations) {
+        loc.chain(l);
+      }
+      throw err::LocationError("Failed deconstruction", {std::move(loc)});
     }
     return out;
   }
@@ -136,6 +157,7 @@ namespace type::infer {
               [](const Ty::Undetermined &l, const Ty::Undetermined &r) {return false;},
               [](const Ty::Union &l, const Ty::Union &r) {return false;},
               [](const Ty::Tuple &l, const Ty::Tuple &r) {return tryUnify(l.t, r.t);},
+              [](const Ty::TypeToken &l, const Ty::TypeToken &r) {return tryUnify(l.ty, r.ty);},
               [](const Ty::String &l, const Ty::String &r) {return l.nul == r.nul;},
               [](const Ty::FfiFn &l, const Ty::FfiFn &r) {return tryUnify({l.args, l.ret}, {r.args, r.ret});},
               [](const auto &, const auto &) {

@@ -124,6 +124,10 @@ namespace type {
       std::vector<Idx> ref;
       BIN_OPS(Undetermined)
     };
+    struct TypeToken {
+      Tp ty;
+      BIN_OPS(TypeToken)
+    };
     std::variant<
       Err,
       Bool,
@@ -138,7 +142,8 @@ namespace type {
       Cyclic,
       CyclicRef,
       FfiFn,
-      Undetermined> v;
+      Undetermined,
+      TypeToken> v;
     Tcx *tcx;
 
     template <typename ... Arg>
@@ -228,6 +233,13 @@ namespace type {
         auto &unty = std::get<Ty::Union>(ty->v);
         auto uret = replaceTy<IGNORED>(tcx, unty.tys, tr);
         if constexpr(!IGNORED) ty = unionOf(tcx, uret);
+        else (void)uret;
+        break;
+      }
+      case util::index_of_type_v<Ty::TypeToken, VTy>: {
+        auto &unty = std::get<Ty::TypeToken>(ty->v);
+        auto uret = Ty::TypeToken{replaceTy<IGNORED>(tcx, unty.ty, tr)};
+        if constexpr(!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;
       }

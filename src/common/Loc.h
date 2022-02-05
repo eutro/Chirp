@@ -2,6 +2,7 @@
 
 #include <string>
 #include <iostream>
+#include <optional>
 
 namespace loc {
   /**
@@ -45,5 +46,9 @@ namespace loc {
 
     Span();
     Span(const SrcLoc &lo, const SrcLoc &hi);
+
+    friend std::ostream &operator<<(std::ostream &os, const Span &span);
   };
+
+  std::ostream &operator<<(std::ostream &os, const std::optional<Span> &maybeSpan);
 }

@@ -107,6 +107,9 @@ namespace hir::lower {
       return visitBlock(e.block, l, bb, tail, false);
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
+      if (std::holds_alternative<DefType::Type>(prog->bindings.at(e.ref).defType.v)) {
+        return l[*bb].emplace_back(Insn::ZeroInit{});
+      }
       return l[*bb].emplace_back(Insn::GetVar{e.ref});
     }
     RET_T visitCondExpr ARGS(CondExpr) override {

@@ -64,6 +64,7 @@ namespace type::infer {
               [](const Ty::ADT &t) -> TT { return {util::index_of_type_v<Ty::ADT, TyV>, {t.i, (Idx) t.s.size()}}; },
               [](const Ty::Union &t) -> TT { return {util::index_of_type_v<Ty::Union, TyV>, {(Idx) t.tys.size()}}; },
               [](const Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
+              [](const Ty::TypeToken &t) -> TT { return {util::index_of_type_v<Ty::TypeToken, TyV>, {}}; },
               [](const Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
               [](const Ty::Cyclic &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
               [](const Ty::CyclicRef &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },

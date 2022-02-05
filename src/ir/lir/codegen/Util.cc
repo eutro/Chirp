@@ -301,6 +301,20 @@ namespace lir::codegen {
     }
   }
   
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::TypeToken &tt) {
+    std::string name = util::toStr(ty);
+    return std::make_tuple(
+        llvm::StructType::create(cc.ctx, {}, name),
+        cc.db.createStructType(
+            cc.cu->getFile(), name, cc.cu->getFile(), 1,
+            0, 0, llvm::DINode::DIFlags::FlagPublic,
+            nullptr,
+            cc.db.getOrCreateArray({})
+        ),
+        std::nullopt
+    );
+  }
+  
   template <typename T>
   TyTuple getTyTuple(CC &cc, Tp ty, const T &) {
     throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
