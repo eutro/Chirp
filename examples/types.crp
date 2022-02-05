@@ -1,5 +1,4 @@
-type Foo(i64, i64, i64)
+defn typeof<T>(x: T): type<T> = T
 
-defn typeof<T>(x: T) = T
-
-typeof(100): type<i64>
+defn Ouroboros = Ouroboros
+Ouroboros

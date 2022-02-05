@@ -3,6 +3,10 @@
 #include <llvm/IR/Constants.h>
 
 namespace lir::codegen {
+  llvm::DIType *zeroSizedType(CC &cc, const std::string &name) {
+    return cc.db.createUnspecifiedType(name);
+  }
+
   TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Bool &v) {
     return std::make_tuple(
         llvm::Type::getInt1Ty(cc.ctx),
@@ -198,12 +202,7 @@ namespace lir::codegen {
     if (u.tys.empty()) {
       return std::make_tuple(
           llvm::StructType::create(cc.ctx, {}, "!"),
-          cc.db.createStructType(
-              cc.cu->getFile(), "!", cc.cu->getFile(), 1,
-              0, 0, llvm::DINode::DIFlags::FlagPublic,
-              nullptr,
-              cc.db.getOrCreateArray({})
-          ),
+          zeroSizedType(cc, "!"),
           std::nullopt
       );
     } else {
@@ -305,12 +304,7 @@ namespace lir::codegen {
     std::string name = util::toStr(ty);
     return std::make_tuple(
         llvm::StructType::create(cc.ctx, {}, name),
-        cc.db.createStructType(
-            cc.cu->getFile(), name, cc.cu->getFile(), 1,
-            0, 0, llvm::DINode::DIFlags::FlagPublic,
-            nullptr,
-            cc.db.getOrCreateArray({})
-        ),
+        zeroSizedType(cc, name),
         std::nullopt
     );
   }
@@ -319,7 +313,7 @@ namespace lir::codegen {
   TyTuple getTyTuple(CC &cc, Tp ty, const T &) {
     throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
   }
-  
+
   const TyTuple &getTyTuple(CC &cc, type::Tp ty) {
     auto found = cc.tyCache.find(ty);
     if (found != cc.tyCache.end()) {
@@ -331,7 +325,16 @@ namespace lir::codegen {
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Tp uncycled = type::uncycle(ty);
-      return getTyTuple(cc, uncycled);
+      if (ty == uncycled) {
+        // Ouroboros type
+        constexpr const char *name = "#{#0}"; // it even looks like it!
+        return cc.tyCache[ty] = std::make_tuple(
+            llvm::StructType::get(cc.ctx, {}, name),
+            zeroSizedType(cc, name),
+            std::nullopt
+        );
+      }
+      return cc.tyCache[ty] = getTyTuple(cc, uncycled);
     } else {
       cc.tyCache[ty] = std::make_tuple(nullptr, nullptr, std::nullopt);
     }
