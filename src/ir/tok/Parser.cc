@@ -250,11 +250,13 @@ namespace tok::parser {
     std::unique_ptr<Type> ty = parseAtomType(stream);
     if (auto tok = stream.optional(Tok::TOr1)) {
       UnionType uTy;
+      uTy.span.lo = ty->span.lo;
       uTy.types.push_back(std::move(ty));
       do {
         uTy.pipes.push_back(std::move(*tok));
         uTy.types.push_back(parseAtomType(stream));
       } while ((tok = stream.optional(Tok::TOr1)));
+      uTy.span.hi = uTy.types.back()->span.hi;
       return std::make_unique<UnionType>(std::move(uTy));
     } else {
       return ty;

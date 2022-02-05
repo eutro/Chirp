@@ -117,29 +117,29 @@ namespace ast::lower {
       builtinType("Cmp", DefType::Trait{});
       builtinType("Neg", DefType::Trait{});
 
-      builtinType("bool", DefType::Type{});
+      builtinType("bool", DefType::Type{0,0});
 
-      builtinType("i8", DefType::Type{});
-      builtinType("i16", DefType::Type{});
-      builtinType("i32", DefType::Type{});
-      builtinType("i64", DefType::Type{});
-      builtinType("i128", DefType::Type{});
+      builtinType("i8", DefType::Type{0,0});
+      builtinType("i16", DefType::Type{0,0});
+      builtinType("i32", DefType::Type{0,0});
+      builtinType("i64", DefType::Type{0,0});
+      builtinType("i128", DefType::Type{0,0});
 
-      builtinType("u8", DefType::Type{});
-      builtinType("u16", DefType::Type{});
-      builtinType("u32", DefType::Type{});
-      builtinType("u64", DefType::Type{});
-      builtinType("u128", DefType::Type{});
+      builtinType("u8", DefType::Type{0,0});
+      builtinType("u16", DefType::Type{0,0});
+      builtinType("u32", DefType::Type{0,0});
+      builtinType("u64", DefType::Type{0,0});
+      builtinType("u128", DefType::Type{0,0});
 
-      builtinType("f16", DefType::Type{});
-      builtinType("f32", DefType::Type{});
-      builtinType("f64", DefType::Type{});
+      builtinType("f16", DefType::Type{0,0});
+      builtinType("f32", DefType::Type{0,0});
+      builtinType("f64", DefType::Type{0,0});
 
-      builtinType("tuple", DefType::Type{});
-      builtinType("union", DefType::Type{});
-      builtinType("ffifn", DefType::Type{});
-      builtinType("string", DefType::Type{});
-      builtinType("cstr", DefType::Type{});
+      builtinType("tuple", DefType::Type{0,std::nullopt});
+      builtinType("union", DefType::Type{0,std::nullopt});
+      builtinType("ffifn", DefType::Type{2,2});
+      builtinType("string", DefType::Type{0,0});
+      builtinType("cstr", DefType::Type{0,0});
     }
 
     LoweringVisitor() {
@@ -184,23 +184,22 @@ namespace ast::lower {
       }
 
       std::optional<Idx> visitTypeDefn(TypeDefn &it, bool topLevel) override {
-        if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
-          return lv.introduceDef(lv.typeBindings, hir::Definition {
-              it.name.ident.value,
-              it.name.ident.span(),
-              DefType::Type{}
-          });
-        } else {
+        if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
           auto &adt = std::get<TypeDefn::ADT>(it.val);
           DefType::ADT adtDef;
           adtDef.values.reserve(adt.types.size());
           std::iota(adtDef.values.begin(), adtDef.values.end(), 0);
-          return lv.introduceDef(lv.typeBindings, hir::Definition{
+          lv.introduceDef(hir::Definition{
               it.name.ident.value,
               it.name.ident.span(),
               std::move(adtDef)
           });
         }
+        return lv.introduceDef(lv.typeBindings, hir::Definition{
+            it.name.ident.value,
+            it.name.ident.span(),
+            DefType::Type{0,0}
+        });
       }
 
       std::optional<Idx> visitTraitImpl(TraitImpl &it, bool topLevel) override {
@@ -211,6 +210,19 @@ namespace ast::lower {
     hir::Type visitType(Type &it) override {
       hir::Type ty = TypeVisitor::visitType(it);
       ty.source = it.span;
+      if (ty.base) {
+        auto &def = program.bindings.at(*ty.base);
+        auto &typeDef = std::get<DefType::Type>(def.defType.v);
+        if (ty.params.size() < typeDef.minArity || (typeDef.maxArity && ty.params.size() > *typeDef.maxArity)) {
+          errs
+              .err()
+              .span(it.span, util::toStr("Type ", def.name, " called with the wrong number of arguments"))
+              .msg(typeDef.minArity == typeDef.maxArity ? util::toStr("  expected: ", typeDef.minArity) :
+                   typeDef.maxArity ? util::toStr("  expected between: ", typeDef.minArity, " and ", *typeDef.maxArity) :
+                   util::toStr("  expected at least: ", typeDef.minArity))
+              .msg(util::toStr("  got: ", ty.params.size()));
+        }
+      }
       return ty;
     }
 
@@ -259,21 +271,12 @@ namespace ast::lower {
     }
 
     hir::Type visitTypeDefn(TypeDefn &it) override {
+      hir::Type ty;
       BindingVisitor bv(*this);
       Idx idx = *bv.visitTypeDefn(it, false);
-      if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
-        hir::Type ty;
-        auto &val = std::get<TypeDefn::ADT>(it.val);
-        ty.base = idx;
-        ty.params.reserve(val.types.size());
-        for (const auto &innerTy : val.types) {
-          ty.params.push_back(visitType(*innerTy));
-        }
-        return ty;
-      } else {
-        auto &val = std::get<TypeDefn::Alias>(it.val);
-        return visitType(*val.type);
-      }
+      visitTypeDefn(it, idx);
+      ty.base = idx;
+      return ty;
     }
 
     template <typename Opt>
@@ -560,9 +563,20 @@ namespace ast::lower {
     }
 
     Eptr visitTypeDefn(TypeDefn &it, std::optional<Idx> idx) override {
+      hir::Definition &def = program.bindings.at(*idx);
+      auto &typeDef = std::get<DefType::Type>(def.defType.v);
       if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
         auto &alias = std::get<TypeDefn::Alias>(it.val);
-        std::get<DefType::Type>(program.bindings.at(*idx).defType.v).value = visitType(*alias.type);
+        typeDef.value = visitType(*alias.type);
+      } else {
+        auto &adt = std::get<TypeDefn::ADT>(it.val);
+        hir::Type ty;
+        ty.base = *idx - 1; // type of the ADT introduced
+        for (const auto &paramTy : adt.types) {
+          ty.params.push_back(visitType(*paramTy));
+        }
+        ty.source = ((Type &)it).span;
+        typeDef.value = std::move(ty);
       }
       return withSpan<hir::VoidExpr>(((Statement &)it).span);
     }

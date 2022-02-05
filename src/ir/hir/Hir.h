@@ -33,6 +33,8 @@ namespace hir {
     };
     struct Type {
       // TODO proper call handling
+      Idx minArity;
+      std::optional<Idx> maxArity;
       std::optional<hir::Type> value;
     };
     struct Trait {};

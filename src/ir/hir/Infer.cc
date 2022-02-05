@@ -518,7 +518,7 @@ namespace hir::infer {
         } else {
           auto &def = program->bindings.at(base);
           return std::visit(overloaded{
-              [&](DefType::Type &) -> Tp {
+              [&](DefType::Type &t) -> Tp {
                 if (!placeholders.count(base)) {
                   outIdcs.emplace_back(base);
                   placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
@@ -541,14 +541,23 @@ namespace hir::infer {
     }
 
     VarRef parseCompleteTy(Type &ty, InsnList &ig) {
+      logging::CHIRP.trace("Parsing type at: ", ty.source ? util::toStr(ty.source->lo, "-", ty.source->hi) : "unknown source", "\n");
       std::vector<std::optional<DefIdx>> idcs;
       Tp tmpl = parseTyTemplate(ty, idcs);
       std::vector<VarRef> inputs;
       inputs.reserve(idcs.size());
       for (auto &e : idcs) {
         if (!e || !tyNodes.count(*e)) {
+          Definition &def = program->bindings.at(*e);
+          if (std::holds_alternative<DefType::Type>(def.defType.v)) { // should be always
+            if (auto val = std::get<DefType::Type>(def.defType.v).value) {
+              tyNodes.insert({*e, parseCompleteTy(*val, ig)});
+              goto notFail;
+            }
+          }
           throw util::ICE("Incomplete type");
         }
+       notFail:
         inputs.push_back(tyNodes.at(*e));
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(inputs), {tmpl}, "from type", ty.source));
