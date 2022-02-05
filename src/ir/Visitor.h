@@ -5,35 +5,24 @@
 #include <tuple>
 #include <functional>
 #include <utility>
+#include <memory>
 
 namespace visitor {
-  template <typename T>
-  class Holder {
-  public:
-    T value;
-
-    Holder(const Holder<T> &o):
-      value(std::move(const_cast<Holder<T>&>(o).value))
-    {}
-    Holder(T &&v): value(std::forward<T>(v)) {}
-  };
-
   class MovingAny {
   public:
-    std::any value;
+    void *value;
 
     template <typename T>
-    MovingAny(T &&v): value(Holder(std::forward<T>(v))) {}
-
-    template <typename T>
-    T cast() {
-      return std::move(std::any_cast<Holder<T>>(value).value);
-    }
+    MovingAny(T &&v): value((void *) new T(std::forward<T>(v))) {}
   };
 
   template <typename T>
   T any_cast(MovingAny &&any) {
-    return std::move(std::any_cast<Holder<T>>(std::move(any.value)).value);
+    // unsafe here, but as long as we any_cast EXACTLY once it's all good
+    T *tPtr = (T *) any.value;
+    T moved = std::move(*tPtr);
+    delete tPtr;
+    return moved;
   }
 }
 
