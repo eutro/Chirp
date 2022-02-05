@@ -80,6 +80,7 @@ namespace type::infer {
         [=](const Ty::FfiFn &t) -> std::vector<Tp> { return {t.args, t.ret}; },
         [=](const Ty::Tuple &t) { return t.t; },
         [=](const Ty::ADT &t) { return t.s; },
+        [=](const Ty::TypeToken &t) -> std::vector<Tp> { return {t.ty}; },
         [=](const auto &) -> std::vector<Tp> { return {}; }
     }, ty->v);
   }

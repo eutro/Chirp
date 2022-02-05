@@ -426,9 +426,11 @@ namespace tok::parser {
 
     do {
       BlockExpr::Stmt stmt;
-      auto defnToken = stream.optional(Tok::TDefn);
-      if (defnToken) {
+      if (auto defnToken = stream.optional(Tok::TDefn)) {
         stmt.statement = parseDefn(stream, defnToken);
+        goto putstmt;
+      } else if (auto typeToken = stream.optional(Tok::TType)) {
+        stmt.statement = parseTypeDefn(stream, typeToken);
         goto putstmt;
       }
 

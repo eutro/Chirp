@@ -1,1 +1,4 @@
-defn x = x
+defn typeof(x) = { type T = _, x: T, T }
+type Foo(i64)
+type Bar(i64)
+(if true then Foo else Bar)(1)
