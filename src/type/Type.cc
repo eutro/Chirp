@@ -88,4 +88,10 @@ namespace type {
       return tcx.intern(Ty::Union{std::vector<Tp>(tySet.begin(), tySet.end())});
     }
   }
+
+  void Tcx::addName(Idx i, std::string name) {
+    if (!name.empty()) {
+      names[i] = std::move(name);
+    }
+  }
 }

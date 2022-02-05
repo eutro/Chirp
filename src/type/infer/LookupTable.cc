@@ -1,6 +1,5 @@
 #include "LookupTable.h"
 
-#include "../TypePrint.h"
 #include "../../common/Logging.h"
 #include "VM.h"
 

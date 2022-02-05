@@ -1,6 +1,5 @@
 #include "Disas.h"
 
-#include "../../type/TypePrint.h"
 #include "Lir.h"
 
 namespace lir::disas {

@@ -271,8 +271,22 @@ namespace ast::lower {
       bindings.pop();
       typeBindings.pop();
 
+      std::string tyName = name;
+      bool upcaseNext = true;
+      for (auto it = tyName.begin(); it != tyName.end();) {
+        if (upcaseNext) {
+          *it = (char) std::toupper(*it);
+          upcaseNext = false;
+        }
+        if (*it == '_') {
+          upcaseNext = true;
+          it = tyName.erase(it);
+        } else {
+          ++it;
+        }
+      }
       Idx typeIdx = introduceDef(hir::Definition{
-          "",
+          std::move(tyName),
           source,
             DefType::ADT{},
         });
@@ -566,11 +580,12 @@ namespace ast::lower {
     }
 
     Eptr visitLambdaExpr(LambdaExpr &it, hir::Pos pos) override {
-      std::stringstream name;
-      name << "lambda:"
-           << it.lambdaToken.loc.line << ":"
-           << it.lambdaToken.loc.col;
-      return fnExpr(name.str(), nullptr, nullptr, it.arguments, it.span, *it.body);
+      return fnExpr(util::toStr("lambda@", it.lambdaToken.loc.line, ":", it.lambdaToken.loc.col),
+                    nullptr,
+                    nullptr,
+                    it.arguments,
+                    it.span,
+                    *it.body);
     }
 
     Eptr visitBlockExpr(BlockExpr &it, hir::Pos pos) override {

@@ -1,7 +1,6 @@
 #include "Intrinsics.h"
 
 #include "../../hir/Builtins.h"
-#include "../../../type/TypePrint.h"
 
 namespace lir::codegen {
   thread_local Idx counter;

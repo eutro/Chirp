@@ -5,6 +5,7 @@
 #include "../common/Util.h"
 #include "../common/Arena.h"
 
+#include <map>
 #include <cstdint>
 #include <set>
 #include <tuple>
@@ -18,7 +19,12 @@ template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 namespace type {
   class Ty;
-  using Tcx = arena::InternArena<Ty>;
+
+  class Tcx : public arena::InternArena<Ty> {
+  public:
+    std::map<Idx, std::string> names;
+    void addName(Idx i, std::string name);
+  };
 
   using Tp = Ty *;
 
@@ -59,12 +65,6 @@ namespace type {
 #define BIN_OPS(TYPE)                            \
   bool operator<(const TYPE &o) const;           \
   bool operator==(const TYPE &o) const;
-
-  struct [[deprecated]] TraitBound {
-    Idx i;
-    Substs s;
-    BIN_OPS(TraitBound)
-  };
 
   class Ty {
   public:
@@ -150,8 +150,8 @@ namespace type {
 
 template <>
 struct arena::InternHook<type::Ty> {
-  inline void postIntern(type::Tcx &tcx, type::Ty *ty) {
-    ty->tcx = &tcx;
+  inline void postIntern(InternArena<type::Ty> &tcx, type::Ty *ty) {
+    ty->tcx = static_cast<type::Tcx *>(&tcx);
   }
 };
 
@@ -266,4 +266,10 @@ namespace type {
     for (auto &s : tys) set.insert(replaceTy(tcx, s, tr));
     return set;
   }
+}
+
+std::ostream &operator<<(std::ostream &os, type::Tp ty);
+
+namespace type::print {
+  void printTy(type::Tp t);
 }

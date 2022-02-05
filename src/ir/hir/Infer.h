@@ -6,7 +6,6 @@
 
 namespace hir::infer {
   using type::Ty;
-  using type::TraitBound;
   using Tp = Ty *;
 
   struct InferResult {

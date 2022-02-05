@@ -1,7 +1,6 @@
 #include "Infer.h"
 
 #include "Builtins.h"
-#include "../../type/TypePrint.h"
 #include "IdxCounter.h"
 #include "../../common/Logging.h"
 
@@ -293,9 +292,18 @@ namespace hir::infer {
       }
     }
 
+    void addTypeNames() {
+      for (auto &b : program->bindings) {
+        if (std::holds_alternative<DefType::ADT>(b.second.defType.v)) {
+          tcx.addName(b.first, b.second.name);
+        }
+      }
+    }
+
     InferResult visitProgram(Program &p) override {
       program = &p;
       InferResult res;
+      addTypeNames();
       res.insts = instSet;
       visitTopLevel(p.topLevel, res);
       addBuiltins(*res.table);

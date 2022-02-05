@@ -1,7 +1,5 @@
 #include "Insns.h"
 
-#include "../TypePrint.h"
-
 #include <utility>
 
 namespace type::infer {

@@ -1,6 +1,5 @@
 #include "VM.h"
 #include "Insns.h"
-#include "../TypePrint.h"
 #include "../../common/Logging.h"
 
 #include <stack>

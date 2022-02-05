@@ -1,7 +1,6 @@
 #include "../ir/tok/Parser.h"
 #include "../ir/ast/Lowering.h"
 #include "../ir/hir/Infer.h"
-#include "../type/TypePrint.h"
 #include "../ir/hir/RecurVisitor.h"
 
 #include <iostream>
