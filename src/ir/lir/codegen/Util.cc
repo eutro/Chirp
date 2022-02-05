@@ -3,7 +3,7 @@
 #include <llvm/IR/Constants.h>
 
 namespace lir::codegen {
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::Bool &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Bool &v) {
     return std::make_tuple(
         llvm::Type::getInt1Ty(cc.ctx),
         cc.db.createBasicType("bool", 1, llvm::dwarf::DW_ATE_boolean),
@@ -11,7 +11,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::Int &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Int &v) {
     Idx bitC = type::bitCount(v.s);
     return std::make_tuple(
         llvm::Type::getIntNTy(cc.ctx, bitC),
@@ -20,7 +20,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::UInt &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::UInt &v) {
     Idx bitC = type::bitCount(v.s);
     return std::make_tuple(
         llvm::Type::getIntNTy(cc.ctx, bitC),
@@ -29,7 +29,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::Float &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Float &v) {
     llvm::Type *lt;
     switch (v.s) {
       case type::FloatSize::f16: lt = llvm::Type::getHalfTy(cc.ctx); break;
@@ -45,7 +45,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::ADT &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::ADT &v) {
     std::string name = util::toStr(ty);
     auto sType = llvm::StructType::create(cc.ctx, name); // opaque
     llvm::PointerType *lt = llvm::PointerType::getUnqual(sType);
@@ -126,7 +126,7 @@ namespace lir::codegen {
     return tup;
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::Tuple &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Tuple &v) {
     std::vector<llvm::Type *> fieldTys;
     std::vector<llvm::Metadata *> fieldDiTys;
     fieldTys.reserve(v.t.size());
@@ -148,7 +148,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::String &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::String &v) {
     if (v.nul) {
       return std::make_tuple(
           llvm::Type::getInt8PtrTy(cc.ctx),
@@ -176,7 +176,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::FfiFn &v) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::FfiFn &v) {
     auto &tup = std::get<Ty::Tuple>(v.args->v);
     std::vector<llvm::Metadata *> argTys;
     argTys.reserve(tup.t.size() + 1);
@@ -194,7 +194,7 @@ namespace lir::codegen {
     );
   }
   
-  TyTuple getTyTuple(CC &cc, Tp ty, Ty::Union &u) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Union &u) {
     if (u.tys.empty()) {
       return std::make_tuple(
           llvm::StructType::create(cc.ctx, {}, "!"),
@@ -302,7 +302,7 @@ namespace lir::codegen {
   }
   
   template <typename T>
-  TyTuple getTyTuple(CC &cc, Tp ty, T &) {
+  TyTuple getTyTuple(CC &cc, Tp ty, const T &) {
     throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
   }
   
