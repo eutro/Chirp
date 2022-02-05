@@ -1,8 +1,10 @@
 Program ::= ( Statement ( (','|'\n') Statement )* )?
 
-Statement ::= Defn | Expr
+Statement ::= Defn | Expr | TypeDefn
 
 Defn ::= 'defn' Binding
+
+TypeDefn ::= 'type' Identifier ( '=' Type ) | '(' ( Type (',' Type)* ','? )? ')'
 
 Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
 
@@ -16,7 +18,11 @@ Identifier ::= TIdent
 
 TypeHint ::= ':' Type
 
-Type ::= PlaceholderType | NamedType | TupleType
+Type ::= UnionType
+
+UnionType ::= AtomType ( '|' AtomType )*
+
+AtomType ::= PlaceholderType | NamedType | TupleType | TypeDefn | '(' Type ')'
 
 PlaceholderType ::= '_'
 

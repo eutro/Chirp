@@ -121,7 +121,7 @@ namespace hir {
   EMPTY_JSON(DefType::Trait);
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::ADT, values, types)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(DefType::Variable, hints);
-  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, bindings, body)
+  NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Block, idx, span, bindings, typeBindings, body)
 
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(BlockExpr, block)
   NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(VarExpr, ref)

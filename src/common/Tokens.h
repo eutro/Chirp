@@ -9,6 +9,7 @@ namespace tok {
     TLinebreak,
     TIdent,
     TDefn,
+    TType,
     TIf,
     TElse,
     TThen,
@@ -58,6 +59,7 @@ namespace tok {
   {tok::Tok::TLinebreak, "[ \\t\\v\\f\\r]*\\n"},\
   {tok::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},\
   {tok::Tok::TDefn, "defn"},\
+  {tok::Tok::TType, "type"},\
   {tok::Tok::TIf, "if"},\
   {tok::Tok::TElse, "else"},\
   {tok::Tok::TThen, "then"},\

@@ -211,33 +211,44 @@ namespace hir::infer {
             for (Insn *i : insns) idcs[i] = idx--;
             for (auto iit = insns.rbegin(); iit != insns.rend(); ++iit) {
               auto i = *iit;
+              std::stringstream ss;
               if (i->src && i->reason) {
-                std::stringstream ss;
                 ss << idcs[i] << ". " << *i->reason << " ('" << i->key->value << "' instruction" ;
                 if (i->key != constructKey && i->key != idKey) {
                   ss << ", not allowed";
                 }
                 ss << ")";
-                std::vector<Idx> deps;
-                for (auto &input : i->inputs) {
-                  if (input.insn) {
-                    Insn *depInsn = &il.insns.at(*input.insn);
-                    if (idcs.count(depInsn)) {
-                      deps.push_back(idcs.at(depInsn));
-                    }
+              } else {
+                ss << " " << idcs[i] << ". '" << i->key->value << "' instruction" ;
+                if (!i->constArgs.empty()) {
+                  ss << " with constants";
+                  for (auto &c : i->constArgs) {
+                    ss << " " << c;
                   }
                 }
-                if (!deps.empty()) {
-                  ss << " depends on: ";
-                  for (auto it = deps.begin(); it != deps.end();) {
-                    ss << *it;
-                    if (++it != deps.end()) {
-                      ss << ", ";
-                    }
-                  }
+                if (i->key != constructKey && i->key != idKey) {
+                  ss << "; not allowed";
                 }
-                loc.span(*i->src, ss.str());
               }
+              std::vector<Idx> deps;
+              for (auto &input : i->inputs) {
+                if (input.insn) {
+                  Insn *depInsn = &il.insns.at(*input.insn);
+                  if (idcs.count(depInsn)) {
+                    deps.push_back(idcs.at(depInsn));
+                  }
+                }
+              }
+              if (!deps.empty()) {
+                ss << "; depends on: ";
+                for (auto it = deps.begin(); it != deps.end();) {
+                  ss << *it;
+                  if (++it != deps.end()) {
+                    ss << ", ";
+                  }
+                }
+              }
+              loc.maybeSpan(i->src, ss.str());
             }
             throw err::LocationError(util::toStr("Bad instruction in cycle: '", insn->key->value, "'"), {loc});
           }
@@ -439,6 +450,21 @@ namespace hir::infer {
         }
         ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {defTys.at(var)}));
       }
+      for (Idx ty : block.typeBindings) {
+        auto &tyDef = std::get<DefType::Type>(program->bindings.at(ty).defType.v);
+        if (tyDef.value && tyDef.value->base) {
+          ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
+          tyNodes.insert({ty, ig.lastInsn()});
+        }
+      }
+      for (Idx ty : block.typeBindings) {
+        auto &tyDef = std::get<DefType::Type>(program->bindings.at(ty).defType.v);
+        if (tyDef.value && tyDef.value->base) {
+          VarRef outTyNode = parseCompleteTy(*tyDef.value, ig);
+          VarRef inTyNode = tyNodes.at(ty);
+          ig.insns.at(*inTyNode.insn) = Insn(IdentityInsn::key(), {}, {outTyNode}, {});
+        }
+      }
       VarRef ret({}, 0);
       for (Eptr &expr : block.body) {
         ret = visitExpr(*expr, ig);
@@ -478,6 +504,8 @@ namespace hir::infer {
               return tcx.intern(Ty::Float{(type::FloatSize)(base - F16)});
             case TUPLE:
               return tcx.intern(Ty::Tuple{visitParams(ty)});
+            case UNION:
+              return type::unionOf(tcx, visitParams(ty));
             case FFIFN: {
               auto params = visitParams(ty);
               return tcx.intern(Ty::FfiFn{params.at(0), params.at(1)});
@@ -562,7 +590,7 @@ namespace hir::infer {
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(constructed), {tmpl}, "constructed from type hint", ty.source));
       VarRef reconstructed = ig.lastInsn();
-      ig.insns.push_back(Insn(CheckInsn::key(), {}, {node, reconstructed}, {}, "check from type hint", ty.source));
+      ig.insns.push_back(Insn(CheckInsn::key(), {}, {reconstructed, node}, {}, "check from type hint", ty.source));
       node = reconstructed;
       logging::CHIRP.trace("Parsed hint\n", ig);
       return tmpl;

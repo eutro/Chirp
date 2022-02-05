@@ -4,6 +4,7 @@
 #include "../../common/Util.h"
 
 #include <sstream>
+#include <numeric>
 
 namespace ast::lower {
   using DefType = hir::DefType;
@@ -135,6 +136,7 @@ namespace ast::lower {
       builtinType("f64", DefType::Type{});
 
       builtinType("tuple", DefType::Type{});
+      builtinType("union", DefType::Type{});
       builtinType("ffifn", DefType::Type{});
       builtinType("string", DefType::Type{});
       builtinType("cstr", DefType::Type{});
@@ -147,6 +149,7 @@ namespace ast::lower {
 
     void addBindingsToBlock(hir::Block &block) {
       block.bindings = bindings.defs();
+      block.typeBindings = typeBindings.defs();
     }
 
     hir::Type visitHint(std::optional<TypeHint> &hint) {
@@ -179,11 +182,40 @@ namespace ast::lower {
       std::optional<Idx> visitExpr(Expr &it, bool topLevel) override {
         return std::nullopt;
       }
+
+      std::optional<Idx> visitTypeDefn(TypeDefn &it, bool topLevel) override {
+        if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
+          return lv.introduceDef(lv.typeBindings, hir::Definition {
+              it.name.ident.value,
+              it.name.ident.span(),
+              DefType::Type{}
+          });
+        } else {
+          auto &adt = std::get<TypeDefn::ADT>(it.val);
+          DefType::ADT adtDef;
+          adtDef.values.reserve(adt.types.size());
+          std::iota(adtDef.values.begin(), adtDef.values.end(), 0);
+          return lv.introduceDef(lv.typeBindings, hir::Definition{
+              it.name.ident.value,
+              it.name.ident.span(),
+              std::move(adtDef)
+          });
+        }
+      }
+
+      std::optional<Idx> visitTraitImpl(TraitImpl &it, bool topLevel) override {
+        return std::nullopt;
+      }
     };
+
+    hir::Type visitType(Type &it) override {
+      hir::Type ty = TypeVisitor::visitType(it);
+      ty.source = it.span;
+      return ty;
+    }
 
     hir::Type visitNamedType(NamedType &it) override {
       hir::Type ty;
-      ty.source = it.span;
       auto found = typeBindings.lookup(it.raw.ident.value);
       if (found) {
         ty.base = found;
@@ -214,6 +246,34 @@ namespace ast::lower {
         ty.params.push_back(visitType(*t));
       }
       return ty;
+    }
+
+    hir::Type visitUnionType(UnionType &it) override {
+      hir::Type ty;
+      ty.base = hir::UNION;
+      ty.params.reserve(it.types.size());
+      for (auto &t : it.types) {
+        ty.params.push_back(visitType(*t));
+      }
+      return ty;
+    }
+
+    hir::Type visitTypeDefn(TypeDefn &it) override {
+      BindingVisitor bv(*this);
+      Idx idx = *bv.visitTypeDefn(it, false);
+      if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
+        hir::Type ty;
+        auto &val = std::get<TypeDefn::ADT>(it.val);
+        ty.base = idx;
+        ty.params.reserve(val.types.size());
+        for (const auto &innerTy : val.types) {
+          ty.params.push_back(visitType(*innerTy));
+        }
+        return ty;
+      } else {
+        auto &val = std::get<TypeDefn::Alias>(it.val);
+        return visitType(*val.type);
+      }
     }
 
     template <typename Opt>
@@ -497,6 +557,23 @@ namespace ast::lower {
 
     Eptr visitExpr(Expr &it, std::optional<Idx>) override {
       return ExprVisitor::visitExpr(it, hir::Pos::Stmt);
+    }
+
+    Eptr visitTypeDefn(TypeDefn &it, std::optional<Idx> idx) override {
+      if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
+        auto &alias = std::get<TypeDefn::Alias>(it.val);
+        std::get<DefType::Type>(program.bindings.at(*idx).defType.v).value = visitType(*alias.type);
+      }
+      return withSpan<hir::VoidExpr>(((Statement &)it).span);
+    }
+    
+    Eptr visitTraitImpl(TraitImpl &it, std::optional<Idx> idx) override {
+      hir::TraitImpl impl;
+      impl.type = visitType(*it.type);
+      impl.trait = visitType(*it.type);
+      // TODO lower trait implementations
+      throw util::ICE("TODO");
+      return withSpan<hir::VoidExpr>(it.span);
     }
 
     Eptr visitExpr(Expr &it, hir::Pos pos) override {

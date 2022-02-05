@@ -1,0 +1,5 @@
+type Foo
+  = type Nil()
+  | type Cons(i64, Foo)
+
+1: Cons<i64>

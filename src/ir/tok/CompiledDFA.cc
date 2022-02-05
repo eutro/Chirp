@@ -154,13 +154,13 @@ bool CompiledDFA::accept(size_t &current, char &symbol) const {
           current = 68;
           return true;
         case (char)0x7b:
-          current = 75;
+          current = 78;
           return true;
         case (char)0x7c:
-          current = 76;
+          current = 79;
           return true;
         case (char)0x7d:
-          current = 78;
+          current = 81;
           return true;
       }
       break;
@@ -2946,7 +2946,6 @@ bool CompiledDFA::accept(size_t &current, char &symbol) const {
         case (char)0x76: [[fallthrough]];
         case (char)0x77: [[fallthrough]];
         case (char)0x78: [[fallthrough]];
-        case (char)0x79: [[fallthrough]];
         case (char)0x7a:
           current = 39;
           return true;
@@ -2955,6 +2954,9 @@ bool CompiledDFA::accept(size_t &current, char &symbol) const {
           return true;
         case (char)0x72:
           current = 72;
+          return true;
+        case (char)0x79:
+          current = 75;
           return true;
       }
       break;
@@ -3380,16 +3382,227 @@ bool CompiledDFA::accept(size_t &current, char &symbol) const {
           return true;
       }
       break;
-    case 75: break;
+    case 75:
+      switch (symbol) {
+        case (char)0x30: [[fallthrough]];
+        case (char)0x31: [[fallthrough]];
+        case (char)0x32: [[fallthrough]];
+        case (char)0x33: [[fallthrough]];
+        case (char)0x34: [[fallthrough]];
+        case (char)0x35: [[fallthrough]];
+        case (char)0x36: [[fallthrough]];
+        case (char)0x37: [[fallthrough]];
+        case (char)0x38: [[fallthrough]];
+        case (char)0x39: [[fallthrough]];
+        case (char)0x41: [[fallthrough]];
+        case (char)0x42: [[fallthrough]];
+        case (char)0x43: [[fallthrough]];
+        case (char)0x44: [[fallthrough]];
+        case (char)0x45: [[fallthrough]];
+        case (char)0x46: [[fallthrough]];
+        case (char)0x47: [[fallthrough]];
+        case (char)0x48: [[fallthrough]];
+        case (char)0x49: [[fallthrough]];
+        case (char)0x4a: [[fallthrough]];
+        case (char)0x4b: [[fallthrough]];
+        case (char)0x4c: [[fallthrough]];
+        case (char)0x4d: [[fallthrough]];
+        case (char)0x4e: [[fallthrough]];
+        case (char)0x4f: [[fallthrough]];
+        case (char)0x50: [[fallthrough]];
+        case (char)0x51: [[fallthrough]];
+        case (char)0x52: [[fallthrough]];
+        case (char)0x53: [[fallthrough]];
+        case (char)0x54: [[fallthrough]];
+        case (char)0x55: [[fallthrough]];
+        case (char)0x56: [[fallthrough]];
+        case (char)0x57: [[fallthrough]];
+        case (char)0x58: [[fallthrough]];
+        case (char)0x59: [[fallthrough]];
+        case (char)0x5a: [[fallthrough]];
+        case (char)0x5f: [[fallthrough]];
+        case (char)0x61: [[fallthrough]];
+        case (char)0x62: [[fallthrough]];
+        case (char)0x63: [[fallthrough]];
+        case (char)0x64: [[fallthrough]];
+        case (char)0x65: [[fallthrough]];
+        case (char)0x66: [[fallthrough]];
+        case (char)0x67: [[fallthrough]];
+        case (char)0x68: [[fallthrough]];
+        case (char)0x69: [[fallthrough]];
+        case (char)0x6a: [[fallthrough]];
+        case (char)0x6b: [[fallthrough]];
+        case (char)0x6c: [[fallthrough]];
+        case (char)0x6d: [[fallthrough]];
+        case (char)0x6e: [[fallthrough]];
+        case (char)0x6f: [[fallthrough]];
+        case (char)0x71: [[fallthrough]];
+        case (char)0x72: [[fallthrough]];
+        case (char)0x73: [[fallthrough]];
+        case (char)0x74: [[fallthrough]];
+        case (char)0x75: [[fallthrough]];
+        case (char)0x76: [[fallthrough]];
+        case (char)0x77: [[fallthrough]];
+        case (char)0x78: [[fallthrough]];
+        case (char)0x79: [[fallthrough]];
+        case (char)0x7a:
+          current = 39;
+          return true;
+        case (char)0x70:
+          current = 76;
+          return true;
+      }
+      break;
     case 76:
       switch (symbol) {
-        case (char)0x7c:
+        case (char)0x30: [[fallthrough]];
+        case (char)0x31: [[fallthrough]];
+        case (char)0x32: [[fallthrough]];
+        case (char)0x33: [[fallthrough]];
+        case (char)0x34: [[fallthrough]];
+        case (char)0x35: [[fallthrough]];
+        case (char)0x36: [[fallthrough]];
+        case (char)0x37: [[fallthrough]];
+        case (char)0x38: [[fallthrough]];
+        case (char)0x39: [[fallthrough]];
+        case (char)0x41: [[fallthrough]];
+        case (char)0x42: [[fallthrough]];
+        case (char)0x43: [[fallthrough]];
+        case (char)0x44: [[fallthrough]];
+        case (char)0x45: [[fallthrough]];
+        case (char)0x46: [[fallthrough]];
+        case (char)0x47: [[fallthrough]];
+        case (char)0x48: [[fallthrough]];
+        case (char)0x49: [[fallthrough]];
+        case (char)0x4a: [[fallthrough]];
+        case (char)0x4b: [[fallthrough]];
+        case (char)0x4c: [[fallthrough]];
+        case (char)0x4d: [[fallthrough]];
+        case (char)0x4e: [[fallthrough]];
+        case (char)0x4f: [[fallthrough]];
+        case (char)0x50: [[fallthrough]];
+        case (char)0x51: [[fallthrough]];
+        case (char)0x52: [[fallthrough]];
+        case (char)0x53: [[fallthrough]];
+        case (char)0x54: [[fallthrough]];
+        case (char)0x55: [[fallthrough]];
+        case (char)0x56: [[fallthrough]];
+        case (char)0x57: [[fallthrough]];
+        case (char)0x58: [[fallthrough]];
+        case (char)0x59: [[fallthrough]];
+        case (char)0x5a: [[fallthrough]];
+        case (char)0x5f: [[fallthrough]];
+        case (char)0x61: [[fallthrough]];
+        case (char)0x62: [[fallthrough]];
+        case (char)0x63: [[fallthrough]];
+        case (char)0x64: [[fallthrough]];
+        case (char)0x66: [[fallthrough]];
+        case (char)0x67: [[fallthrough]];
+        case (char)0x68: [[fallthrough]];
+        case (char)0x69: [[fallthrough]];
+        case (char)0x6a: [[fallthrough]];
+        case (char)0x6b: [[fallthrough]];
+        case (char)0x6c: [[fallthrough]];
+        case (char)0x6d: [[fallthrough]];
+        case (char)0x6e: [[fallthrough]];
+        case (char)0x6f: [[fallthrough]];
+        case (char)0x70: [[fallthrough]];
+        case (char)0x71: [[fallthrough]];
+        case (char)0x72: [[fallthrough]];
+        case (char)0x73: [[fallthrough]];
+        case (char)0x74: [[fallthrough]];
+        case (char)0x75: [[fallthrough]];
+        case (char)0x76: [[fallthrough]];
+        case (char)0x77: [[fallthrough]];
+        case (char)0x78: [[fallthrough]];
+        case (char)0x79: [[fallthrough]];
+        case (char)0x7a:
+          current = 39;
+          return true;
+        case (char)0x65:
           current = 77;
           return true;
       }
       break;
-    case 77: break;
+    case 77:
+      switch (symbol) {
+        case (char)0x30: [[fallthrough]];
+        case (char)0x31: [[fallthrough]];
+        case (char)0x32: [[fallthrough]];
+        case (char)0x33: [[fallthrough]];
+        case (char)0x34: [[fallthrough]];
+        case (char)0x35: [[fallthrough]];
+        case (char)0x36: [[fallthrough]];
+        case (char)0x37: [[fallthrough]];
+        case (char)0x38: [[fallthrough]];
+        case (char)0x39: [[fallthrough]];
+        case (char)0x41: [[fallthrough]];
+        case (char)0x42: [[fallthrough]];
+        case (char)0x43: [[fallthrough]];
+        case (char)0x44: [[fallthrough]];
+        case (char)0x45: [[fallthrough]];
+        case (char)0x46: [[fallthrough]];
+        case (char)0x47: [[fallthrough]];
+        case (char)0x48: [[fallthrough]];
+        case (char)0x49: [[fallthrough]];
+        case (char)0x4a: [[fallthrough]];
+        case (char)0x4b: [[fallthrough]];
+        case (char)0x4c: [[fallthrough]];
+        case (char)0x4d: [[fallthrough]];
+        case (char)0x4e: [[fallthrough]];
+        case (char)0x4f: [[fallthrough]];
+        case (char)0x50: [[fallthrough]];
+        case (char)0x51: [[fallthrough]];
+        case (char)0x52: [[fallthrough]];
+        case (char)0x53: [[fallthrough]];
+        case (char)0x54: [[fallthrough]];
+        case (char)0x55: [[fallthrough]];
+        case (char)0x56: [[fallthrough]];
+        case (char)0x57: [[fallthrough]];
+        case (char)0x58: [[fallthrough]];
+        case (char)0x59: [[fallthrough]];
+        case (char)0x5a: [[fallthrough]];
+        case (char)0x5f: [[fallthrough]];
+        case (char)0x61: [[fallthrough]];
+        case (char)0x62: [[fallthrough]];
+        case (char)0x63: [[fallthrough]];
+        case (char)0x64: [[fallthrough]];
+        case (char)0x65: [[fallthrough]];
+        case (char)0x66: [[fallthrough]];
+        case (char)0x67: [[fallthrough]];
+        case (char)0x68: [[fallthrough]];
+        case (char)0x69: [[fallthrough]];
+        case (char)0x6a: [[fallthrough]];
+        case (char)0x6b: [[fallthrough]];
+        case (char)0x6c: [[fallthrough]];
+        case (char)0x6d: [[fallthrough]];
+        case (char)0x6e: [[fallthrough]];
+        case (char)0x6f: [[fallthrough]];
+        case (char)0x70: [[fallthrough]];
+        case (char)0x71: [[fallthrough]];
+        case (char)0x72: [[fallthrough]];
+        case (char)0x73: [[fallthrough]];
+        case (char)0x74: [[fallthrough]];
+        case (char)0x75: [[fallthrough]];
+        case (char)0x76: [[fallthrough]];
+        case (char)0x77: [[fallthrough]];
+        case (char)0x78: [[fallthrough]];
+        case (char)0x79: [[fallthrough]];
+        case (char)0x7a:
+          current = 39;
+          return true;
+      }
+      break;
     case 78: break;
+    case 79:
+      switch (symbol) {
+        case (char)0x7c:
+          current = 80;
+          return true;
+      }
+      break;
+    case 80: break;
+    case 81: break;
   }
   return false;
 }
@@ -3397,46 +3610,46 @@ tok::Tok CompiledDFA::finished(size_t state) const {
   switch (state) {
     case 0: return (tok::Tok)0x0;
     case 1: return (tok::Tok)0x0;
-    case 2: return (tok::Tok)0x2c;
+    case 2: return (tok::Tok)0x2d;
     case 3: return (tok::Tok)0x1;
     case 4: return (tok::Tok)0x4;
     case 5: return (tok::Tok)0x0;
-    case 6: return (tok::Tok)0x1b;
+    case 6: return (tok::Tok)0x1c;
     case 7: return (tok::Tok)0x0;
-    case 8: return (tok::Tok)0x12;
+    case 8: return (tok::Tok)0x13;
     case 9: return (tok::Tok)0x0;
     case 10: return (tok::Tok)0x0;
     case 11: return (tok::Tok)0x3;
-    case 12: return (tok::Tok)0x14;
-    case 13: return (tok::Tok)0x2a;
-    case 14: return (tok::Tok)0x24;
-    case 15: return (tok::Tok)0x25;
-    case 16: return (tok::Tok)0x13;
-    case 17: return (tok::Tok)0x15;
-    case 18: return (tok::Tok)0x28;
-    case 19: return (tok::Tok)0x26;
-    case 20: return (tok::Tok)0x18;
-    case 21: return (tok::Tok)0x27;
-    case 22: return (tok::Tok)0x2d;
-    case 23: return (tok::Tok)0x11;
+    case 12: return (tok::Tok)0x15;
+    case 13: return (tok::Tok)0x2b;
+    case 14: return (tok::Tok)0x25;
+    case 15: return (tok::Tok)0x26;
+    case 16: return (tok::Tok)0x14;
+    case 17: return (tok::Tok)0x16;
+    case 18: return (tok::Tok)0x29;
+    case 19: return (tok::Tok)0x27;
+    case 20: return (tok::Tok)0x19;
+    case 21: return (tok::Tok)0x28;
+    case 22: return (tok::Tok)0x2e;
+    case 23: return (tok::Tok)0x12;
     case 24: return (tok::Tok)0x0;
-    case 25: return (tok::Tok)0x29;
+    case 25: return (tok::Tok)0x2a;
     case 26: return (tok::Tok)0x0;
     case 27: return (tok::Tok)0x0;
     case 28: return (tok::Tok)0x2;
-    case 29: return (tok::Tok)0x10;
-    case 30: return (tok::Tok)0x10;
+    case 29: return (tok::Tok)0x11;
+    case 30: return (tok::Tok)0x11;
     case 31: return (tok::Tok)0x0;
-    case 32: return (tok::Tok)0x19;
-    case 33: return (tok::Tok)0x1e;
-    case 34: return (tok::Tok)0x20;
-    case 35: return (tok::Tok)0x1d;
-    case 36: return (tok::Tok)0x1c;
-    case 37: return (tok::Tok)0x1f;
-    case 38: return (tok::Tok)0x21;
+    case 32: return (tok::Tok)0x1a;
+    case 33: return (tok::Tok)0x1f;
+    case 34: return (tok::Tok)0x21;
+    case 35: return (tok::Tok)0x1e;
+    case 36: return (tok::Tok)0x1d;
+    case 37: return (tok::Tok)0x20;
+    case 38: return (tok::Tok)0x22;
     case 39: return (tok::Tok)0x5;
-    case 40: return (tok::Tok)0x2b;
-    case 41: return (tok::Tok)0x1a;
+    case 40: return (tok::Tok)0x2c;
+    case 41: return (tok::Tok)0x1b;
     case 42: return (tok::Tok)0x5;
     case 43: return (tok::Tok)0x5;
     case 44: return (tok::Tok)0x5;
@@ -3444,36 +3657,39 @@ tok::Tok CompiledDFA::finished(size_t state) const {
     case 46: return (tok::Tok)0x5;
     case 47: return (tok::Tok)0x5;
     case 48: return (tok::Tok)0x5;
-    case 49: return (tok::Tok)0x8;
+    case 49: return (tok::Tok)0x9;
     case 50: return (tok::Tok)0x5;
     case 51: return (tok::Tok)0x5;
     case 52: return (tok::Tok)0x5;
     case 53: return (tok::Tok)0x5;
-    case 54: return (tok::Tok)0xd;
-    case 55: return (tok::Tok)0xe;
+    case 54: return (tok::Tok)0xe;
+    case 55: return (tok::Tok)0xf;
     case 56: return (tok::Tok)0x5;
     case 57: return (tok::Tok)0x5;
     case 58: return (tok::Tok)0x5;
     case 59: return (tok::Tok)0x5;
     case 60: return (tok::Tok)0x5;
-    case 61: return (tok::Tok)0xf;
+    case 61: return (tok::Tok)0x10;
     case 62: return (tok::Tok)0x5;
-    case 63: return (tok::Tok)0x7;
-    case 64: return (tok::Tok)0xb;
+    case 63: return (tok::Tok)0x8;
+    case 64: return (tok::Tok)0xc;
     case 65: return (tok::Tok)0x5;
     case 66: return (tok::Tok)0x5;
-    case 67: return (tok::Tok)0xa;
+    case 67: return (tok::Tok)0xb;
     case 68: return (tok::Tok)0x5;
     case 69: return (tok::Tok)0x5;
     case 70: return (tok::Tok)0x5;
-    case 71: return (tok::Tok)0x9;
+    case 71: return (tok::Tok)0xa;
     case 72: return (tok::Tok)0x5;
     case 73: return (tok::Tok)0x5;
-    case 74: return (tok::Tok)0xc;
-    case 75: return (tok::Tok)0x16;
-    case 76: return (tok::Tok)0x22;
-    case 77: return (tok::Tok)0x23;
+    case 74: return (tok::Tok)0xd;
+    case 75: return (tok::Tok)0x5;
+    case 76: return (tok::Tok)0x5;
+    case 77: return (tok::Tok)0x7;
     case 78: return (tok::Tok)0x17;
+    case 79: return (tok::Tok)0x23;
+    case 80: return (tok::Tok)0x24;
+    case 81: return (tok::Tok)0x18;
   }
   return (tok::Tok)0;
 }

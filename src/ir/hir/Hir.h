@@ -31,10 +31,13 @@ namespace hir {
       bool global;
       std::vector<Type> hints;
     };
-    struct Type {};
+    struct Type {
+      // TODO proper call handling
+      std::optional<hir::Type> value;
+    };
     struct Trait {};
     struct ADT {
-      std::vector<DefIdx> values;
+      std::vector<DefIdx> values; // FIXME nobody actually cares about these values?
       std::vector<DefIdx> types;
     };
     std::variant<Variable, Trait, Type, ADT> v;
@@ -80,6 +83,7 @@ namespace hir {
     std::optional<Idx> idx;
     std::optional<loc::Span> span;
     std::vector<DefIdx> bindings;
+    std::vector<DefIdx> typeBindings;
     std::vector<Eptr> body;
   };
 

@@ -9,9 +9,13 @@ namespace ast {
   _acceptImpl(Type, NamedType)
   _acceptImpl(Type, PlaceholderType)
   _acceptImpl(Type, TupleType)
+  _acceptImpl(Type, UnionType)
+  _acceptImpl(Type, TypeDefn)
 
   _acceptImpl(Statement, Defn)
   _acceptImpl(Statement, Expr)
+  _acceptImpl(Statement, TypeDefn)
+  _acceptImpl(Statement, TraitImpl)
 
   _acceptImpl(Expr, HintedExpr)
   _acceptImpl(Expr, FunCallExpr)

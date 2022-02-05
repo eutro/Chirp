@@ -61,6 +61,14 @@ namespace ast {
     _acceptDef(Type) override;
   };
 
+  class UnionType : public Type {
+  public:
+    std::vector<std::unique_ptr<Type>> types;
+    std::vector<Token> pipes;
+
+    _acceptDef(Type) override;
+  };
+
   class TypeHint {
   public:
     Token colon;
@@ -119,6 +127,36 @@ namespace ast {
   public:
     Token defnToken;
     Binding binding;
+
+    _acceptDef(Statement) override;
+  };
+
+  class TypeDefn : public Statement, public Type {
+  public:
+    Token typeToken;
+    Identifier name;
+    struct Alias {
+      Token eqToken;
+      std::unique_ptr<Type> type;
+    };
+    struct ADT {
+      Token openToken;
+      std::vector<std::unique_ptr<Type>> types;
+      Token closeToken;
+    };
+    std::variant<Alias, ADT> val;
+
+    _acceptDef(Statement) override;
+    _acceptDef(Type) override;
+  };
+
+  class TraitImpl : public Statement {
+  public:
+    Token implToken;
+    std::unique_ptr<Type> type;
+    Token colonToken;
+    std::unique_ptr<Type> trait;
+    // TODO trait implementations
 
     _acceptDef(Statement) override;
   };
@@ -289,17 +327,21 @@ namespace ast {
   public:
     _EvisitVirtual(Type) _EvisitVirtual(NamedType)
     _EvisitVirtual(PlaceholderType) _EvisitVirtual(TupleType)
+    _EvisitVirtual(UnionType) _EvisitVirtual(TypeDefn)
   };
 
   template <typename Ret=std::monostate, typename ...Arg>
   class TypeVisitor : public ErasedTypeVisitor {
   public:
     _EvisitImpl(Type) _EvisitImpl(NamedType) _EvisitImpl(PlaceholderType) _EvisitImpl(TupleType)
+    _EvisitImpl(UnionType) _EvisitImpl(TypeDefn)
 
     virtual _typedRoot(Type);
     virtual _typedVisit(NamedType)  = 0;
     virtual _typedVisit(PlaceholderType) = 0;
     virtual _typedVisit(TupleType) = 0;
+    virtual _typedVisit(UnionType) = 0;
+    virtual _typedVisit(TypeDefn) = 0;
   };
 
   class ErasedExprVisitor {
@@ -340,17 +382,21 @@ namespace ast {
   class ErasedStatementVisitor {
   public:
     _EvisitVirtual(Statement) _EvisitVirtual(Expr) _EvisitVirtual(Defn)
+    _EvisitVirtual(TypeDefn) _EvisitVirtual(TraitImpl)
   };
 
   template <typename Ret=std::monostate, typename ...Arg>
   class StatementVisitor : public ErasedStatementVisitor {
   public:
     _EvisitImpl(Statement) _EvisitImpl(Expr) _EvisitImpl(Defn)
+    _EvisitImpl(TypeDefn) _EvisitImpl(TraitImpl)
 
     virtual ~StatementVisitor() = default;
     virtual _typedRoot(Statement);
     virtual _typedVisit(Expr) = 0;
     virtual _typedVisit(Defn) = 0;
+    virtual _typedVisit(TypeDefn) = 0;
+    virtual _typedVisit(TraitImpl) = 0;
   };
 
   template <typename Ret=std::monostate, typename ...Arg>

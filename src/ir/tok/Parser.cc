@@ -180,20 +180,20 @@ namespace tok::parser {
     return std::nullopt;
   }
 
-  std::unique_ptr<Type> parseType(ParserStream &stream) {
-    auto placeholder = stream.optional(Tok::TPlaceholder);
-    if (placeholder) {
+  std::unique_ptr<TypeDefn> parseTypeDefn(ParserStream &stream, std::optional<Token> &typeToken);
+
+  std::unique_ptr<Type> parseType(ParserStream &stream);
+  std::unique_ptr<Type> parseAtomType(ParserStream &stream) {
+    if (auto placeholder = stream.optional(Tok::TPlaceholder)) {
       PlaceholderType type;
       type.placeholder = std::move(*placeholder);
       type.span.lo = type.placeholder.loc;
       type.span.hi = tokEnd(type.placeholder);
       return std::make_unique<PlaceholderType>(std::move(type));
-    }
-    auto paren = stream.optional(Tok::TTupleOpen);
-    if (paren) {
+    } else if (auto tupOp = stream.optional(Tok::TTupleOpen)) {
       TupleType type;
-      type.span.lo = paren->loc;
-      type.openToken = std::move(*paren);
+      type.span.lo = tupOp->loc;
+      type.openToken = std::move(*tupOp);
       while (true) {
         auto closeToken = stream.optional(Tok::TParClose);
         if (closeToken) {
@@ -210,9 +210,15 @@ namespace tok::parser {
       }
       type.span.hi = tokEnd(type.closeToken);
       return std::make_unique<TupleType>(std::move(type));      
+    } else if (stream.optional(Tok::TParOpen)) {
+      auto ret = parseType(stream);
+      stream.require(Tok::TParClose, ") expected");
+      return ret;
+    } else if (auto typeTok = stream.optional(Tok::TType)) {
+      return parseTypeDefn(stream, typeTok);
     }
     NamedType type;
-    type.raw = parseIdent(stream.require(Tok::TIdent, "Type name, #( or _ expected"));
+    type.raw = parseIdent(stream.require(Tok::TIdent, "Type name, 'type', #(, ( or _ expected"));
     type.span.lo = type.raw.ident.loc;
     auto ltToken = stream.optional(Tok::TLt);
     if (ltToken) {
@@ -238,6 +244,21 @@ namespace tok::parser {
       type.span.hi = tokEnd(type.raw.ident);
     }
     return std::make_unique<NamedType>(std::move(type));
+  }
+
+  std::unique_ptr<Type> parseType(ParserStream &stream) {
+    std::unique_ptr<Type> ty = parseAtomType(stream);
+    if (auto tok = stream.optional(Tok::TOr1)) {
+      UnionType uTy;
+      uTy.types.push_back(std::move(ty));
+      do {
+        uTy.pipes.push_back(std::move(*tok));
+        uTy.types.push_back(parseAtomType(stream));
+      } while ((tok = stream.optional(Tok::TOr1)));
+      return std::make_unique<UnionType>(std::move(uTy));
+    } else {
+      return ty;
+    }
   }
 
   std::optional<TypeHint> parseTypeHint(ParserStream &stream) {
@@ -349,6 +370,38 @@ namespace tok::parser {
     defn.binding = parseBinding(stream);
     defn.span.hi = defn.binding.span.hi;
     return std::make_unique<Defn>(std::move(defn));
+  }
+  
+  std::unique_ptr<TypeDefn> parseTypeDefn(ParserStream &stream, std::optional<Token> &typeToken) {
+    TypeDefn defn;
+    defn.typeToken = std::move(*typeToken);
+    loc::Span &span1 = ((Statement &) defn).span;
+    loc::Span &span2 = ((Type &) defn).span;
+    span1.lo = span2.lo = defn.typeToken.loc;
+    defn.name = parseIdent(stream);
+    if (auto eqToken = stream.optional(Tok::TEq)) {
+      TypeDefn::Alias alias;
+      alias.eqToken = std::move(*eqToken);
+      alias.type = parseType(stream);
+      span1.hi = span2.hi = alias.type->span.hi;
+      defn.val = std::move(alias);
+    } else {
+      auto openToken = stream.require(Tok::TParOpen, "( or = expected");
+      TypeDefn::ADT adt;
+      adt.openToken = std::move(openToken);
+      std::optional<Token> closeToken;
+      while (!(closeToken = stream.optional(Tok::TParClose))) {
+        adt.types.push_back(parseType(stream));
+        if (!stream.optional(Tok::TComma)) {
+          closeToken = stream.require(Tok::TParClose, ") expected");
+          break;
+        }
+      }
+      adt.closeToken = std::move(*closeToken);
+      span1.hi = span2.hi = adt.closeToken.span().hi;
+      defn.val = std::move(adt);
+    }
+    return std::make_unique<TypeDefn>(std::move(defn));
   }
 
   std::unique_ptr<Expr> parseBlockExpr(ParserStream &stream, Token &&openToken) {
@@ -659,9 +712,10 @@ namespace tok::parser {
   }
 
   std::unique_ptr<Statement> parseStatement(ParserStream &stream) {
-    auto defnToken = stream.optional(Tok::TDefn);
-    if (defnToken) {
+    if (auto defnToken = stream.optional(Tok::TDefn)) {
       return parseDefn(stream, defnToken);
+    } else if (auto typeToken = stream.optional(Tok::TType)) {
+      return parseTypeDefn(stream, typeToken);
     } else {
       return parseExpr(stream);
     }
