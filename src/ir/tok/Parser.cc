@@ -169,7 +169,7 @@ namespace tok::parser {
   }
 
   Identifier parseIdent(ParserStream &stream) {
-    return parseIdent(stream.require(Tok::TIdent, "Identifier expected"));
+    return parseIdent(stream.require(Tok::TIdent, "identifier expected"));
   }
 
   std::optional<Identifier> maybeParseIdent(ParserStream &stream) {
@@ -214,11 +214,17 @@ namespace tok::parser {
       auto ret = parseType(stream);
       stream.require(Tok::TParClose, ") expected");
       return ret;
-    } else if (auto typeTok = stream.optional(Tok::TType)) {
-      return parseTypeDefn(stream, typeTok);
+    }
+    std::optional<Token> nameTok;
+    if (auto typeTok = stream.optional(Tok::TType)) {
+      if (!stream.peekFor(Tok::TLt)) {
+        return parseTypeDefn(stream, typeTok);
+      }
+      nameTok = std::move(typeTok);
     }
     NamedType type;
-    type.raw = parseIdent(stream.require(Tok::TIdent, "Type name, 'type', #(, ( or _ expected"));
+    type.raw = parseIdent(nameTok ? std::move(*nameTok) :
+        stream.require(Tok::TIdent, "Type name, 'type', #(, ( or _ expected"));
     type.span.lo = type.raw.ident.loc;
     auto ltToken = stream.optional(Tok::TLt);
     if (ltToken) {
