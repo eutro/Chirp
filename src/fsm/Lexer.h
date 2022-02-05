@@ -10,6 +10,7 @@
 #include <string>
 #include <iostream>
 #include <optional>
+#include <sstream>
 
 namespace lexer {
   using namespace loc;
@@ -52,10 +53,10 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template<typename TokenType>
+  template<typename TokenType, typename DFA = fsm::DFA<char, TokenType>>
   class TokenStream {
   private:
-    const fsm::DFA<char, TokenType> &dfa;
+    const DFA &dfa;
     std::istream &in;
     bool yieldLines = false;
     size_t state = dfa.initial;
@@ -63,7 +64,7 @@ namespace lexer {
   public:
     std::vector<std::string> lines;
 
-    TokenStream(const fsm::DFA<char, TokenType> &dfa, std::istream &in) : dfa(dfa), in(in) {}
+    TokenStream(const DFA &dfa, std::istream &in) : dfa(dfa), in(in) {}
 
     /**
      * Set this lexer to store each line it reads.
@@ -129,7 +130,7 @@ namespace lexer {
             raw = "";
           } else {
             hasMatch = false;
-            tok.type = dfa.states[lastMatchState].finished;
+            tok.type = dfa.finished(lastMatchState);
             if (lastMatchPos == raw.size()) {
               tok.value = std::move(raw);
               raw = "";
@@ -144,7 +145,7 @@ namespace lexer {
           loc.add(tok.value);
           state = dfa.initial;
           return tok;
-        } else if (dfa.states[state].finished != fsm::Finished<TokenType>().rejecting()) {
+        } else if (dfa.finished(state) != fsm::Finished<TokenType>().rejecting()) {
           lastMatchPos = pos;
           lastMatchState = state;
           hasMatch = true;
@@ -162,12 +163,12 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template<typename TokenType>
+  template<typename TokenType, typename DFA = fsm::DFA<char, TokenType>>
   class TokenIter {
   public:
-    TokenStream<TokenType> stream;
+    TokenStream<TokenType, DFA> stream;
 
-    TokenIter(TokenStream<TokenType> &&stream) : stream(stream) {}
+    TokenIter(TokenStream<TokenType, DFA> &&stream) : stream(stream) {}
 
     /**
      * The iterator type. Satisfies std::input_iterator_tag.
@@ -213,13 +214,27 @@ namespace lexer {
    *
    * @tparam TokenType The type of tokens.
    */
-  template<typename TokenType>
+  template<typename TokenType, typename _DFA = fsm::DFA<char, TokenType>>
   class Lexer {
   public:
+    using DFA = _DFA;
+    using is_default_dfa = std::is_same<DFA, fsm::DFA<char, TokenType>>;
+
     /**
      * The Deterministic Finite Automaton used to match the stream.
      */
-    fsm::DFA<char, TokenType> dfa;
+    DFA dfa;
+
+    Lexer() = default;
+    Lexer(DFA &&dfa): dfa(std::move(dfa)) {}
+
+    template <typename = std::enable_if<is_default_dfa::value>>
+    explicit Lexer(const unsigned char *bytes, size_t size) noexcept {
+      fsm::Codec<DFA> codec;
+      std::stringstream ss;
+      ss.write((const char *) bytes, size);
+      codec.decode(dfa, ss);
+    }
 
     /**
      * Construct a Lexer from a list of token types to regular expressions that
@@ -229,6 +244,7 @@ namespace lexer {
      *
      * @param tokens A vector of pairs of token types to regular expression strings that match them.
      */
+    template <typename = std::enable_if<is_default_dfa::value>>
     explicit Lexer(const std::vector<std::pair<TokenType, std::string>> &tokens) {
       fsm::NFA<char, TokenType> nfa;
       for (const std::pair<TokenType, std::string> &token : tokens) {
@@ -251,8 +267,8 @@ namespace lexer {
      * @param in The input stream.
      * @return The token stream.
      */
-    TokenStream<TokenType> stream(std::istream &in) const {
-      return TokenStream<TokenType>(dfa, in);
+    TokenStream<TokenType, DFA> stream(std::istream &in) const {
+      return TokenStream<TokenType, DFA>(dfa, in);
     }
 
     /**
@@ -264,8 +280,8 @@ namespace lexer {
      * @param in The input stream.
      * @return An iterable of tokens.
      */
-    TokenIter<TokenType> lex(std::istream &in) const {
-      return TokenIter<TokenType>(stream(in));
+    TokenIter<TokenType, DFA> lex(std::istream &in) const {
+      return TokenIter<TokenType, DFA>(stream(in));
     }
   };
 }

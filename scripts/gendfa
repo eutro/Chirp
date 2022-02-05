@@ -1,0 +1,5 @@
+#!/bin/bash
+
+cmake --build . --target tokencode >&2
+./ir/tokencode bin | xxd -i > "$1/DFAData.h"
+./ir/tokencode > "$1/CompiledDFA.cc"

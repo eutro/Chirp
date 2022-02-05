@@ -6,6 +6,7 @@
 
 namespace tok::parser {
   using namespace ast;
+  using TokIter = lexer::TokenIter<tok::Tok, LexerType::DFA>;
 
   class ParseResult {
   public:
@@ -13,5 +14,5 @@ namespace tok::parser {
     err::ErrorContext errors;
   };
 
-  ParseResult parseProgram(lexer::TokenIter<Tok> &tokens);
+  ParseResult parseProgram(TokIter &tokens);
 }

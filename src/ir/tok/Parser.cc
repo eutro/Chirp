@@ -32,8 +32,8 @@ namespace tok::parser {
   class ParserStream {
   private:
     std::deque<Token> lookahead;
-    lexer::TokenIter<tok::Tok>::Iter iter;
-    lexer::TokenIter<tok::Tok>::Iter end;
+    TokIter::Iter iter;
+    TokIter::Iter end;
 
   public:
     /**
@@ -41,7 +41,7 @@ namespace tok::parser {
      */
     lexer::SrcLoc lastLoc;
 
-    ParserStream(lexer::TokenIter<Tok> &stream) :
+    ParserStream(TokIter &stream) :
         iter(stream.begin()),
         end(stream.end()) {}
 
@@ -134,7 +134,7 @@ namespace tok::parser {
       }
     };
 
-    std::optional<Token> skipUntil(const std::set<Tok> types) {
+    std::optional<Token> skipUntil(const std::set<Tok> &types) {
       while (true) {
         std::optional<Token> tok = optional(AlwaysPred(), true);
         if (tok) {
@@ -147,7 +147,7 @@ namespace tok::parser {
       }
     }
 
-    Token require(const std::set<Tok> types, const std::string &msg) {
+    Token require(const std::set<Tok> &types, const std::string &msg) {
       auto opt = optional(types);
       if (opt) {
         return std::move(*opt);
@@ -667,7 +667,7 @@ namespace tok::parser {
     }
   }
 
-  ParseResult parseProgram(lexer::TokenIter<Tok> &tokens) {
+  ParseResult parseProgram(TokIter &tokens) {
     ParseResult res;
     tokens.stream.setYieldLines();
     ParserStream stream = ParserStream(tokens);

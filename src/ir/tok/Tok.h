@@ -9,7 +9,18 @@ struct fsm::Finished<tok::Tok> {
   void merge(tok::Tok &lhs, tok::Tok rhs);
 };
 
+#ifndef USE_COMPILED_DFA
+#define USE_COMPILED_DFA 1
+#endif
+
 namespace tok {
+#if (USE_COMPILED_DFA)
+#include "CompiledDFA.h"
+  using LexerType = lexer::Lexer<tok::Tok, CompiledDFA>;
+#else
+  using LexerType = lexer::Lexer<tok::Tok>;
+#endif
+
   using Token = lexer::Token<Tok>;
-  const lexer::Lexer<tok::Tok> &lexer();
+  const LexerType &lexer();
 }

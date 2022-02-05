@@ -1,16 +1,17 @@
 #include "Tok.h"
-
-tok::Tok fsm::Finished<tok::Tok>::rejecting() {
-  return tok::Tok::TInvalid;
-}
-
-void fsm::Finished<tok::Tok>::merge(tok::Tok &lhs, tok::Tok rhs) {
-  lhs = std::max(lhs, rhs);
-}
+#include "LexerCommon.h"
 
 namespace tok {
-  const lexer::Lexer<tok::Tok> LEXER(TOKEN_PATTERNS);
-  const lexer::Lexer<tok::Tok> &lexer() {
+#if (USE_COMPILED_DFA)
+#include "CompiledDFA.cc"
+  const LexerType LEXER;
+#else
+  static unsigned char DFA_DATA[] = {
+#include "DFAData.h"
+  };
+  const LexerType LEXER(DFA_DATA, sizeof(DFA_DATA));
+#endif
+  const LexerType &lexer() {
     return LEXER;
   }
 }

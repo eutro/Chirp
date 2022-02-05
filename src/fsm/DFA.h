@@ -19,6 +19,9 @@ namespace fsm {
     }
   };
 
+  template <typename T, typename T2 = void>
+  struct Codec;
+
   /**
    * A state of a DFA.
    *
@@ -71,6 +74,10 @@ namespace fsm {
     size_t push() {
       states.emplace_back();
       return states.size() - 1;
+    }
+
+    F finished(size_t state) const {
+      return states[state].finished;
     }
 
     /**
@@ -225,6 +232,140 @@ namespace fsm {
       }
       optimised.initial = grouped[initial];
       return optimised;
+    }
+    
+    void compileInto(const std::string &sTy, const std::string &fTy, std::ostream &os) const {
+      os << "CompiledDFA::CompiledDFA(): initial(" << initial << ") {}\n";
+      os << "bool CompiledDFA::accept(size_t &current, " << sTy << " &symbol) const {\n";
+      os << "  switch (current) {\n";
+      for (size_t state = 0; state < states.size(); ++state) {
+        os << "    case " << state << ":";
+        const DFAState<S, F> &stateV = states.at(state);
+        if (stateV.transitions.empty()) {
+          os << " break;\n";
+          continue;
+        } else {
+          os << "\n";
+        }
+        os << "      switch (symbol) {\n";
+        std::map<size_t, std::vector<const S *>> trev;
+        for (auto &e : stateV.transitions) {
+          trev[e.second].push_back(&e.first);
+        }
+        for (auto &e : trev) {
+          for (auto it = e.second.begin(); it != e.second.end();) {
+            os << "        case ";
+            if constexpr (std::is_same_v<S, char>) {
+              os << "(char)0x" << std::hex << (unsigned int) (unsigned char) **it;
+              os << std::dec;
+            } else {
+              os << e.first;
+            }
+            os << ":";
+            if (++it != e.second.end()) os << " [[fallthrough]];\n";
+            else os << "\n";
+          }
+          os << "          current = " << e.first << ";\n";
+          os << "          return true;\n";
+        }
+        os << "      }\n";
+        os << "      break;\n";
+      }
+      os << "  }\n";
+      os << "  return false;\n";
+      os << "}\n";
+      os << "" << fTy << " CompiledDFA::finished(size_t state) const {\n";
+      os << "  switch (state) {\n";
+      for (size_t state = 0; state < states.size(); ++state) {
+        os << "    case " << state << ":";
+        const DFAState<S, F> &stateV = states.at(state);
+        os << " return (" << fTy << ")0x" << std::hex << (size_t) stateV.finished << std::dec << ";\n";
+      }
+      os << "  }\n";
+      os << "  return (" << fTy << ")0;\n";
+      os << "}\n";
+    }
+  };
+
+  template <typename I>
+  struct Codec<I, typename std::enable_if<std::is_trivially_copyable_v<I>>::type> {
+    void encode(const I &i, std::ostream &os) {
+      os.write(reinterpret_cast<const char*>(&i), sizeof(I));
+    }
+    void decode(I &i, std::istream &is) {
+      is.read(reinterpret_cast<char *>(&i), sizeof(I));
+    }
+  };
+
+  template <typename T>
+  struct Codec<std::vector<T>> {
+    void encode(const std::vector<T> &i, std::ostream &os) {
+      Codec<size_t>().encode(i.size(), os);
+      Codec<T> c;
+      for (const T &t : i) {
+        c.encode(t, os);
+      }
+    }
+    void decode(std::vector<T> &i, std::istream &is) {
+      size_t size;
+      Codec<size_t>().decode(size, is);
+      i.resize(size);
+      Codec<T> c;
+      for (T &t : i) {
+        c.decode(t, is);
+      }
+    }
+  };
+
+  template <typename K, typename V>
+  struct Codec<std::map<K, V>> {
+    Codec<size_t> ic;
+    Codec<K> kc;
+    Codec<V> vc;
+    void encode(const std::map<K, V> &m, std::ostream &os) {
+      ic.encode(m.size(), os);
+      for (const auto &kv : m) {
+        kc.encode(kv.first, os);
+        vc.encode(kv.second, os);
+      }
+    }
+    void decode(std::map<K, V> &m, std::istream &is) {
+      size_t size;
+      ic.decode(size, is);
+      for (size_t i = 0; i < size; ++i) {
+        std::pair<K, V> kv;
+        kc.decode(kv.first, is);
+        vc.decode(kv.second, is);
+        m.emplace_hint(m.end(), std::move(kv));
+      }
+    }
+  };
+
+  template <typename S, typename F>
+  struct Codec<DFAState<S, F>> {
+    Codec<std::map<S, size_t>> tc;
+    Codec<F> fc;
+    void encode(const DFAState<S, F> &s, std::ostream &os) {
+      tc.encode(s.transitions, os);
+      fc.encode(s.finished, os);
+    }
+    void decode(DFAState<S, F> &s, std::istream &is) {
+      tc.decode(s.transitions, is);
+      fc.decode(s.finished, is);
+    }
+  };
+
+  template <typename S, typename F>
+  struct Codec<DFA<S, F>> {
+    Codec<std::vector<DFAState<S, F>>> vc;
+    Codec<size_t> ic;
+    void encode(const DFA<S, F> &dfa, std::ostream &os) {
+      vc.encode(dfa.states, os);
+      ic.encode(dfa.initial, os);
+    }
+    void decode(DFA<S, F> &dfa, std::istream &is) {
+      vc.decode(dfa.states, is);
+      ic.decode(dfa.initial, is);
     }
   };
 }

@@ -1,6 +1,10 @@
 add_library(tok tok/Tok.cc)
 target_link_libraries(tok regex loc)
 
+add_executable(tokencode tok/Encode.cc)
+target_compile_definitions(tokencode PUBLIC USE_COMPILED_DFA=0)
+target_link_libraries(tokencode regex loc)
+
 add_library(ast ast/Ast.cc)
 
 add_library(hir hir/Hir.cc)
