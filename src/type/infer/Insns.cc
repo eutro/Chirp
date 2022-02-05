@@ -51,7 +51,7 @@ namespace type::infer {
       } else {
         std::visit(
             overloaded{
-                [&](Ty::Tuple &lt, Ty::Tuple &rt) {
+                [&](const Ty::Tuple &lt, const Ty::Tuple &rt) {
                   if (lt.t.size() != rt.t.size()) {
                     throw err::LocationError("Tuple size mismatch when deconstructing");
                   }
@@ -61,7 +61,7 @@ namespace type::infer {
                     doDeconstruct(*ltIt, *rtIt);
                   }
                 },
-                [&](Ty::ADT &lt, Ty::ADT &rt) {
+                [&](const Ty::ADT &lt, const Ty::ADT &rt) {
                   if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
                     throw err::LocationError("ADT type mismatch when deconstructing");
                   }
@@ -71,7 +71,7 @@ namespace type::infer {
                     doDeconstruct(*ltIt, *rtIt);
                   }
                 },
-                [&](Ty::FfiFn &lt, Ty::FfiFn &rt) {
+                [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
                   doDeconstruct(lt.args, rt.args);
                   doDeconstruct(lt.ret, rt.ret);
                 },
@@ -129,16 +129,16 @@ namespace type::infer {
     if (lhs->v.index() == rhs->v.index()) {
       if (std::visit(
           overloaded{
-              [](Ty::Int &l, Ty::Int &r) {return l.s == r.s;},
-              [](Ty::UInt &l, Ty::UInt &r) {return l.s == r.s;},
-              [](Ty::Float &l, Ty::Float &r) {return l.s == r.s;},
-              [](Ty::ADT &l, Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
-              [](Ty::Undetermined &l, Ty::Undetermined &r) {return false;},
-              [](Ty::Union &l, Ty::Union &r) {return false;},
-              [](Ty::Tuple &l, Ty::Tuple &r) {return tryUnify(l.t, r.t);},
-              [](Ty::String &l, Ty::String &r) {return l.nul == r.nul;},
-              [](Ty::FfiFn &l, Ty::FfiFn &r) {return tryUnify({l.args, l.ret}, {r.args, r.ret});},
-              [](auto &, auto &) {
+              [](const Ty::Int &l, const Ty::Int &r) {return l.s == r.s;},
+              [](const Ty::UInt &l, const Ty::UInt &r) {return l.s == r.s;},
+              [](const Ty::Float &l, const Ty::Float &r) {return l.s == r.s;},
+              [](const Ty::ADT &l, const Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
+              [](const Ty::Undetermined &l, const Ty::Undetermined &r) {return false;},
+              [](const Ty::Union &l, const Ty::Union &r) {return false;},
+              [](const Ty::Tuple &l, const Ty::Tuple &r) {return tryUnify(l.t, r.t);},
+              [](const Ty::String &l, const Ty::String &r) {return l.nul == r.nul;},
+              [](const Ty::FfiFn &l, const Ty::FfiFn &r) {return tryUnify({l.args, l.ret}, {r.args, r.ret});},
+              [](const auto &, const auto &) {
                 // Err, Bool
                 return true;
               }
@@ -244,7 +244,7 @@ namespace type::infer {
                   return tcx.intern(Ty::CyclicRef{cycleDepth});
                 }
                 if (std::holds_alternative<Ty::Undetermined>(ty->v)) {
-                  auto &ud = std::get<Ty::Undetermined>(ty->v);
+                  const auto &ud = std::get<Ty::Undetermined>(ty->v);
                   if (ud.ref[0] == ref.first && ud.ref[1] == ref.second) {
                     return replaceTy(recurTys.at(ud.ref[2]));
                   }

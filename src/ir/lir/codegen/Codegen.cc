@@ -210,7 +210,7 @@ namespace lir::codegen {
   }
 
   Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::LiteralInt &i) {
-    Ty *cTy = lcc.inst.loggedTys.at(insn.ty);
+    Tp cTy = lcc.inst.loggedTys.at(insn.ty);
     auto ty = getTy(cc, cTy);
     auto *intTy = llvm::cast<llvm::IntegerType>(ty);
     return {llvm::ConstantInt::get(intTy, i.value, 10), ty, Value::Direct};

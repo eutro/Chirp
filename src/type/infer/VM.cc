@@ -230,7 +230,7 @@ namespace type::infer {
     // garbage collect insns
     // the "roots" are the output insn and any insn with side effects
     {
-      std::set<LookupKey *> knownPure
+      std::set<LookupKey::P> knownPure
         {IdentityInsn::key(),
          ConstructInsn::key(),
          UnionInsn::key(),

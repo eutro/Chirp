@@ -55,20 +55,20 @@ namespace type::infer {
       using TT = std::tuple<decltype(idx), decltype(keys)>;
       std::tie(idx, keys) = std::visit(
           overloaded{
-              [](Ty::Err &t) -> TT { return {util::index_of_type_v<Ty::Err, TyV>, {}}; },
-              [](Ty::Bool &t) -> TT { return {util::index_of_type_v<Ty::Bool, TyV>, {}}; },
-              [](Ty::Int &t) -> TT { return {util::index_of_type_v<Ty::Int, TyV>, {(Idx) t.s}}; },
-              [](Ty::UInt &t) -> TT { return {util::index_of_type_v<Ty::UInt, TyV>, {(Idx) t.s}}; },
-              [](Ty::Float &t) -> TT { return {util::index_of_type_v<Ty::Float, TyV>, {(Idx) t.s}}; },
-              [](Ty::Placeholder &t) -> TT { throw util::ICE("Wildcard does not have a constructor"); },
-              [](Ty::ADT &t) -> TT { return {util::index_of_type_v<Ty::ADT, TyV>, {t.i, (Idx) t.s.size()}}; },
-              [](Ty::Union &t) -> TT { return {util::index_of_type_v<Ty::Union, TyV>, {(Idx) t.tys.size()}}; },
-              [](Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
-              [](Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
-              [](Ty::Cyclic &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
-              [](Ty::CyclicRef &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
-              [](Ty::Undetermined &t) -> TT { throw util::ICE("Undetermined pattern matching unsupported"); },
-              [](Ty::FfiFn &t) -> TT { return {util::index_of_type_v<Ty::FfiFn, TyV>, {}}; },
+              [](const Ty::Err &t) -> TT { return {util::index_of_type_v<Ty::Err, TyV>, {}}; },
+              [](const Ty::Bool &t) -> TT { return {util::index_of_type_v<Ty::Bool, TyV>, {}}; },
+              [](const Ty::Int &t) -> TT { return {util::index_of_type_v<Ty::Int, TyV>, {(Idx) t.s}}; },
+              [](const Ty::UInt &t) -> TT { return {util::index_of_type_v<Ty::UInt, TyV>, {(Idx) t.s}}; },
+              [](const Ty::Float &t) -> TT { return {util::index_of_type_v<Ty::Float, TyV>, {(Idx) t.s}}; },
+              [](const Ty::Placeholder &t) -> TT { throw util::ICE("Wildcard does not have a constructor"); },
+              [](const Ty::ADT &t) -> TT { return {util::index_of_type_v<Ty::ADT, TyV>, {t.i, (Idx) t.s.size()}}; },
+              [](const Ty::Union &t) -> TT { return {util::index_of_type_v<Ty::Union, TyV>, {(Idx) t.tys.size()}}; },
+              [](const Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
+              [](const Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
+              [](const Ty::Cyclic &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
+              [](const Ty::CyclicRef &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
+              [](const Ty::Undetermined &t) -> TT { throw util::ICE("Undetermined pattern matching unsupported"); },
+              [](const Ty::FfiFn &t) -> TT { return {util::index_of_type_v<Ty::FfiFn, TyV>, {}}; },
           },
           ty->v);
     }
@@ -76,10 +76,10 @@ namespace type::infer {
   
   std::vector<Tp> childrenOf(Tp ty) {
     return std::visit(overloaded {
-        [=](Ty::FfiFn &t) -> std::vector<Tp> { return {t.args, t.ret}; },
-        [=](Ty::Tuple &t) { return t.t; },
-        [=](Ty::ADT &t) { return t.s; },
-        [=](auto &) -> std::vector<Tp> { return {}; }
+        [=](const Ty::FfiFn &t) -> std::vector<Tp> { return {t.args, t.ret}; },
+        [=](const Ty::Tuple &t) { return t.t; },
+        [=](const Ty::ADT &t) { return t.s; },
+        [=](const auto &) -> std::vector<Tp> { return {}; }
     }, ty->v);
   }
 
@@ -221,7 +221,7 @@ namespace type::infer {
     struct StackVal {
       Tp ty;
       std::optional<Idx> splittableUnion = std::nullopt;
-      StackVal(Ty *ty) : ty(ty) {}
+      StackVal(Tp ty) : ty(ty) {}
     };
     
     std::optional<Fn> decideStack(DTree *tree, std::deque<StackVal> &stack) {
@@ -477,9 +477,9 @@ namespace type::infer {
   };
 
   struct LookupTableImpl : public LookupTable {
-    std::map<std::pair<LookupKey*, std::vector<Constant>>, OverloadLookup> fns;
+    std::map<std::pair<LookupKey::P, std::vector<Constant>>, OverloadLookup> fns;
     Fn lookupFn(
-      LookupKey *fn,
+      LookupKey::P fn,
       const std::vector<Constant> &constants,
       const std::vector<Tp> &args
     ) override {
@@ -518,7 +518,7 @@ namespace type::infer {
 
     }
     void insertFn(
-      LookupKey *fn,
+      LookupKey::P fn,
       const std::vector<Constant> &constants,
       const std::vector<Tp> &params,
       Fn &&fnv
@@ -526,7 +526,7 @@ namespace type::infer {
       fns[{fn, constants}].insert(params, std::forward<Fn>(fnv));
     }
     void insertFallback(
-        LookupKey *fn,
+        LookupKey::P fn,
         const std::vector<Constant> &constants,
         Fn &&fnv
     ) override {
@@ -535,7 +535,7 @@ namespace type::infer {
   };
 
   static arena::InternArena<LookupKey> keys;
-  LookupKey *LookupKey::intern(const std::string &value) {
+  LookupKey::P LookupKey::intern(const std::string &value) {
     return keys.intern(std::string(value));
   }
 

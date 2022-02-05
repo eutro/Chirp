@@ -184,13 +184,13 @@ namespace hir::infer {
           if (externsRev.count(vr)) {
             return externsRev.at(vr);
           } else {
-            Ty *tp = tcx.intern(Ty::Placeholder{counter++});
+            Tp tp = tcx.intern(Ty::Placeholder{counter++});
             externs.insert({tp, vr});
             return externsRev[vr] = tp;
           }
         };
-        LookupKey *idKey = IdentityInsn::key();
-        LookupKey *constructKey = ConstructInsn::key();
+        LookupKey::P idKey = IdentityInsn::key();
+        LookupKey::P constructKey = ConstructInsn::key();
         for (Insn *insn : insns) {
           std::vector<Tp> inputs;
           inputs.reserve(insn->inputs.size());

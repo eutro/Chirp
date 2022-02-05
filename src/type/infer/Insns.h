@@ -7,7 +7,7 @@
 namespace type::infer {
   struct IdentityInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("id"); }
+    static LookupKey::P key() { return LookupKey::intern("id"); }
   };
   static_assert(std::is_assignable_v<Fn, IdentityInsn>);
 
@@ -20,42 +20,42 @@ namespace type::infer {
 
   struct ConstructInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("construct"); }
+    static LookupKey::P key() { return LookupKey::intern("construct"); }
   };
   static_assert(std::is_assignable_v<Fn, ConstructInsn>);
 
   struct DeConstructInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("deconstruct"); }
+    static LookupKey::P key() { return LookupKey::intern("deconstruct"); }
   };
   static_assert(std::is_assignable_v<Fn, DeConstructInsn>);
 
   struct OutputInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("output"); }
+    static LookupKey::P key() { return LookupKey::intern("output"); }
   };
   static_assert(std::is_assignable_v<Fn, OutputInsn>);
 
   struct TrapInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("trap"); }
+    static LookupKey::P key() { return LookupKey::intern("trap"); }
   };
   static_assert(std::is_assignable_v<Fn, TrapInsn>);
 
   struct UnionInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("union"); }
+    static LookupKey::P key() { return LookupKey::intern("union"); }
   };
   static_assert(std::is_assignable_v<Fn, UnionInsn>);
 
   struct CheckInsn {
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const;
-    static LookupKey *key() { return LookupKey::intern("check"); }
+    static LookupKey::P key() { return LookupKey::intern("check"); }
   };
   static_assert(std::is_assignable_v<Fn, CheckInsn>);
 
   struct TraitInsn {
-    static LookupKey *key() { return LookupKey::intern("trait"); }
+    static LookupKey::P key() { return LookupKey::intern("trait"); }
   };
 
   struct InstWrapper {
@@ -74,7 +74,7 @@ namespace type::infer {
   static_assert(std::is_assignable_v<Fn, InstWrapper>);
 
   struct LogInsn {
-    static LookupKey *key() { return LookupKey::intern("log"); }
+    static LookupKey::P key() { return LookupKey::intern("log"); }
     std::vector<Tp> operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cs) const;
   };
   static_assert(std::is_assignable_v<Fn, LogInsn>);

@@ -23,7 +23,7 @@
 namespace lir::codegen {
   using type::Ty;
   using Instantiation = type::infer::Inst::Val;
-  using Tp = Ty *;
+  using Tp = type::Tp;
   struct LocalCC;
   struct CC;
   struct Value;
@@ -73,7 +73,7 @@ namespace lir::codegen {
 
     // _[block][inst]
     std::map<Idx, std::map<Idx, EmitFn>> emitCall;
-    std::map<type::Ty *, TyTuple> tyCache;
+    std::map<type::Tp, TyTuple> tyCache;
     std::map<std::pair<Tp, Tp>, llvm::FunctionCallee> unionConversions;
 
     std::map<Idx, Value> vars;
@@ -117,13 +117,13 @@ namespace lir::codegen {
     std::vector<llvm::DILocalScope *> scopes{func->getSubprogram()};
   };
 
-  llvm::FunctionType *ffiFnTy(CC &cc, type::Ty::FfiFn &v);
+  llvm::FunctionType *ffiFnTy(CC &cc, const Ty::FfiFn &v);
 
-  const TyTuple &getTyTuple(CC &cc, type::Ty *ty);
+  const TyTuple &getTyTuple(CC &cc, type::Tp ty);
 
   bool isZeroSize(Tp ty);
 
-  llvm::StructType *adtTy(CC &cc, type::Ty::ADT &v);
+  llvm::StructType *adtTy(CC &cc, const Ty::ADT &v);
 
   llvm::StructType *unionTy(CC &cc, llvm::Type *valueType);
 

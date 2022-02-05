@@ -306,7 +306,7 @@ namespace lir::codegen {
     throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
   }
   
-  const TyTuple &getTyTuple(CC &cc, type::Ty *ty) {
+  const TyTuple &getTyTuple(CC &cc, type::Tp ty) {
     auto found = cc.tyCache.find(ty);
     if (found != cc.tyCache.end()) {
       if (std::get<0>(found->second)) {
@@ -316,7 +316,7 @@ namespace lir::codegen {
       }
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-      Ty *uncycled = type::uncycle(ty);
+      Tp uncycled = type::uncycle(ty);
       return getTyTuple(cc, uncycled);
     } else {
       cc.tyCache[ty] = std::make_tuple(nullptr, nullptr, std::nullopt);
@@ -327,16 +327,16 @@ namespace lir::codegen {
 
   bool isZeroSize(Tp ty) {
     return std::visit(overloaded {
-        [](Ty::Tuple &v) {
+        [](const Ty::Tuple &v) {
           return std::all_of(v.t.begin(), v.t.end(), isZeroSize);
         },
-        [](Ty::ADT &v) {
+        [](const Ty::ADT &v) {
           return std::all_of(v.s.begin(), v.s.end(), isZeroSize);
         },
         // cyclic types are only non-zero sized if a contained
         // component is, so cyclic references should be ignored
-        [](Ty::Cyclic &c) { return isZeroSize(c.ty); },
-        [](Ty::CyclicRef&) { return true; },
+        [](const Ty::Cyclic &c) { return isZeroSize(c.ty); },
+        [](const Ty::CyclicRef&) { return true; },
         // other types assumed to be non-zero sized
         [](auto &v) { return false; },
       }, ty->v);
@@ -346,7 +346,7 @@ namespace lir::codegen {
     return llvm::DILocation::get(cc.ctx, loc.line, loc.col, lcc.scopes.back());
   }
 
-  llvm::FunctionType *ffiFnTy(CC &cc, Ty::FfiFn &v) {
+  llvm::FunctionType *ffiFnTy(CC &cc, const Ty::FfiFn &v) {
     auto &tup = std::get<Ty::Tuple>(v.args->v);
     std::vector<llvm::Type *> argTys;
     argTys.reserve(tup.t.size());
@@ -356,7 +356,7 @@ namespace lir::codegen {
     return llvm::FunctionType::get(getTy(cc, v.ret), argTys, false);
   }
 
-  llvm::StructType *adtTy(CC &cc, Ty::ADT &v) {
+  llvm::StructType *adtTy(CC &cc, const Ty::ADT &v) {
     std::vector<llvm::Type *> fieldTys;
     fieldTys.reserve(v.s.size());
     for (Tp fieldTy : v.s) {

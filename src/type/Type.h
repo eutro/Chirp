@@ -26,7 +26,7 @@ namespace type {
     void addName(Idx i, std::string name);
   };
 
-  using Tp = Ty *;
+  using Tp = const Ty *;
 
   enum class IntSize {
     i8,
@@ -60,7 +60,7 @@ namespace type {
 
   class Ty;
 
-  using Substs = std::vector<Ty*>;
+  using Substs = std::vector<Tp>;
 
 #define BIN_OPS(TYPE)                            \
   bool operator<(const TYPE &o) const;           \
@@ -100,7 +100,7 @@ namespace type {
       BIN_OPS(Union)
     };
     struct Tuple {
-      std::vector<Ty*> t;
+      std::vector<Tp> t;
       BIN_OPS(Tuple)
     };
     struct String {
@@ -108,7 +108,7 @@ namespace type {
       BIN_OPS(String)
     };
     struct Cyclic {
-      Ty *ty;
+      Tp ty;
       BIN_OPS(Cyclic)
     };
     struct CyclicRef {
@@ -176,7 +176,7 @@ ITER_HASH(std::vector<Idx>)
 #undef IMPL_SINGLETON
 
 namespace type {
-  Ty *uncycle(Ty *);
+  Tp uncycle(Tp );
 
   struct PreWalk {};
   struct PostWalk {};

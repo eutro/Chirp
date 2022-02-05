@@ -6,7 +6,7 @@
 
 namespace hir::infer {
   using type::Ty;
-  using Tp = Ty *;
+  using type::Tp;
 
   struct InferResult {
     std::shared_ptr<type::infer::Inst::Set> insts;

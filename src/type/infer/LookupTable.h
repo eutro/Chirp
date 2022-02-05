@@ -5,27 +5,28 @@
 
 namespace type::infer {
   struct LookupKey {
+    using P = const LookupKey *;
     std::string value;
     LookupKey(std::string &&s): value(std::forward<std::string>(s)) {}
     bool operator<(const LookupKey &o) const { return value < o.value; }
-    static LookupKey *intern(const std::string &value);
+    static LookupKey::P intern(const std::string &value);
   };
 
   struct LookupTable {
     virtual ~LookupTable() = default;
     virtual Fn lookupFn(
-      LookupKey *fn, 
+      LookupKey::P fn,
       const std::vector<Constant> &constants, 
       const std::vector<Tp> &params
     ) = 0;
     virtual void insertFn(
-      LookupKey *fn, 
+      LookupKey::P fn,
       const std::vector<Constant> &constants, 
       const std::vector<Tp> &params,
       Fn &&fnv
     ) = 0;
     virtual void insertFallback(
-        LookupKey *fn,
+        LookupKey::P fn,
         const std::vector<Constant> &constants,
         Fn &&fnv
     ) = 0;

@@ -49,7 +49,7 @@ namespace arena {
     }
 
     template <typename ...Args>
-    T *intern(Args &&...args) {
+    const T *intern(Args &&...args) {
       auto insert = interned.insert(
         std::make_unique<T>(std::forward<Args>(args)...)
       );

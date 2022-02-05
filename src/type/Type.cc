@@ -30,7 +30,7 @@ namespace type {
     }
   }
 
-  Ty *uncycle(Tcx &tcx, Ty *ty) {
+  Tp uncycle(Tcx &tcx, Tp ty) {
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Idx depth = 0;
       auto uncycler = overloaded {
@@ -60,7 +60,7 @@ namespace type {
     }
     return ty;
   }
-  Ty *uncycle(Ty *ty) {
+  Tp uncycle(Tp ty) {
     return uncycle(*ty->tcx, ty);
   }
 

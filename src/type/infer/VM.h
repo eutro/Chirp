@@ -36,7 +36,7 @@ namespace type::infer {
     /**
      * The function to invoke to execute this insn.
      */
-    LookupKey *key;
+    LookupKey::P key;
     /**
      * Extra constant arguments to the function.
      * e.g. trait index
