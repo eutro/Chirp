@@ -189,13 +189,18 @@ namespace ast::lower {
       }
 
       std::monostate visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, bool topLevel) override {
+        idcs.push_back(lv.introduceDef(lv.typeBindings, hir::Definition{
+            it.name.ident.value,
+            it.name.ident.span(),
+            DefType::Type{0,0}
+        }));
         if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
-          auto &adt = std::get<TypeDefn::ADT>(it.val);
           lv.introduceDef(hir::Definition{
               it.name.ident.value,
               it.name.ident.span(),
               DefType::ADT{} // to populate later
           });
+          auto &adt = std::get<TypeDefn::ADT>(it.val);
           for (auto &ty : adt.types) {
             visitType(*ty, idcs);
           }
@@ -203,11 +208,6 @@ namespace ast::lower {
           auto &alias = std::get<TypeDefn::Alias>(it.val);
           visitType(*alias.type, idcs);
         }
-        idcs.push_back(lv.introduceDef(lv.typeBindings, hir::Definition{
-            it.name.ident.value,
-            it.name.ident.span(),
-            DefType::Type{0,0}
-        }));
         return {};
       }
 
@@ -662,7 +662,7 @@ namespace ast::lower {
         typeDef.value = visitType(*alias.type, &idcs, &iidx);
       } else {
         auto &adt = std::get<TypeDefn::ADT>(it.val);
-        Idx adtIdx = idx - 1; // type of the ADT introduced
+        Idx adtIdx = idx + 1; // type of the ADT introduced
         auto &adtDef = std::get<DefType::ADT>(program.bindings.at(adtIdx).defType.v);
         for (const auto &fieldTy : adt.types) {
           adtDef.fields.push_back(visitType(*fieldTy, &idcs, &iidx));
