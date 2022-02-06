@@ -773,13 +773,13 @@ namespace hir::infer {
       std::vector<Tp> paramTys;
       paramTys.reserve(e.types.size());
       Idx i = 0;
-      for (auto &t : e.types) {
-        args.push_back(parseCompleteTy(t, ig));
-        paramTys.push_back(tcx.intern(Ty::Placeholder{i++}));
-      }
       for (const auto &se : e.values) {
         args.push_back(visitExpr(*se PASS_ARGS));
         fieldTys.push_back(tcx.intern(Ty::Placeholder{i++}));
+      }
+      for (auto &t : e.types) {
+        args.push_back(parseCompleteTy(t, ig));
+        paramTys.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
       Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, paramTys, fieldTys});
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(args), {tyTemplate}, "construction", e.span));
@@ -793,7 +793,7 @@ namespace hir::infer {
       size_t fieldCount = adt.fields.size();
       Idx i = 0;
       for (; i < paramCount; ++i) {
-        fields.push_back(tcx.intern(Ty::Placeholder{i}));
+        params.push_back(tcx.intern(Ty::Placeholder{i}));
       }
       for (; i < paramCount + fieldCount; ++i) {
         fields.push_back(tcx.intern(Ty::Placeholder{i}));
