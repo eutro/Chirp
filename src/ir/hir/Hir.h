@@ -23,7 +23,6 @@ namespace hir {
     std::optional<loc::Span> source;
     std::optional<DefIdx> base;
     std::vector<Type> params;
-    std::optional<DefIdx> self;
   };
 
   struct DefType {
@@ -93,7 +92,6 @@ namespace hir {
   public:
     Type type, trait;
     loc::Span source;
-    std::map<DefIdx, Type> preTypes;
     std::vector<Type> types;
     std::vector<Block> methods;
   };

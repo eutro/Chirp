@@ -1,6 +1,9 @@
-defn id(x) = x
-id(1)
-
+defn typeof(x) = { type T = _, x: T, T }
+type Foo(i64)
 type Bar(i64 | Bar)
 
-Bar(1)
+defn haha<T>(x: type<T>) = \.T(1)
+
+haha(Foo)()
+
+// Bar(1)
