@@ -93,6 +93,7 @@ namespace type {
     struct ADT {
       Idx i;
       Substs s;
+      Substs fieldTys;
       BIN_OPS(ADT)
     };
     struct Union {
@@ -202,7 +203,9 @@ namespace type {
         break;
       case util::index_of_type_v<Ty::ADT, VTy>: {
         auto &adt = std::get<Ty::ADT>(ty->v);
-        auto uret = Ty::ADT{adt.i, replaceTy<IGNORED>(tcx, adt.s, tr)};
+        auto uret = Ty::ADT{adt.i,
+                            replaceTy<IGNORED>(tcx, adt.s, tr),
+                            replaceTy<IGNORED>(tcx, adt.fieldTys, tr)};
         if constexpr (!IGNORED) ty = tcx.intern(uret);
         else (void)uret;
         break;

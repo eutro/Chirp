@@ -38,8 +38,8 @@ namespace hir {
     };
     struct Trait {};
     struct ADT {
-      std::vector<DefIdx> values; // FIXME nobody actually cares about these values?
-      std::vector<DefIdx> types;
+      std::vector<DefIdx> params;
+      std::vector<hir::Type> fields;
     };
     std::variant<Variable, Trait, Type, ADT> v;
     template <typename... Arg>
@@ -199,6 +199,7 @@ namespace hir {
   class NewExpr : public Expr {
   public:
     Idx adt;
+    std::vector<Type> types;
     std::vector<Eptr> values;
 
     _acceptDef(Expr) override;

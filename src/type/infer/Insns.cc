@@ -69,13 +69,22 @@ namespace type::infer {
                     }
                   },
                   [&](const Ty::ADT &lt, const Ty::ADT &rt) {
-                    if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
+                    if (lt.i != rt.i || lt.s.size() != rt.s.size() || lt.fieldTys.size() != rt.fieldTys.size()) {
                       throw err::LocationError(util::toStr("Base type mismatch when deconstructing in ", tmplTy, " and ", ty));
                     }
-                    auto ltIt = lt.s.begin();
-                    auto rtIt = rt.s.begin();
-                    for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
-                      doDeconstruct(*ltIt, *rtIt);
+                    {
+                      auto ltIt = lt.s.begin();
+                      auto rtIt = rt.s.begin();
+                      for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
+                        doDeconstruct(*ltIt, *rtIt);
+                      }
+                    }
+                    {
+                      auto lftIt = lt.fieldTys.begin();
+                      auto rftIt = rt.fieldTys.begin();
+                      for (; lftIt != lt.fieldTys.end(); ++lftIt, ++rftIt) {
+                        doDeconstruct(*lftIt, *rftIt);
+                      }
                     }
                   },
                   [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
@@ -153,7 +162,7 @@ namespace type::infer {
               [](const Ty::Int &l, const Ty::Int &r) {return l.s == r.s;},
               [](const Ty::UInt &l, const Ty::UInt &r) {return l.s == r.s;},
               [](const Ty::Float &l, const Ty::Float &r) {return l.s == r.s;},
-              [](const Ty::ADT &l, const Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
+              [](const Ty::ADT &l, const Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s) && tryUnify(l.fieldTys, r.fieldTys);},
               [](const Ty::Undetermined &l, const Ty::Undetermined &r) {return false;},
               [](const Ty::Union &l, const Ty::Union &r) {return false;},
               [](const Ty::Tuple &l, const Ty::Tuple &r) {return tryUnify(l.t, r.t);},

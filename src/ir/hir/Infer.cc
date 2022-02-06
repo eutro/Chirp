@@ -536,8 +536,13 @@ namespace hir::infer {
                 }
                 return placeholders[base];
               },
-              [&](DefType::ADT &) -> Tp {
-                return tcx.intern(Ty::ADT{base, visitParams(ty)});
+              [&](DefType::ADT &a) -> Tp {
+                std::vector<Tp> params = visitParams(ty);
+                std::vector<Tp> fields;
+                for (auto &t : a.fields) {
+                  fields.push_back(visitTy(t));
+                }
+                return tcx.intern(Ty::ADT{base, std::move(params), std::move(fields)});
               },
               [](DefType::Trait &) -> Tp {
                 throw std::runtime_error("Trait type hints unimplemented");
@@ -762,29 +767,40 @@ namespace hir::infer {
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
       std::vector<VarRef> args;
-      std::vector<Tp> argTys;
-      args.reserve(e.values.size());
-      argTys.reserve(e.values.size());
+      args.reserve(e.types.size() + e.values.size());
+      std::vector<Tp> fieldTys;
+      fieldTys.reserve(e.values.size());
+      std::vector<Tp> paramTys;
+      paramTys.reserve(e.types.size());
       Idx i = 0;
+      for (auto &t : e.types) {
+        args.push_back(parseCompleteTy(t, ig));
+        paramTys.push_back(tcx.intern(Ty::Placeholder{i++}));
+      }
       for (const auto &se : e.values) {
         args.push_back(visitExpr(*se PASS_ARGS));
-        argTys.push_back(tcx.intern(Ty::Placeholder{i++}));
+        fieldTys.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, argTys});
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, paramTys, fieldTys});
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(args), {tyTemplate}, "construction", e.span));
       return ig.lastInsn();
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
       VarRef objTy = visitExpr(*e.value PASS_ARGS);
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
-      size_t fieldCount = adt.values.size();
-      std::vector<Tp> params;
-      for (Idx i = 0; i < fieldCount; ++i) {
-        params.push_back(tcx.intern(Ty::Placeholder{i}));
+      std::vector<Tp> params, fields;
+      size_t paramCount = adt.params.size();
+      size_t fieldCount = adt.fields.size();
+      Idx i = 0;
+      for (; i < paramCount; ++i) {
+        fields.push_back(tcx.intern(Ty::Placeholder{i}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params)});
+      for (; i < paramCount + fieldCount; ++i) {
+        fields.push_back(tcx.intern(Ty::Placeholder{i}));
+      }
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params), std::move(fields)});
       ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {objTy}, {tyTemplate}, "field taken", e.span));
-      return ig.lastInsn(e.field);
+      return ig.lastInsn(paramCount + e.field);
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
       ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unimplemented foreign"}, "unimplemented foreign", e.span));

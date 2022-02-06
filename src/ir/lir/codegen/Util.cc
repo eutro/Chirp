@@ -68,9 +68,9 @@ namespace lir::codegen {
     cc.tyCache[ty] = tup;
     auto &optRef = std::get<2>(tup);
     std::vector<Idx> collectibles;
-    for (Idx i = 0; i < v.s.size(); ++i) {
+    for (Idx i = 0; i < v.fieldTys.size(); ++i) {
       const std::optional<GCData> &gcMeta =
-          std::get<2>(getTyTuple(cc, v.s[i]));
+          std::get<2>(getTyTuple(cc, v.fieldTys[i]));
       if (gcMeta) {
         collectibles.push_back(i);
       }
@@ -118,7 +118,7 @@ namespace lir::codegen {
               llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, idx))
           });
           llvm::Value *castGep = ib.CreatePointerCast(gep, i8PtrPtrTy);
-          llvm::Constant *meta = std::get<2>(getTyTuple(cc, v.s[idx]))->metadata;
+          llvm::Constant *meta = std::get<2>(getTyTuple(cc, v.fieldTys[idx]))->metadata;
           if (!meta) {
             meta = llvm::ConstantPointerNull::get(cc.gcMetaTy->getPointerTo());
           }
@@ -348,7 +348,7 @@ namespace lir::codegen {
           return std::all_of(v.t.begin(), v.t.end(), isZeroSize);
         },
         [](const Ty::ADT &v) {
-          return std::all_of(v.s.begin(), v.s.end(), isZeroSize);
+          return std::all_of(v.fieldTys.begin(), v.fieldTys.end(), isZeroSize);
         },
         // cyclic types are only non-zero sized if a contained
         // component is, so cyclic references should be ignored
@@ -375,8 +375,8 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, const Ty::ADT &v) {
     std::vector<llvm::Type *> fieldTys;
-    fieldTys.reserve(v.s.size());
-    for (Tp fieldTy : v.s) {
+    fieldTys.reserve(v.fieldTys.size());
+    for (Tp fieldTy : v.fieldTys) {
       fieldTys.push_back(getTy(cc, fieldTy));
     }
     return llvm::StructType::get(cc.ctx, fieldTys);
