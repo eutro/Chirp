@@ -652,6 +652,15 @@ namespace ast::lower {
     Eptr visitExpr(Expr &it, std::vector<Idx> &idcs, Idx &idx) override {
       return ExprVisitor::visitExpr(it, hir::Pos::Stmt);
     }
+    
+    static bool isFree(Idx i, hir::Type &ty) {
+      if (ty.self == i) return false;
+      if (ty.base == i) return true;
+      for (auto &p : ty.params) {
+        if (isFree(i, p)) return true;
+      }
+      return false;
+    }
 
     Eptr visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, Idx &iidx) override {
       Idx idx = idcs.at(iidx++);
@@ -660,16 +669,24 @@ namespace ast::lower {
       if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
         auto &alias = std::get<TypeDefn::Alias>(it.val);
         typeDef.value = visitType(*alias.type, &idcs, &iidx);
+        if (isFree(idx, *typeDef.value)) {
+          typeDef.value->self = idx;
+        }
       } else {
         auto &adt = std::get<TypeDefn::ADT>(it.val);
         Idx adtIdx = idx - 1; // type of the ADT introduced
         auto &adtDef = std::get<DefType::ADT>(program.bindings.at(adtIdx).defType.v);
+        bool isCyclic = false;
         for (const auto &fieldTy : adt.types) {
-          adtDef.fields.push_back(visitType(*fieldTy, &idcs, &iidx));
+          hir::Type &ty = adtDef.fields.emplace_back(visitType(*fieldTy, &idcs, &iidx));
+          if (!isCyclic && isFree(idx, ty)) {
+            isCyclic = true;
+          }
         }
         hir::Type ty;
         ty.base = adtIdx;
         ty.source = ((Type &)it).span;
+        if (isCyclic) ty.self = idx;
         typeDef.value = ty;
         {
           hir::TraitImpl &ti = program.traitImpls.emplace_back();

@@ -482,6 +482,8 @@ namespace hir::infer {
     Tp parseTyTemplate(Type &ty, std::vector<std::optional<DefIdx>> &outIdcs) {
       Idx counter = 0;
       std::map<DefIdx, Tp> placeholders;
+      std::set<DefIdx> stackedRefSet;
+      std::vector<DefIdx> stackedRefs;
       std::function<Tp(Type&)> visitTy;
       auto visitParams = [&](Type &ty) {
         std::vector<Tp> params;
@@ -496,62 +498,100 @@ namespace hir::infer {
           return tcx.intern(Ty::Placeholder{counter++});
         }
         DefIdx base = *ty.base;
-        if (base < Builtins::LAST_BUILTIN_) {
-          switch (base) {
-            case Fn: case Add: case Sub: case Mul: case Div: case Rem:
-            case BitOr: case BitAnd: case Eq: case Cmp: case Neg:
-              throw std::runtime_error("Trait type hints unimplemented");
-            case BOOL:
-              return tcx.intern(Ty::Bool{});
-            case I8: case I16: case I32: case I64: case I128:
-              return tcx.intern(Ty::Int{(type::IntSize)(base - I8)});
-            case U8: case U16: case U32: case U64: case U128:
-              return tcx.intern(Ty::UInt{(type::IntSize)(base - U8)});
-            case F16: case F32: case F64:
-              return tcx.intern(Ty::Float{(type::FloatSize)(base - F16)});
-            case TUPLE:
-              return tcx.intern(Ty::Tuple{visitParams(ty)});
-            case UNION:
-              return type::unionOf(tcx, visitParams(ty));
-            case FFIFN: {
-              auto params = visitParams(ty);
-              return tcx.intern(Ty::FfiFn{params.at(0), params.at(1)});
-            }
-            case STRING: case NULSTRING:
-              return tcx.intern(Ty::String{base == NULSTRING});
-            case TYPETOKEN: {
-              auto params = visitParams(ty);
-              return tcx.intern(Ty::TypeToken{params.at(0)});
-            }
-            default:
-              throw util::Unreachable();
-          }
-        } else {
-          auto &def = program->bindings.at(base);
-          return std::visit(overloaded{
-              [&](DefType::Type &t) -> Tp {
-                if (!placeholders.count(base)) {
-                  outIdcs.emplace_back(base);
-                  placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
-                }
-                return placeholders[base];
-              },
-              [&](DefType::ADT &a) -> Tp {
-                std::vector<Tp> params = visitParams(ty);
-                std::vector<Tp> fields;
-                for (auto &t : a.fields) {
-                  fields.push_back(visitTy(t));
-                }
-                return tcx.intern(Ty::ADT{base, std::move(params), std::move(fields)});
-              },
-              [](DefType::Trait &) -> Tp {
+        auto doIt = [&]() {
+          if (base < Builtins::LAST_BUILTIN_) {
+            switch (base) {
+              case Fn:
+              case Add:
+              case Sub:
+              case Mul:
+              case Div:
+              case Rem:
+              case BitOr:
+              case BitAnd:
+              case Eq:
+              case Cmp:
+              case Neg:
                 throw std::runtime_error("Trait type hints unimplemented");
-              },
-              [](DefType::Variable &) -> Tp {
-                throw util::ICE("Unexpected definition kind while parsing type");
+              case BOOL:
+                return tcx.intern(Ty::Bool{});
+              case I8:
+              case I16:
+              case I32:
+              case I64:
+              case I128:
+                return tcx.intern(Ty::Int{(type::IntSize) (base - I8)});
+              case U8:
+              case U16:
+              case U32:
+              case U64:
+              case U128:
+                return tcx.intern(Ty::UInt{(type::IntSize) (base - U8)});
+              case F16:
+              case F32:
+              case F64:
+                return tcx.intern(Ty::Float{(type::FloatSize) (base - F16)});
+              case TUPLE:
+                return tcx.intern(Ty::Tuple{visitParams(ty)});
+              case UNION:
+                return type::unionOf(tcx, visitParams(ty));
+              case FFIFN: {
+                auto params = visitParams(ty);
+                return tcx.intern(Ty::FfiFn{params.at(0), params.at(1)});
               }
-          }, def.defType.v);
+              case STRING:
+              case NULSTRING:
+                return tcx.intern(Ty::String{base == NULSTRING});
+              case TYPETOKEN: {
+                auto params = visitParams(ty);
+                return tcx.intern(Ty::TypeToken{params.at(0)});
+              }
+              default:
+                throw util::Unreachable();
+            }
+          } else {
+            auto &def = program->bindings.at(base);
+            return std::visit(overloaded{
+                [&](DefType::Type &t) -> Tp {
+                  if (stackedRefSet.count(base)) {
+                    auto found = std::find(stackedRefs.rbegin(), stackedRefs.rend(), base);
+                    Idx depth = std::distance(stackedRefs.rbegin(), found);
+                    return tcx.intern(Ty::CyclicRef{depth});
+                  }
+                  if (!placeholders.count(base)) {
+                    outIdcs.emplace_back(base);
+                    placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
+                  }
+                  return placeholders[base];
+                },
+                [&](DefType::ADT &a) -> Tp {
+                  std::vector<Tp> params = visitParams(ty);
+                  std::vector<Tp> fields;
+                  for (auto &t : a.fields) {
+                    fields.push_back(visitTy(t));
+                  }
+                  return tcx.intern(Ty::ADT{base, std::move(params), std::move(fields)});
+                },
+                [](DefType::Trait &) -> Tp {
+                  throw std::runtime_error("Trait type hints unimplemented");
+                },
+                [](DefType::Variable &) -> Tp {
+                  throw util::ICE("Unexpected definition kind while parsing type");
+                }
+            }, def.defType.v);
+          }
+        };
+        if (ty.self) {
+          stackedRefs.push_back(*ty.self);
+          stackedRefSet.insert(*ty.self);
         }
+        Tp ret = doIt();
+        if (ty.self) {
+          ret = tcx.intern(Ty::Cyclic{ret});
+          stackedRefSet.erase(*ty.self);
+          stackedRefs.pop_back();
+        }
+        return ret;
       };
       return visitTy(ty);
     }

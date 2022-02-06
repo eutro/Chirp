@@ -53,6 +53,9 @@ namespace type::infer {
         idx(idx), keys(std::move(keys)) {}
     Ctor(Tp ty): idx{} {
       using TT = std::tuple<decltype(idx), decltype(keys)>;
+      while (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+        ty = std::get<Ty::Cyclic>(ty->v).ty;
+      }
       std::tie(idx, keys) = std::visit(
           overloaded{
               [](const Ty::Err &t) -> TT { return {util::index_of_type_v<Ty::Err, TyV>, {}}; },
@@ -66,8 +69,8 @@ namespace type::infer {
               [](const Ty::Tuple &t) -> TT { return {util::index_of_type_v<Ty::Tuple, TyV>, {(Idx) t.t.size()}}; },
               [](const Ty::TypeToken &t) -> TT { return {util::index_of_type_v<Ty::TypeToken, TyV>, {}}; },
               [](const Ty::String &t) -> TT { return {util::index_of_type_v<Ty::String, TyV>, {(Idx) t.nul}}; },
-              [](const Ty::Cyclic &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
-              [](const Ty::CyclicRef &t) -> TT { throw util::ICE("Cyclic pattern matching unsupported"); },
+              [](const Ty::Cyclic &t) -> TT { throw util::Unreachable(); },
+              [](const Ty::CyclicRef &t) -> TT { return {util::index_of_type_v<Ty::CyclicRef, TyV>, {}}; /* Ouroboros */ },
               [](const Ty::Undetermined &t) -> TT { throw util::ICE("Undetermined pattern matching unsupported"); },
               [](const Ty::FfiFn &t) -> TT { return {util::index_of_type_v<Ty::FfiFn, TyV>, {}}; },
           },
@@ -76,6 +79,14 @@ namespace type::infer {
   };
   
   std::vector<Tp> childrenOf(Tp ty) {
+    if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+      if (std::holds_alternative<Ty::CyclicRef>(std::get<Ty::Cyclic>(ty->v).ty->v)) {
+        return {};
+      }
+      while (std::holds_alternative<Ty::Cyclic>(ty->v)) {
+        ty = type::uncycle(ty);
+      }
+    }
     return std::visit(overloaded {
         [=](const Ty::FfiFn &t) -> std::vector<Tp> { return {t.args, t.ret}; },
         [=](const Ty::Tuple &t) { return t.t; },
@@ -111,7 +122,28 @@ namespace type::infer {
         return os;
       }
     };
-    std::variant<CtorPat, Wildcard> v;
+    struct Union {
+      std::vector<std::shared_ptr<Pattern>> pats;
+
+      bool operator<(const Union &o) const {
+        return std::lexicographical_compare(
+            pats.begin(), pats.end(),
+            o.pats.begin(), o.pats.end(),
+            util::DerefCmp<>{}
+        );
+      }
+
+      friend std::ostream &operator<<(std::ostream &os, const Union &u) {
+        os << "(";
+        for (auto it = u.pats.begin(); it != u.pats.end();) {
+          os << **it;
+          if (++it != u.pats.end()) os << ", ";
+        }
+        os << ")";
+        return os;
+      }
+    };
+    std::variant<CtorPat, Wildcard, Union> v;
     using VT = decltype(Pattern::v);
     bool operator<(const Pattern &o) const { return v < o.v; }
 
@@ -124,6 +156,14 @@ namespace type::infer {
     Pattern(Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
         v = Wildcard{};
+      } else if (std::holds_alternative<Ty::Union>(ty->v)) {
+        const std::vector<Tp> &tys = std::get<Ty::Union>(ty->v).tys;
+        std::vector<std::shared_ptr<Pattern>> pats;
+        pats.reserve(tys.size());
+        for (Tp e : tys) {
+          pats.push_back(std::make_shared<Pattern>(e));
+        }
+        v = Union{std::move(pats)};
       } else {
         v = CtorPat{ty, manyPatterns(childrenOf(ty))}; 
       }
@@ -147,6 +187,9 @@ namespace type::infer {
     }
     [[nodiscard]] bool isWildcard() const {
       return std::holds_alternative<Wildcard>(v);
+    }
+    [[nodiscard]] bool isUnion() const {
+      return std::holds_alternative<Union>(v);
     }
   };
 
@@ -320,14 +363,18 @@ namespace type::infer {
           goto endStep2;
         }
       }
-      if (rows != 1) {
+      std::set<Fn*> fns;
+      for (auto &e : m.rows) {
+        fns.insert(e.val);
+      }
+      if (fns.size() != 1) {
         throw err::LocationError("Overload resolution is ambiguous");
       }
       logging::CHIRP.debug("Wildcard matrix: built Leaf\n\n");
       v = Leaf{m.rows.front().val};
       return;
-      endStep2:;
     }
+  endStep2:;
 
     // step 3
     Idx selectedCol = 0;
@@ -366,38 +413,55 @@ namespace type::infer {
       }
     }
 
-    std::map<Ctor, std::vector<Idx>> ctors;
-    std::vector<Idx> phRows;
+    struct Ref {
+      Idx row;
+      std::optional<Idx> unionMember;
+      Ref(Idx row) : row(row) {}
+      Ref(Idx row, Idx unionMember) : row(row), unionMember(unionMember) {}
+    };
+    std::map<Ctor, std::vector<Ref>> ctors;
+    std::vector<Ref> phRows;
     std::map<Ctor, Matrix> decompositions;
     Matrix defaultMat;
     for (Idx row = 0; row < rows; ++row) { // just over all constructors
       Pattern &pat = *m.rows[row].patterns.back();
       if (pat.isWildcard()) {
-        phRows.push_back(row);
+        phRows.emplace_back(row);
+      } else if (pat.isUnion()) {
+        Idx i = 0;
+        for (auto &sp : std::get<Pattern::Union>(pat.v).pats) {
+          if (sp->isWildcard()) {
+            phRows.emplace_back(row, i++);
+          } else {
+            auto &ctorPat = std::get<Pattern::CtorPat>(sp->v);
+            ctors[ctorPat.ctor].emplace_back(row, i++);
+          }
+        }
       } else {
         auto &ctorPat = std::get<Pattern::CtorPat>(pat.v);
-        Ctor &ctor = ctorPat.ctor;
-        ctors[ctor].push_back(row);
+        ctors[ctorPat.ctor].emplace_back(row);
       }
     }
 
     for (auto &ctorE : ctors) {
       const Ctor &ctor = ctorE.first;
-      Idx arity = std::get<Pattern::CtorPat>(m.rows[ctorE.second.front()].patterns.back()->v).ps.size();
+      Idx arity = 0;
       Matrix &dMat = decompositions[ctor];
-      for (Idx dRow : ctorE.second) {
-        Matrix::Row &oldRow = m.rows[dRow];
+      for (Ref dRow : ctorE.second) {
+        Matrix::Row &oldRow = m.rows[dRow.row];
         Pattern &dPat = *oldRow.patterns.back();
         Matrix::Row &newRow = dMat.rows.emplace_back(Matrix::Row({}, oldRow.val));
-        newRow.patterns.reserve(oldRow.patterns.size() + arity - 1);
         std::copy(oldRow.patterns.begin(), oldRow.patterns.end() - 1,
                   std::back_inserter(newRow.patterns));
-        auto &dCtorPat = std::get<Pattern::CtorPat>(dPat.v);
+        auto &dCtorPat = dPat.isUnion() ?
+            std::get<Pattern::CtorPat>(std::get<Pattern::Union>(dPat.v).pats.at(*dRow.unionMember)->v) :
+            std::get<Pattern::CtorPat>(dPat.v);
+        arity = dCtorPat.ps.size();
         std::copy(dCtorPat.ps.begin(), dCtorPat.ps.end(),
                   std::back_inserter(newRow.patterns));
       }
-      for (Idx dRow : phRows) {
-        Matrix::Row &oldRow = m.rows[dRow];
+      for (Ref dRow : phRows) {
+        Matrix::Row &oldRow = m.rows[dRow.row];
         Matrix::Row &newRow = dMat.rows.emplace_back(Matrix::Row({}, oldRow.val));
         newRow.patterns.reserve(oldRow.patterns.size() + arity - 1);
         std::copy(oldRow.patterns.begin(), oldRow.patterns.end() - 1,
@@ -406,8 +470,8 @@ namespace type::infer {
                     std::make_shared<Pattern>(Pattern::Wildcard{}));
       }
     }
-    for (Idx dRow : phRows) {
-      Matrix::Row &oldRow = m.rows[dRow];
+    for (Ref dRow : phRows) {
+      Matrix::Row &oldRow = m.rows[dRow.row];
       Pattern &dPat = *oldRow.patterns.back();
       if (!dPat.isWildcard()) continue;
       Matrix::Row &newRow = defaultMat.rows.emplace_back(Matrix::Row({}, oldRow.val));

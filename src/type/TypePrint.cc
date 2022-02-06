@@ -50,7 +50,14 @@ static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::ADT &t) 
     }
     os << ">";
   }
-  // DON'T explicitly print field types
+  if (!t.fieldTys.empty()) {
+    os << "{";
+    for (auto iter = t.fieldTys.begin(); iter != t.fieldTys.end();) {
+      os << *iter;
+      if (++iter != t.fieldTys.end()) os << ", ";
+    }
+    os << "}";
+  }
 }
 static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Union &t) {
   if (t.tys.empty()) {
