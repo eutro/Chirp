@@ -85,6 +85,8 @@ namespace type::infer {
         src(src)
     {}
 
+    bool operator<(const Insn &rhs) const;
+
     friend std::ostream &operator<<(std::ostream &os, const Insn &insn);
   };
 

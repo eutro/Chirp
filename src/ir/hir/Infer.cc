@@ -9,6 +9,9 @@
 namespace hir::infer {
   using namespace type::infer;
 
+  logging::Marker CYCLE_TRACE("CYCLE_TRACE", false);
+  logging::Marker TRAIT_VISITS("TRAIT_VISITS", false);
+
 #define RET_T VarRef
 #define ARGS(TYPE) (TYPE &e, InsnList &ig) // NOLINT(bugprone-macro-parentheses)
 #define PASS_ARGS , ig
@@ -158,6 +161,7 @@ namespace hir::infer {
       if (insns.size() > 1 ||
           std::any_of(frontInsn->inputs.begin(), frontInsn->inputs.end(),
                       [&](VarRef &vr) { return vr.insn && &il.insns.at(*vr.insn) == frontInsn; })) {
+        logging::CHIRP.log(CYCLE_TRACE, "Sorting InsnList:\n", il, "\n");
         std::map<Tp, VarRef> externs;
         std::map<VarRef, Tp> externsRev;
         std::map<Insn *, std::vector<Tp>> tys;
@@ -206,7 +210,6 @@ namespace hir::infer {
             ConstructInsn construct;
             setOutputs(insn, construct(inputs, insn->constArgs));
           } else {
-            logging::CHIRP.debug("InsnList:\n", il, "\n");
             err::Location loc;
             loc.maybeSpan(insn->src, "Suggestion: add type hints here");
             loc.msg("Instructions in cycle:");
@@ -258,6 +261,13 @@ namespace hir::infer {
           }
         }
 
+        if (CYCLE_TRACE.isEnabled) {
+          auto &os = logging::CHIRP.log(CYCLE_TRACE, "Got definitions:\n");
+          for (const auto &kv : values) {
+            os << kv.first << " ::= " << kv.second << "\n";
+          }
+        }
+
         std::set<Tp> unfixed;
         std::set<Tp> seen;
         std::map<Tp, Tp> replacements;
@@ -269,6 +279,7 @@ namespace hir::infer {
           seen.insert(ty);
           unfixed.insert(ty);
           Tp &value = values.at(ty);
+          logging::CHIRP.log(CYCLE_TRACE, "Visiting ", ty, " ::= ", value, "\n");
           for (const auto &free : value->free) {
             Tp tp = free.first;
             if (!values.count(tp)) continue;
@@ -277,7 +288,9 @@ namespace hir::infer {
               if (repl != tp) replacements.insert({tp, repl});
             }
           }
-          return value = replacements[ty] = maybeCycle(replaceTy(value, replacements), ty);
+          value = replacements[ty] = maybeCycle(replaceTy(value, replacements), ty);
+          logging::CHIRP.log(CYCLE_TRACE, "Associated ", ty, " -> ", value, "\n");
+          return value;
         };
         for (auto &e : tys) {
           std::map<Tp, Tp> externRepls;
@@ -313,6 +326,7 @@ namespace hir::infer {
           e.first->constArgs.clear();
           std::copy(e.second.begin(), e.second.end(), std::back_inserter(e.first->constArgs));
         }
+        logging::CHIRP.log(CYCLE_TRACE, "Sorted InsnList:\n", il, "\n");
       }
     }
 
@@ -385,7 +399,7 @@ namespace hir::infer {
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {
-      logging::CHIRP.trace("Visiting trait at ", ti.source, "\n");
+      logging::CHIRP.log(TRAIT_VISITS, "Visiting trait at ", ti.source, "\n");
       InsnList ig;
       std::vector<Tp> allParams;
       {

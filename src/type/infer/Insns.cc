@@ -4,10 +4,12 @@
 #include <utility>
 
 namespace type::infer {
+  logging::Marker CONSTRUCT_TRACE("CONSTRUCT_TRACE", false);
   std::vector<Tp> IdentityInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     return tys;
   }
   std::vector<Tp> ConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
+    logging::CHIRP.log(CONSTRUCT_TRACE, "Constructing ", cArgs, " from ", tys, "\n");
     std::vector<Tp> ret;
     ret.reserve(cArgs.size());
     for (const Constant &constant : cArgs) {
@@ -18,6 +20,7 @@ namespace type::infer {
         ret.push_back(tyTemplate.construct(tys));
       }
     }
+    logging::CHIRP.log(CONSTRUCT_TRACE, "got ", ret, "\n");
     return ret;
   }
   std::vector<Tp> DeConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
@@ -33,7 +36,7 @@ namespace type::infer {
     return replaceTy(targetTy, replacements);
   }
   std::vector<Tp> TyTemplate::deconstruct(Tp ty) const {
-    logging::CHIRP.trace("Deconstructing ", targetTy, " from ", ty, "\n");
+    logging::CHIRP.log(CONSTRUCT_TRACE, "Deconstructing ", targetTy, " from ", ty, "\n");
     Idx rets = targetTy->free.size();
     std::vector<Tp> out(rets, ty->tcx->intern(Ty::Err{}));
     std::function<void(Tp, Tp)> doDeconstruct = [&doDeconstruct, &out](Tp tmplTy, Tp ty) {
@@ -110,7 +113,7 @@ namespace type::infer {
       }
       throw err::LocationError("Failed deconstruction", {std::move(loc)});
     }
-    logging::CHIRP.trace("Got ", out, "\n");
+    logging::CHIRP.log(CONSTRUCT_TRACE, "got ", out, "\n");
     return out;
   }
 

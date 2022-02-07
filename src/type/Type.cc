@@ -206,8 +206,9 @@ namespace type {
   }
 
   Tp replaceTy(Tp replaceIn, const std::map<Tp, Tp> &replacements) {
+    Tp orig = replaceIn;
     if (replaceIn->free.size() < replacements.size()) {
-      for (const auto &fv : replaceIn->free) {
+      for (const auto &fv : orig->free) {
         auto found = replacements.find(fv.first);
         if (found != replacements.end() && fv.first != found->second) {
           for (const auto &p : fv.second) {
@@ -217,7 +218,13 @@ namespace type {
       }
     } else {
       for (const auto &e : replacements) {
-        replaceIn = replaceTy(replaceIn, e.first, e.second);
+        if (e.first == e.second) continue;
+        auto found = orig->free.find(e.first);
+        if (found != orig->free.end()) {
+          for (auto &p : found->second) {
+            replaceIn = replacePath(replaceIn, p, e.second);
+          }
+        }
       }
     }
     return replaceIn;

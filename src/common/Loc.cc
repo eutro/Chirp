@@ -58,6 +58,22 @@ namespace loc {
     os << span.lo << "-" << span.hi;
     return os;
   }
+  bool Span::operator<(const Span &rhs) const {
+    if (lo < rhs.lo)
+      return true;
+    if (rhs.lo < lo)
+      return false;
+    return hi < rhs.hi;
+  }
+  bool Span::operator>(const Span &rhs) const {
+    return rhs < *this;
+  }
+  bool Span::operator<=(const Span &rhs) const {
+    return !(rhs < *this);
+  }
+  bool Span::operator>=(const Span &rhs) const {
+    return !(*this < rhs);
+  }
 
   std::ostream &operator<<(std::ostream &os, const std::optional<Span> &maybeSpan) {
     if (maybeSpan) {

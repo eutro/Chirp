@@ -47,6 +47,10 @@ namespace loc {
     Span();
     Span(const SrcLoc &lo, const SrcLoc &hi);
 
+    bool operator<(const Span &rhs) const;
+    bool operator>(const Span &rhs) const;
+    bool operator<=(const Span &rhs) const;
+    bool operator>=(const Span &rhs) const;
     friend std::ostream &operator<<(std::ostream &os, const Span &span);
   };
 
