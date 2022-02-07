@@ -26,24 +26,15 @@ namespace type::infer {
   }
 
   Tp TyTemplate::construct(const std::vector<Tp> &tys) const {
-    auto replacer = [&tys](Tp ty) {
-      if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-        return tys.at(std::get<Ty::Placeholder>(ty->v).i);
-      }
-      return ty;
-    };
-    return replaceTy(*targetTy->tcx, targetTy, replacer);
+    std::map<Tp, Tp> replacements;
+    for (Idx i = 0; i < tys.size(); ++i) {
+      replacements.insert({targetTy->tcx->intern(Ty::Placeholder{i}), tys[i]});
+    }
+    return replaceTy(targetTy, replacements);
   }
   std::vector<Tp> TyTemplate::deconstruct(Tp ty) const {
     logging::CHIRP.trace("Deconstructing ", targetTy, " from ", ty, "\n");
-    Idx rets = 0;
-    auto countRets = [&rets](Tp ty) {
-      if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-        rets = std::max(std::get<Ty::Placeholder>(ty->v).i + 1, rets);
-      }
-      return ty;
-    };
-    replaceTy<true>(*targetTy->tcx, targetTy, countRets);
+    Idx rets = targetTy->free.size();
     std::vector<Tp> out(rets, ty->tcx->intern(Ty::Err{}));
     std::function<void(Tp, Tp)> doDeconstruct = [&doDeconstruct, &out](Tp tmplTy, Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(tmplTy->v)) {
@@ -99,7 +90,7 @@ namespace type::infer {
                   }
               },
               tmplTy->v, ty->v);
-        };
+        }
       }
     };
     try {
@@ -119,6 +110,7 @@ namespace type::infer {
       }
       throw err::LocationError("Failed deconstruction", {std::move(loc)});
     }
+    logging::CHIRP.trace("Got ", out, "\n");
     return out;
   }
 
@@ -263,32 +255,8 @@ namespace type::infer {
           for (Idx i = 0; i < ret->size(); ++i) {
             Tp udt = recurTys.at(i);
             Tp &udtVal = retSafe->at(i);
-            Idx cycleDepth = 0;
-            bool isCyclic = false;
-            std::function<Tp(Tp)> replaceTy;
-            auto replaceUdt = overloaded {
-              [&](Tp ty, type::PreWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) ++cycleDepth; return ty;},
-              [&](Tp ty, type::PostWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) --cycleDepth; return ty;},
-              [&](Tp ty) {
-                if (ty == udt) {
-                  isCyclic = true;
-                  return tcx.intern(Ty::CyclicRef{cycleDepth});
-                }
-                if (std::holds_alternative<Ty::Undetermined>(ty->v)) {
-                  const auto &ud = std::get<Ty::Undetermined>(ty->v);
-                  if (ud.ref[0] == ref.first && ud.ref[1] == ref.second) {
-                    return replaceTy(recurTys.at(ud.ref[2]));
-                  }
-                }
-                return ty;
-              },
-            };
-            replaceTy = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceUdt); };
-            Tp newVal = replaceTy(udtVal);
-            if (isCyclic) {
-              newVal = tcx.intern(Ty::Cyclic{newVal});
-            }
-            udtVal = newVal;
+            udtVal = maybeCycle(udtVal, udt);
+            // TODO with multiple returns the return values can theoretically be *mutually* recursive
           }
         }
       }

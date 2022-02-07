@@ -8,3 +8,7 @@ add_test(lexer_test lexer_test)
 
 add_executable(try_lower_lir try_lower_lir.cc)
 target_link_libraries(try_lower_lir parser astlower hirlower lirdisas)
+
+add_executable(ty_test ty_test.cc)
+target_link_libraries(ty_test type)
+add_test(ty_test ty_test)

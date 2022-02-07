@@ -112,7 +112,6 @@ namespace type::infer {
       }
     };
     std::variant<CtorPat, Wildcard> v;
-    using VT = decltype(Pattern::v);
     bool operator<(const Pattern &o) const { return v < o.v; }
 
     friend std::ostream &operator<<(std::ostream &os, const Pattern &pattern) {
@@ -187,6 +186,8 @@ namespace type::infer {
     std::vector<Row> rows;
   };
 
+  logging::Marker LOOKUP_TRACE("LOOKUP_TRACE", false);
+
   struct DTree {
     struct Leaf { Fn *value; };
     struct Fail {};
@@ -228,17 +229,19 @@ namespace type::infer {
     
     std::optional<Fn> decideStack(DTree *tree, std::deque<StackVal> &stack) {
       while (true) {
-        auto &v = tree->v;
-        if (std::holds_alternative<Leaf>(v)) {
-          return WrapFnPtr(std::get<Leaf>(v).value);
-        } else if (std::holds_alternative<Switch>(v)) {
-          auto &s = std::get<Switch>(v);
+        logging::CHIRP.log(LOOKUP_TRACE, "Tree: ", *tree, "\n");
+        auto &vv = tree->v;
+        if (std::holds_alternative<Leaf>(vv)) {
+          return WrapFnPtr(std::get<Leaf>(vv).value);
+        } else if (std::holds_alternative<Switch>(vv)) {
+          auto &s = std::get<Switch>(vv);
           if (s.col != stack.size() - 1) {
             std::swap(stack[s.col], stack[stack.size() - 1]);
           }
           StackVal stackVal = stack.back();
           stack.pop_back();
           Tp ty = type::uncycle(stackVal.ty);
+          logging::CHIRP.log(LOOKUP_TRACE, "Stack top: ", ty, "\n");
           if (stackVal.splittableUnion && std::holds_alternative<Ty::Union>(ty->v)) {
             Idx splitIdx = *stackVal.splittableUnion;
             return [splitIdx, this](const std::vector<Tp> &args, const std::vector<Constant> &constArgs) -> std::vector<Tp> {
@@ -290,7 +293,7 @@ namespace type::infer {
   };
 
   DTree::DTree(Matrix &m) {
-    logging::CHIRP.debug("Building tree from:\n", m, "\n");
+    logging::CHIRP.log(LOOKUP_TRACE, "Building tree from:\n", m, "\n");
     // based on Compiling Pattern Matching to good Decision Trees by Luc Maranget <3
     // https://www.cs.tufts.edu/~nr/cs257/archive/luc-maranget/jun08.pdf
     // comments below make reference to this paper
@@ -306,7 +309,7 @@ namespace type::infer {
 
     // step 1
     if (m.rows.empty()) {
-      logging::CHIRP.debug("Empty matrix: built Fail\n\n");
+      logging::CHIRP.log(LOOKUP_TRACE, "Empty matrix: built Fail\n\n");
       v = Fail();
       return;
     }
@@ -323,7 +326,7 @@ namespace type::infer {
       if (rows != 1) {
         throw err::LocationError("Overload resolution is ambiguous");
       }
-      logging::CHIRP.debug("Wildcard matrix: built Leaf\n\n");
+      logging::CHIRP.log(LOOKUP_TRACE, "Wildcard matrix: built Leaf\n\n");
       v = Leaf{m.rows.front().val};
       return;
       endStep2:;
@@ -357,7 +360,7 @@ namespace type::infer {
       }
     }
 
-    logging::CHIRP.debug("Selected column ", selectedCol, "\n");
+    logging::CHIRP.log(LOOKUP_TRACE, "Selected column ", selectedCol, "\n");
     // swap cols, note that we swap to the end rather than the beginning
     if (selectedCol != cols - 1) {
       for (Idx row = 0; row < rows; ++row) {
@@ -414,8 +417,8 @@ namespace type::infer {
       std::copy(oldRow.patterns.begin(), oldRow.patterns.end() - 1,
                 std::back_inserter(newRow.patterns));
     }
-    if (logging::DEBUG.isEnabled) {
-      std::ostream &os = logging::CHIRP.debug("Decomposed into:\n");
+    if (LOOKUP_TRACE.isEnabled) {
+      std::ostream &os = logging::CHIRP.log(LOOKUP_TRACE, "Decomposed into:\n");
       os << "\\begin{tabular}{c|c}\n";
       for (auto it = decompositions.begin(); it != decompositions.end();) {
         os << "$" << it->first << "$" << " & " << it->second;
@@ -433,7 +436,7 @@ namespace type::infer {
     s.fallback = std::make_unique<DTree>(defaultMat);
     s.col = selectedCol;
     v = std::move(s);
-    logging::CHIRP.debug("}\n");
+    logging::CHIRP.log(LOOKUP_TRACE, "}\n");
   }
 
   struct OverloadLookup {
@@ -485,6 +488,11 @@ namespace type::infer {
       const std::vector<Constant> &constants,
       const std::vector<Tp> &args
     ) override {
+      logging::CHIRP.log(LOOKUP_TRACE, "Looking up",
+                         "\n  key: ", fn->value,
+                         "\n  constants: ", constants,
+                         "\n  args: ", args,
+                         "\n");
       {
         auto found = fns.find({fn, constants});
         if (found == fns.end()) goto fail;
@@ -514,7 +522,6 @@ namespace type::infer {
           }
           loc.msg(s.str());
         }
-        loc.msg(" trace:");
         throw err::LocationError(util::toStr("Failed lookup for ", fn->value), {loc});
       }
 

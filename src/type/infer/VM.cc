@@ -63,7 +63,7 @@ namespace type::infer {
           throw err::LocationError(e.what());
         }
       } catch (err::LocationError &le) {
-        le.add(err::Location().maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
+        le.add(err::Location().msg(" at:").maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
         throw le;
       }
     }
@@ -72,6 +72,7 @@ namespace type::infer {
   }
 
   void InsnList::topSort(const InsnList::SccCollapser &collapse) {
+    logging::CHIRP.trace("Sorting InsnList:\n", *this, "\n");
     struct Node {
       Insn *insn;
       std::vector<Node *> outEdges;

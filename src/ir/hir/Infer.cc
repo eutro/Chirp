@@ -258,46 +258,55 @@ namespace hir::infer {
           }
         }
 
+        std::set<Tp> unfixed;
+        std::set<Tp> seen;
+        std::map<Tp, Tp> replacements;
+        std::function<Tp(Tp)> visit = [&](Tp ty) -> Tp {
+          if (seen.count(ty)) {
+            if (replacements.count(ty)) return replacements.at(ty);
+            return ty; // it's cyclic, and we'll bake it later
+          }
+          seen.insert(ty);
+          unfixed.insert(ty);
+          Tp &value = values.at(ty);
+          for (const auto &free : value->free) {
+            Tp tp = free.first;
+            if (!values.count(tp)) continue;
+            if (tp != ty) {
+              Tp repl = visit(tp);
+              if (repl != tp) replacements.insert({tp, repl});
+            }
+          }
+          return value = replacements[ty] = maybeCycle(replaceTy(value, replacements), ty);
+        };
         for (auto &e : tys) {
+          std::map<Tp, Tp> externRepls;
           std::vector<VarRef> externalInputs;
           for (auto &t : e.second) {
-            bool cyclic = false;
-            Idx cycleDepth = 0;
-            std::function<Tp(Tp)> doReplace;
-            auto replaceFn = overloaded {
-              [&](Tp ty, type::PreWalk) {
-                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-                  cycleDepth++;
+            t = visit(t);
+            {
+              bool fixed;
+              do {
+                fixed = true;
+                for (Tp ty : unfixed) {
+                  Tp &val = replacements.at(ty);
+                  Tp old = val;
+                  val = maybeCycle(replaceTy(val, replacements), ty);
+                  if (old != val) fixed = false;
                 }
-                return ty;
-              },
-              [&](Tp ty, type::PostWalk) {
-                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-                  cycleDepth--;
-                }
-                return ty;
-              },
-              [&](Tp tp) {
-                if (std::holds_alternative<Ty::Placeholder>(tp->v)) {
-                  if (externs.count(tp)) {
-                    externalInputs.push_back(externs.at(tp));
-                    return tcx.intern(Ty::Placeholder{(Idx) externalInputs.size() - 1});
-                  } else if (tp == t) {
-                    cyclic = true;
-                    return tcx.intern(Ty::CyclicRef{cycleDepth});
-                  } else {
-                    return doReplace(values.at(tp));
-                  }
-                }
-                return tp;
-              }
-            };
-            doReplace = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceFn); };
-            Tp replaced = doReplace(values.at(t));
-            if (cyclic) {
-              replaced = tcx.intern(Ty::Cyclic{replaced});
+              } while (!fixed);
             }
-            t = replaced;
+            unfixed.clear();
+            t = replaceTy(t, replacements);
+            for (auto &fv : t->free) {
+              Tp tp = fv.first;
+              if (externs.count(tp)) {
+                if (externRepls.insert({tp, tcx.intern(Ty::Placeholder{(Idx) externalInputs.size()})}).second) {
+                  externalInputs.push_back(externs.at(tp));
+                }
+              }
+            }
+            t = replaceTy(t, externRepls);
           }
           e.first->key = ConstructInsn::key();
           e.first->inputs = std::move(externalInputs);

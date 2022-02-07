@@ -66,6 +66,23 @@ namespace type {
   bool operator<(const TYPE &o) const;           \
   bool operator==(const TYPE &o) const;
 
+  struct Path {
+    using V = std::shared_ptr<Path>;
+    Idx car;
+    V cdr;
+    static V cons(Idx car, V cdr) {
+      return std::make_shared<Path>(Path{car, std::move(cdr)});
+    }
+    static std::vector<V> cons(Idx car, const std::vector<V> &cdrs) {
+      std::vector<V> ret;
+      ret.reserve(cdrs.size());
+      for (const V &cdr : cdrs) {
+        ret.push_back(cons(car, cdr));
+      }
+      return ret;
+    }
+  };
+
   class Ty {
   public:
     struct Err {
@@ -130,34 +147,111 @@ namespace type {
       BIN_OPS(TypeToken)
     };
     std::variant<
-      Err,
-      Bool,
-      Int,
-      UInt,
-      Float,
-      Placeholder,
-      ADT,
-      Union,
-      Tuple,
-      String,
-      Cyclic,
-      CyclicRef,
-      FfiFn,
-      Undetermined,
-      TypeToken> v;
+      /* 0  */ Err,
+      /* 1  */ Bool,
+      /* 2  */ Int,
+      /* 3  */ UInt,
+      /* 4  */ Float,
+      /* 5  */ Placeholder,
+      /* 6  */ ADT,
+      /* 7  */ Union,
+      /* 8  */ Tuple,
+      /* 9  */ String,
+      /* 10 */ Cyclic,
+      /* 11 */ CyclicRef,
+      /* 12 */ FfiFn,
+      /* 13 */ Undetermined,
+      /* 14 */ TypeToken
+      > v;
     Tcx *tcx;
+    std::map<Tp, std::vector<Path::V>> free;
+    std::map<Idx, std::vector<Path::V>> cycleRefs;
+
+    size_t countFree(Tp ty) const {
+      auto found = free.find(ty);
+      if (found != free.end()) {
+        return found->second.size();
+      }
+      return 0;
+    }
 
     template <typename ... Arg>
     Ty(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
 
     BIN_OPS(Ty)
   };
+  using VTy = decltype(Ty::v);
 }
 
 template <>
 struct arena::InternHook<type::Ty> {
+  template <typename M>
+  static void addPathsTo(M &m, Idx i, const M &om) {
+    for (auto &e : om) {
+      auto &rf = m[e.first];
+      auto vs = type::Path::cons(i, e.second);
+      rf.insert(rf.end(), vs.begin(), vs.end());
+    }
+  }
+  static void addPaths(type::Ty *ptr, Idx i, type::Tp ty) {
+    using namespace type;
+    addPathsTo(ptr->free, i, ty->free);
+    addPathsTo(ptr->cycleRefs, i, ty->cycleRefs);
+  }
   inline void postIntern(InternArena<type::Ty> &tcx, type::Ty *ty) {
     ty->tcx = static_cast<type::Tcx *>(&tcx);
+    using namespace type;
+    switch (ty->v.index()) {
+      case util::index_of_type_v<Ty::Placeholder, VTy>:
+      case util::index_of_type_v<Ty::Undetermined, VTy>:
+        ty->free.insert({ty, {nullptr}});
+        break;
+      case util::index_of_type_v<Ty::CyclicRef, VTy>:
+        ty->cycleRefs.insert({std::get<Ty::CyclicRef>(ty->v).depth + 1, {nullptr}});
+        break;
+      case util::index_of_type_v<Ty::ADT, VTy>: {
+        auto &adt = std::get<Ty::ADT>(ty->v);
+        for (Idx i = 0; i < adt.s.size(); ++i) addPaths(ty, i, adt.s[i]);
+        for (Idx i = 0; i < adt.fieldTys.size(); ++i) addPaths(ty, adt.s.size() + i, adt.fieldTys[i]);
+        break;
+      }
+      case util::index_of_type_v<Ty::Tuple, VTy>: {
+        auto &tup = std::get<Ty::Tuple>(ty->v);
+        for (Idx i = 0; i < tup.t.size(); ++i) addPaths(ty, i, tup.t[i]);
+        break;
+      }
+      case util::index_of_type_v<Ty::Cyclic, VTy>: {
+        auto &clc = std::get<Ty::Cyclic>(ty->v);
+        addPathsTo(ty->free, 0, clc.ty->free);
+        for (auto it = clc.ty->cycleRefs.upper_bound(0); it != clc.ty->cycleRefs.end(); ++it) {
+          ty->cycleRefs.insert({it->first - 1, Path::cons(0, it->second)});
+        }
+        break;
+      }
+      case util::index_of_type_v<Ty::FfiFn, VTy>: {
+        auto &ffifn = std::get<Ty::FfiFn>(ty->v);
+        addPaths(ty, 0, ffifn.args);
+        addPaths(ty, 1, ffifn.ret);
+        break;
+      }
+      case util::index_of_type_v<Ty::Union, VTy>: {
+        auto &unty = std::get<Ty::Union>(ty->v);
+        for (Idx i = 0; i < unty.tys.size(); ++i) addPaths(ty, i, unty.tys[i]);
+        break;
+      }
+      case util::index_of_type_v<Ty::TypeToken, VTy>: {
+        auto &tyt = std::get<Ty::TypeToken>(ty->v);
+        addPaths(ty, 0, tyt.ty);
+        break;
+      }
+      case util::index_of_type_v<Ty::Err, VTy>:
+      case util::index_of_type_v<Ty::Bool, VTy>:
+      case util::index_of_type_v<Ty::Int, VTy>:
+      case util::index_of_type_v<Ty::UInt, VTy>:
+      case util::index_of_type_v<Ty::Float, VTy>:
+      case util::index_of_type_v<Ty::String, VTy>:
+      default: break; // noop
+    }
   }
 };
 
@@ -182,105 +276,21 @@ ITER_HASH(std::vector<Idx>)
 #undef IMPL_SINGLETON
 
 namespace type {
-  Tp uncycle(Tp );
-
-  struct PreWalk {};
-  struct PostWalk {};
+  Tp uncycle(Tp);
 
   Tp unionOf(Tcx &tcx, const std::vector<Tp> &tys);
 
-  template <bool IGNORED = false, typename TR>
-  Tp replaceTy(Tcx &tcx, Tp ty, TR &tr) {
-    if constexpr (std::is_invocable<TR, Tp, PreWalk>::value) {
-      ty = tr(ty, PreWalk{});
-    }
-    using VTy = decltype(ty->v);
-    switch (ty->v.index()) {
-      case util::index_of_type_v<Ty::Placeholder, VTy>:
-      case util::index_of_type_v<Ty::CyclicRef, VTy>:
-      case util::index_of_type_v<Ty::Undetermined, VTy>:
-        ty = tr(ty);
-        break;
-      case util::index_of_type_v<Ty::ADT, VTy>: {
-        auto &adt = std::get<Ty::ADT>(ty->v);
-        auto uret = Ty::ADT{adt.i,
-                            replaceTy<IGNORED>(tcx, adt.s, tr),
-                            replaceTy<IGNORED>(tcx, adt.fieldTys, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::Tuple, VTy>: {
-        auto &tup = std::get<Ty::Tuple>(ty->v);
-        auto uret = Ty::Tuple{replaceTy<IGNORED>(tcx, tup.t, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::Cyclic, VTy>: {
-        auto &clc = std::get<Ty::Cyclic>(ty->v);
-        auto uret = Ty::Cyclic{replaceTy<IGNORED>(tcx, clc.ty, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::FfiFn, VTy>: {
-        auto &ffifn = std::get<Ty::FfiFn>(ty->v);
-        auto uret = Ty::FfiFn{replaceTy<IGNORED>(tcx, ffifn.args, tr),
-                              replaceTy<IGNORED>(tcx, ffifn.ret, tr)};
-        if constexpr (!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::Union, VTy>: {
-        auto &unty = std::get<Ty::Union>(ty->v);
-        auto uret = replaceTy<IGNORED>(tcx, unty.tys, tr);
-        if constexpr(!IGNORED) ty = unionOf(tcx, uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::TypeToken, VTy>: {
-        auto &unty = std::get<Ty::TypeToken>(ty->v);
-        auto uret = Ty::TypeToken{replaceTy<IGNORED>(tcx, unty.ty, tr)};
-        if constexpr(!IGNORED) ty = tcx.intern(uret);
-        else (void)uret;
-        break;
-      }
-      case util::index_of_type_v<Ty::Err, VTy>:
-      case util::index_of_type_v<Ty::Bool, VTy>:
-      case util::index_of_type_v<Ty::Int, VTy>:
-      case util::index_of_type_v<Ty::UInt, VTy>:
-      case util::index_of_type_v<Ty::Float, VTy>:
-      case util::index_of_type_v<Ty::String, VTy>:
-      default: break; // noop
-    }
-    if constexpr (std::is_invocable<TR, Tp, PostWalk>::value) {
-      ty = tr(ty, PostWalk{});
-    }
-    return ty;
-  }
+  Tp getAt(Tp ty, Idx i);
 
-  template <bool IGNORED = false, typename T, typename TR>
-  std::vector<T> replaceTy(Tcx &tcx, const std::vector<T> &tys, TR &tr) {
-    if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
-      return {};
-    }
-    auto ret = tys;
-    for (auto &s : ret) s = replaceTy(tcx, s, tr);
-    return ret;
-  }
+  Tp getPath(Tp ty, const Path::V &pathIn);
 
-  template <bool IGNORED = false, typename T, typename TR>
-  std::set<T> replaceTy(Tcx &tcx, const std::set<T> &tys, TR &tr) {
-    if constexpr (IGNORED) {
-      for (auto &s : tys) replaceTy<true>(tcx, s, tr);
-      return {};
-    }
-    std::set<T> set;
-    for (auto &s : tys) set.insert(replaceTy(tcx, s, tr));
-    return set;
-  }
+  Tp replacePath(Tp ty, const Path::V &path, Tp with);
+
+  Tp maybeCycle(Tp ty, Tp tyVar);
+
+  Tp replaceTy(Tp replaceIn, Tp toReplace, Tp replaceWith);
+
+  Tp replaceTy(Tp replaceIn, const std::map<Tp, Tp> &replacements);
 }
 
 std::ostream &operator<<(std::ostream &os, type::Tp ty);
