@@ -140,3 +140,14 @@ namespace util {
     Unreachable(): ICE("Unreachable reached") {}
   };
 }
+
+template <typename T>
+std::ostream &operator<<(std::ostream &os, const std::vector<T> &v) {
+  os << "[";
+  for (auto it = v.begin(); it != v.end();) {
+    os << *it;
+    if (++it != v.end()) os << ", ";
+  }
+  os << "]";
+  return os;
+}
