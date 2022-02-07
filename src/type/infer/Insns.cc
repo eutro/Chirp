@@ -255,7 +255,7 @@ namespace type::infer {
               }
             }
           }
-          for (Idx i = 0; i < ret->size(); ++i) {
+          for (Idx i = 0; i < recurTys.size(); ++i) {
             Tp udt = recurTys.at(i);
             Tp &udtVal = retSafe->at(i);
             udtVal = maybeCycle(udtVal, udt);
