@@ -28,7 +28,9 @@ AtomType ::= PlaceholderType | NamedType | TupleType | TypeDefn | '(' Type ')'
 
 PlaceholderType ::= '_'
 
-NamedType ::= Identifier ( '<' Type ( ',' Type )* ','? '>' )?
+TypeArgs ::= '<' Type ( ',' Type )* ','? '>'
+
+NamedType ::= Identifier TypeArgs?
 
 TupleType ::= '#(' ( Type ( ',' Type )* ','? )? ')'
 
@@ -52,7 +54,7 @@ PostfixExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )*
 
 PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr | FnExpr | LambdaExpr
 
-VarExpr ::= Identifier
+VarExpr ::= Identifier ( '::' TypeArgs )?
 
 LiteralExpr ::= TStr | TInt | TFloat | TTrue | TFalse
 

@@ -605,7 +605,20 @@ namespace hir::infer {
       inputs.reserve(idcs.size());
       for (auto &e : idcs) {
         if (!e || !tyNodes.count(*e)) {
-          throw util::ICE("Incomplete type");
+          err::Location &err = ecx.err()
+              .msg("Got incomplete type when expecting a complete type.")
+              .maybeSpan(ty.source, "incomplete type found here");
+          for (auto &oe : idcs) {
+            if (oe && !tyNodes.count(*oe)) {
+              Definition &def = program->bindings.at(*oe);
+              if (def.source) {
+                err.span(*def.source, "referenced before definition here");
+              }
+            }
+          }
+          err.msg("Note: all type variables must be defined, and there can be no placeholders");
+          ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Err{})}, "incomplete type", ty.source));
+          return ig.lastInsn();
         }
         inputs.push_back(tyNodes.at(*e));
       }

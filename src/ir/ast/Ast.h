@@ -35,18 +35,17 @@ namespace ast {
     _acceptDef(Type) override;
   };
 
+  struct TypeArgs {
+    Token openToken;
+    std::vector<std::unique_ptr<Type>> types;
+    std::vector<Token> commas;
+    Token closeToken;
+  };
+
   class NamedType : public Type {
   public:
     Identifier raw;
-
-    struct TypeArgs {
-      Token openToken;
-      std::vector<std::unique_ptr<Type>> types;
-      std::vector<Token> commas;
-      Token closeToken;
-    };
-
-    std::optional<TypeArgs> parameters;
+    std::optional<TypeArgs> args;
 
     _acceptDef(Type) override;
   };
@@ -282,6 +281,8 @@ namespace ast {
   class VarExpr : public Expr {
   public:
     Identifier name;
+    std::optional<Token> doubleColon;
+    std::optional<TypeArgs> args;
 
     _acceptDef(Expr) override;
   };

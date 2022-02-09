@@ -34,6 +34,7 @@ namespace tok {
     TBrClose,
     TComma,
     TColon,
+    TDoubleColon,
     TPlaceholder,
     TNe,
     TEq2,
@@ -89,6 +90,7 @@ namespace tok {
   {tok::Tok::TBrClose, "\\}"},\
   {tok::Tok::TComma, ","},\
   {tok::Tok::TColon, ":"},\
+  {tok::Tok::TDoubleColon, "::"},\
   {tok::Tok::TPlaceholder, "_"},\
   {tok::Tok::TNe, "!="},\
   {tok::Tok::TEq2, "=="},\

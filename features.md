@@ -162,7 +162,7 @@ type or certain trait boundaries for an expression.
 A type hint can be one of:
 
 - A type or trait name, optionally
-  followed by type parameters in angled brackets
+  followed by type args in angled brackets
 ```
 (...): i64
 (...): Fn<#(i64), i64>

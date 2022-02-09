@@ -190,10 +190,16 @@ namespace ast::lower {
       }
 
       std::monostate visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, bool topLevel) override {
+        DefType::Type tyDef;
+        Idx arity = 0;
+        if (it.params) {
+          arity = it.params->idents.size();
+        }
+        tyDef.maxArity = tyDef.minArity = arity;
         idcs.push_back(lv.introduceDef(lv.typeBindings, hir::Definition{
             it.name.ident.value,
             it.name.ident.span(),
-            DefType::Type{0,0}
+            std::move(tyDef)
         }));
         if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
           lv.introduceDef(hir::Definition{
@@ -233,8 +239,8 @@ namespace ast::lower {
       }
 
       std::monostate visitNamedType(NamedType &it, std::vector<Idx> &idcs) override {
-        if (it.parameters) {
-          for (auto &p : it.parameters->types) {
+        if (it.args) {
+          for (auto &p : it.args->types) {
             visitType(*p, idcs);
           }
         }
@@ -271,7 +277,7 @@ namespace ast::lower {
           if (ty.params.size() < typeDef.minArity || (typeDef.maxArity && ty.params.size() > *typeDef.maxArity)) {
             errs
                 .err()
-                .span(it.span, util::toStr("Type ", def.name, " called with the wrong number of arguments"))
+                .span(it.span, util::toStr("Type '", def.name, "' given with the wrong number of arguments"))
                 .msg(typeDef.minArity == typeDef.maxArity ? util::toStr("  expected: ", typeDef.minArity) :
                      typeDef.maxArity ? util::toStr("  expected between: ", typeDef.minArity, " and ", *typeDef.maxArity) :
                      util::toStr("  expected at least: ", typeDef.minArity))
@@ -279,7 +285,7 @@ namespace ast::lower {
           }
         } else if (std::holds_alternative<DefType::TypeVar>(def.defType.v)) {
           if (!ty.params.empty()) {
-            errs.err().span(it.span, util::toStr("Type ", def.name, " is a type variable and does not take arguments"));
+            errs.err().span(it.span, util::toStr("Type '", def.name, "' is a type variable and does not take arguments"));
           }
         }
       }
@@ -297,9 +303,9 @@ namespace ast::lower {
           .msg("Type '" + it.raw.ident.value + "' is not defined")
           .span(it.raw.ident.span(), "here");
       }
-      if (it.parameters) {
-        ty.params.reserve(it.parameters->types.size());
-        for (auto &t : it.parameters->types) {
+      if (it.args) {
+        ty.params.reserve(it.args->types.size());
+        for (auto &t : it.args->types) {
           ty.params.push_back(visitType(*t, idcs, idx));
         }
       }
@@ -689,9 +695,18 @@ namespace ast::lower {
     Eptr visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, Idx &iidx) override {
       Idx idx = idcs.at(iidx++);
       hir::Definition &def = program.bindings.at(idx);
-      hir::BlockExpr theBlock;
-      theBlock.span = ((Statement &) it).span;
       auto &typeDef = std::get<DefType::Type>(def.defType.v);
+      hir::BlockExpr theBlock;
+      typeBindings.push();
+      for (auto &param : it.params->idents) {
+        Idx defIdx = introduceDef(typeBindings, hir::Definition{
+            param.ident.value,
+            param.ident.span(),
+            DefType::TypeVar{}
+        });
+        typeDef.paramTys.push_back(defIdx);
+      }
+      theBlock.span = ((Statement &) it).span;
       if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
         auto &alias = std::get<TypeDefn::Alias>(it.val);
         typeDef.value = visitType(*alias.type, &idcs, &iidx);
@@ -788,10 +803,11 @@ namespace ast::lower {
           }));
         }
       }
+      typeBindings.pop();
       theBlock.block.body.push_back(withSpan<hir::VoidExpr>(((Statement &)it).span));
       return std::make_unique<hir::BlockExpr>(std::move(theBlock));
     }
-    
+
     Eptr visitTraitImpl(TraitImpl &it, std::vector<Idx> &idcs, Idx &idx) override {
       hir::TraitImpl impl;
       // TODO lower trait implementations
@@ -955,9 +971,15 @@ namespace ast::lower {
         auto expr = withSpan<hir::VarExpr>(it.span);
         expr->ref = *lookup;
         return expr;
-      } else if (auto typeLookup = typeBindings.lookup(it.name.ident.value)) {
+      } else if (typeBindings.lookup(it.name.ident.value)) {
         auto expr = withSpan<hir::TypeExpr>(it.span);
-        expr->type.base = *typeLookup;
+        NamedType ty;
+        ty.span = it.span;
+        ty.raw = std::move(it.name);
+        ty.args = std::move(it.args);
+        expr->type = visitType(ty, nullptr, nullptr);
+        it.name = std::move(ty.raw);
+        it.args = std::move(ty.args);
         return expr;
       } else {
         errs

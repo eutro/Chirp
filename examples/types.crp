@@ -1,10 +1,12 @@
-type Pair(lhs: i64, rhs: i64)
+type Pair<L, R>(lhs: L, rhs: R)
+defn cons<L, R>(lhs: L, rhs: R) = Pair::<L, R>(lhs, rhs)
+
 type Triple(lhs: i64, i64, rhs: i64)
 
 defn putI(i: i64): #() = foreign
 defn println(): #() = foreign
 
-defn p = Pair(1, 2)
+defn p = cons(1, cons(1, 2))
 defn t = Triple(1, 2, 3)
 
 putI(lhs(p))
