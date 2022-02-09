@@ -13,6 +13,8 @@ namespace tok {
     TTrait,
     TImpl,
     TAs,
+    TWith,
+    TWhere,
     TIf,
     TElse,
     TThen,
@@ -66,6 +68,8 @@ namespace tok {
   {tok::Tok::TTrait, "trait"},\
   {tok::Tok::TImpl, "impl"},\
   {tok::Tok::TAs, "as"},\
+  {tok::Tok::TWith, "with"},\
+  {tok::Tok::TWhere, "where"},\
   {tok::Tok::TIf, "if"},\
   {tok::Tok::TElse, "else"},\
   {tok::Tok::TThen, "then"},\

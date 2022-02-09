@@ -6,6 +6,8 @@ Defn ::= 'defn' Binding
 
 TypeDefn ::= 'type' Identifier ( '=' Type ) | '(' ( Type (',' Type)* ','? )? ')'
 
+TraitImpl ::= 'impl' Type
+
 Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
 
 Arguments ::= TypeArguments? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
