@@ -39,14 +39,14 @@ namespace ast {
   public:
     Identifier raw;
 
-    struct TypeParameters {
+    struct TypeArgs {
       Token openToken;
       std::vector<std::unique_ptr<Type>> types;
       std::vector<Token> commas;
       Token closeToken;
     };
 
-    std::optional<TypeParameters> parameters;
+    std::optional<TypeArgs> parameters;
 
     _acceptDef(Type) override;
   };
@@ -83,28 +83,28 @@ namespace ast {
 
   class Expr;
 
+  struct TypeParams {
+    Token openToken;
+    std::vector<Identifier> idents;
+    std::vector<Token> commas;
+    Token closeToken;
+  };
+
   class Binding {
   public:
     loc::Span span;
 
     Identifier name;
 
-    struct TypeArguments {
-      Token openToken;
-      std::vector<Identifier> idents;
-      std::vector<Token> commas;
-      Token closeToken;
-    };
-
-    struct Arguments {
-      std::optional<TypeArguments> typeArguments;
+    struct Params {
+      std::optional<TypeParams> typeParams;
       Token openToken;
       std::vector<RawBinding> bindings;
       std::vector<Token> commas;
       Token closeToken;
     };
 
-    std::optional<Arguments> arguments;
+    std::optional<Params> arguments;
     std::optional<TypeHint> typeHint;
     Token eqToken;
 
@@ -135,6 +135,7 @@ namespace ast {
   public:
     Token typeToken;
     Identifier name;
+    std::optional<TypeParams> params;
     struct Alias {
       Token eqToken;
       std::unique_ptr<Type> type;
@@ -218,7 +219,7 @@ namespace ast {
   public:
     Token fnToken;
     std::optional<Identifier> name;
-    Binding::Arguments arguments;
+    Binding::Params arguments;
     std::optional<TypeHint> typeHint;
     Token eqToken;
 

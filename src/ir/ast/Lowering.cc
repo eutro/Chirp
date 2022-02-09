@@ -150,7 +150,11 @@ namespace ast::lower {
 
     void addBindingsToBlock(hir::Block &block) {
       block.bindings = bindings.defs();
-      block.typeBindings = typeBindings.defs();
+      for (Idx def : typeBindings.defs()) {
+        if (std::holds_alternative<DefType::TypeVar>(program.bindings.at(def).defType.v)) {
+          block.typeBindings.push_back(def);
+        }
+      }
     }
 
     hir::Type visitHint(std::optional<TypeHint> &hint) {
@@ -163,7 +167,7 @@ namespace ast::lower {
       return introduceDef(bindings, hir::Definition{
           it.name.ident.value,
           it.name.ident.span(),
-          DefType::Variable{false},
+          DefType::Variable{},
         });
     }
 
@@ -177,9 +181,6 @@ namespace ast::lower {
 
       std::monostate visitDefn(Defn &it, std::vector<Idx> &idcs, bool topLevel) override {
         auto idx = lv.introduceBinding(it.binding);
-        if (topLevel) {
-          std::get<DefType::Variable>(lv.program.bindings.at(idx).defType.v).global = true;
-        }
         idcs.push_back(idx);
         return {};
       }
@@ -265,15 +266,21 @@ namespace ast::lower {
       ty.source = it.span;
       if (ty.base) {
         auto &def = program.bindings.at(*ty.base);
-        auto &typeDef = std::get<DefType::Type>(def.defType.v);
-        if (ty.params.size() < typeDef.minArity || (typeDef.maxArity && ty.params.size() > *typeDef.maxArity)) {
-          errs
-              .err()
-              .span(it.span, util::toStr("Type ", def.name, " called with the wrong number of arguments"))
-              .msg(typeDef.minArity == typeDef.maxArity ? util::toStr("  expected: ", typeDef.minArity) :
-                   typeDef.maxArity ? util::toStr("  expected between: ", typeDef.minArity, " and ", *typeDef.maxArity) :
-                   util::toStr("  expected at least: ", typeDef.minArity))
-              .msg(util::toStr("  got: ", ty.params.size()));
+        if (std::holds_alternative<DefType::Type>(def.defType.v)) {
+          auto &typeDef = std::get<DefType::Type>(def.defType.v);
+          if (ty.params.size() < typeDef.minArity || (typeDef.maxArity && ty.params.size() > *typeDef.maxArity)) {
+            errs
+                .err()
+                .span(it.span, util::toStr("Type ", def.name, " called with the wrong number of arguments"))
+                .msg(typeDef.minArity == typeDef.maxArity ? util::toStr("  expected: ", typeDef.minArity) :
+                     typeDef.maxArity ? util::toStr("  expected between: ", typeDef.minArity, " and ", *typeDef.maxArity) :
+                     util::toStr("  expected at least: ", typeDef.minArity))
+                .msg(util::toStr("  got: ", ty.params.size()));
+          }
+        } else if (std::holds_alternative<DefType::TypeVar>(def.defType.v)) {
+          if (!ty.params.empty()) {
+            errs.err().span(it.span, util::toStr("Type ", def.name, " is a type variable and does not take arguments"));
+          }
         }
       }
       return ty;
@@ -345,7 +352,7 @@ namespace ast::lower {
 
     template <typename Param>
     Eptr fnExpr(const std::string &name,
-                Binding::TypeArguments *typeParams,
+                TypeParams *typeParams,
                 TypeHint *retHint,
                 std::vector<Param> &params,
                 const loc::Span &source,
@@ -361,16 +368,16 @@ namespace ast::lower {
         // }
       });
       typeBindings.push([&](hir::DefIdx vr) {
-        if (vr < hir::LAST_BUILTIN_) return;
-        // TODO handle parametrics
-        closedTypes.insert(vr);
+        if (std::holds_alternative<DefType::TypeVar>(program.bindings.at(vr).defType.v)) {
+          closedTypes.insert(vr);
+        }
       });
       if (typeParams) {
         for (auto &tp : typeParams->idents) {
           introduceDef(typeBindings, hir::Definition{
               tp.ident.value,
               tp.ident.span(),
-                DefType::Type{},
+                DefType::TypeVar{},
             });
         }
       }
@@ -381,7 +388,7 @@ namespace ast::lower {
         introduceDef(bindings, hir::Definition{
             p.name.ident.value,
             p.name.ident.span(),
-            DefType::Variable{false},
+            DefType::Variable{},
           });
         paramTys.push_back(visitHint(p.typeHint));
       }
@@ -426,7 +433,7 @@ namespace ast::lower {
         Idx paramIdx = introduceDef(hir::Definition{
             data.name,
             data.source,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
         closure.params.push_back(paramIdx);
       }
@@ -435,7 +442,7 @@ namespace ast::lower {
         Idx paramIdx = introduceDef(hir::Definition{
             data.name,
             data.source,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
         closure.params.push_back(paramIdx);
         hir::Type ty;
@@ -455,7 +462,7 @@ namespace ast::lower {
         Idx paramIdx = introduceDef(hir::Definition{
             def.name,
             def.source,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
         hir::Type &param = adtType.params.emplace_back();
         param.base = paramIdx;
@@ -477,7 +484,7 @@ namespace ast::lower {
             Idx paramIdx = introduceDef(hir::Definition{
                 param.name.ident.value,
                 param.name.ident.span(),
-                DefType::Type{},
+                DefType::TypeVar{},
             });
             fnArgsTy.params.emplace_back().base = paramIdx;
             var.hints.emplace_back().base = paramIdx;
@@ -490,7 +497,7 @@ namespace ast::lower {
       Idx retIdx = introduceDef(hir::Definition{
           "ret",
             body.span,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
       block.body.back()->hints.emplace_back().base = retIdx;
 
@@ -514,7 +521,7 @@ namespace ast::lower {
         Idx extractedTy = introduceDef(hir::Definition{
             def.name,
             def.source,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
         hir::Type &hint = varE->hints.emplace_back();
         hint.base = extractedTy;
@@ -537,7 +544,7 @@ namespace ast::lower {
       auto thisIdx = introduceDef(hir::Definition{
           name,
           source,
-          DefType::Variable{false, {adtType}},
+          DefType::Variable{{adtType}},
         });
       block.bindings.push_back(thisIdx);
 
@@ -581,7 +588,7 @@ namespace ast::lower {
 
     template <typename Param>
     Eptr recFnExpr(Identifier &name,
-                   Binding::TypeArguments *typeParams,
+                   TypeParams *typeParams,
                    TypeHint *retHint,
                    std::vector<Param> &params,
                    const loc::Span &source,
@@ -593,7 +600,7 @@ namespace ast::lower {
       auto idx = introduceDef(bindings, hir::Definition{
           name.ident.value,
           name.ident.span(),
-          DefType::Variable{false},
+          DefType::Variable{},
         });
       expr->block.bindings.push_back(idx);
       auto defE = withSpan<hir::DefineExpr>(std::nullopt);
@@ -634,7 +641,7 @@ namespace ast::lower {
       } else if (it.arguments) {
         // not recFnExpr because it's already captured
         retExpr->value = fnExpr(it.name.ident.value,
-                                maybePtr(it.arguments->typeArguments),
+                                maybePtr(it.arguments->typeParams),
                                 maybePtr(it.typeHint),
                                 it.arguments->bindings,
                                 it.span,
@@ -858,13 +865,13 @@ namespace ast::lower {
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
       return it.name ?
         recFnExpr(*it.name,
-                  maybePtr(it.arguments.typeArguments),
+                  maybePtr(it.arguments.typeParams),
                   maybePtr(it.typeHint),
                   it.arguments.bindings,
                   it.span,
                   *it.body) :
         fnExpr("fn",
-               maybePtr(it.arguments.typeArguments),
+               maybePtr(it.arguments.typeParams),
                maybePtr(it.typeHint),
                it.arguments.bindings,
                it.span,
@@ -949,8 +956,8 @@ namespace ast::lower {
         expr->ref = *lookup;
         return expr;
       } else if (auto typeLookup = typeBindings.lookup(it.name.ident.value)) {
-        auto expr = withSpan<hir::VarExpr>(it.span);
-        expr->ref = *typeLookup;
+        auto expr = withSpan<hir::TypeExpr>(it.span);
+        expr->type.base = *typeLookup;
         return expr;
       } else {
         errs

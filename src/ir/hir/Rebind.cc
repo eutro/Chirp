@@ -36,6 +36,11 @@ namespace hir::rebind {
       return {};
     }
 
+    std::monostate visitTypeExpr([[maybe_unused]] TypeExpr &it, [[maybe_unused]] Eptr *ref) override {
+      rebindType(it.type);
+      return {};
+    }
+
     std::monostate visitVarExpr([[maybe_unused]] VarExpr &it, [[maybe_unused]] Eptr *ref) override {
       auto ptr = rb(it);
       if (ptr) {

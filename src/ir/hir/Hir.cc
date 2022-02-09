@@ -5,6 +5,7 @@ namespace hir {
 
   _acceptImpl(Expr, BlockExpr);
   _acceptImpl(Expr, VarExpr);
+  _acceptImpl(Expr, TypeExpr);
   _acceptImpl(Expr, CondExpr);
   _acceptImpl(Expr, VoidExpr);
   _acceptImpl(Expr, LiteralExpr);

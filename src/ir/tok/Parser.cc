@@ -184,6 +184,7 @@ namespace tok::parser {
     return std::nullopt;
   }
 
+  std::optional<TypeParams> parseTypeParams(ParserStream &stream);
   std::unique_ptr<TypeDefn> parseTypeDefn(ParserStream &stream, std::optional<Token> &typeToken);
 
   std::unique_ptr<Type> parseType(ParserStream &stream);
@@ -230,9 +231,8 @@ namespace tok::parser {
     type.raw = parseIdent(nameTok ? std::move(*nameTok) :
         stream.require(Tok::TIdent, "Type name, 'type', #(, ( or _ expected"));
     type.span.lo = type.raw.ident.loc;
-    auto ltToken = stream.optional(Tok::TLt);
-    if (ltToken) {
-      NamedType::TypeParameters params;
+    if (auto ltToken = stream.optional(Tok::TLt)) {
+      NamedType::TypeArgs params;
       params.openToken = std::move(*ltToken);
       while (true) {
         auto closeToken = stream.optional(Tok::TGt);
@@ -295,10 +295,9 @@ namespace tok::parser {
     return rb;
   }
 
-  Binding::Arguments parseArgs(Token &&openToken, ParserStream &stream) {
-    Binding::Arguments args;
+  std::optional<TypeParams> parseTypeParams(ParserStream &stream, Token &openToken) {
     if (openToken.type == Tok::TLt) {
-      Binding::TypeArguments typeArgs;
+      TypeParams typeArgs;
       typeArgs.openToken = std::move(openToken);
       while (true) {
         auto closeToken = stream.optional(Tok::TGt);
@@ -314,7 +313,14 @@ namespace tok::parser {
         }
         typeArgs.commas.push_back(std::move(*comma));
       }
-      args.typeArguments = std::move(typeArgs);
+      return typeArgs;
+    }
+    return std::nullopt;
+  }
+
+  Binding::Params parseArgs(Token &&openToken, ParserStream &stream) {
+    Binding::Params args;
+    if ((args.typeParams = parseTypeParams(stream, openToken))) {
       openToken = stream.require(Tok::TParOpen, "( expected");
     }
     args.openToken = std::move(openToken);
@@ -404,6 +410,7 @@ namespace tok::parser {
     loc::Span &span2 = ((Type &) defn).span;
     span1.lo = span2.lo = defn.typeToken.loc;
     defn.name = parseIdent(stream);
+    defn.params = parseTypeParams(stream);
     if (auto eqToken = stream.optional(Tok::TEq)) {
       TypeDefn::Alias alias;
       alias.eqToken = std::move(*eqToken);
@@ -746,6 +753,13 @@ namespace tok::parser {
     } else {
       return parseExpr(stream);
     }
+  }
+
+  std::optional<TypeParams> parseTypeParams(ParserStream &stream) {
+    if (auto tok = stream.optional(Tok::TLt)) {
+      return parseTypeParams(stream, *tok);
+    }
+    return std::nullopt;
   }
 
   ParseResult parseProgram(TokIter &tokens) {

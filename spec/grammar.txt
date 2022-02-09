@@ -4,15 +4,15 @@ Statement ::= Defn | Expr | TypeDefn
 
 Defn ::= 'defn' Binding
 
-TypeDefn ::= 'type' Identifier ( '=' Type ) | '(' ( TypeClause (',' TypeClause)* ','? )? ')'
+TypeDefn ::= 'type' TypeParams? Identifier ( '=' Type ) | '(' ( TypeClause (',' TypeClause)* ','? )? ')'
 
 TypeClause ::= ( Identifier ':' )? Type
 
-Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
+Binding ::= Identifier Params? TypeHint? '=' ( Expr | TForeign )
 
-Arguments ::= TypeArguments? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
+Params ::= TypeParams? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
 
-TypeArguments ::= '<' Identifier ( ',' Identifier )* ','> '>'
+TypeParams ::= '<' Identifier ( ',' Identifier )* ','> '>'
 
 RawBinding ::= Identifier TypeHint?
 
@@ -70,6 +70,6 @@ IfExpr ::= 'if' Expr BlockExpr
 
 LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr
 
-FnExpr ::= 'fn' Identifier? Arguments TypeHint? '=' Expr
+FnExpr ::= 'fn' Identifier? Params TypeHint? '=' Expr
 
 LambdaExpr ::= TBackslash ( Identifier ( ',' Identifier )* )? '.' Expr

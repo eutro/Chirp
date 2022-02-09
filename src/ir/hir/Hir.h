@@ -27,21 +27,25 @@ namespace hir {
 
   struct DefType {
     struct Variable {
-      bool global;
       std::vector<Type> hints;
     };
+    struct TypeVar {
+      // always counts as local
+      std::optional<hir::Type> value;
+    };
     struct Type {
-      // TODO proper call handling
+      // always global
       Idx minArity;
       std::optional<Idx> maxArity;
-      std::optional<hir::Type> value;
+      std::vector<Idx> paramTys;
+      std::optional<hir::Type> value; // must have a value if not builtin
     };
     struct Trait {};
     struct ADT {
       std::vector<DefIdx> params;
       std::vector<hir::Type> fields;
     };
-    std::variant<Variable, Trait, Type, ADT> v;
+    std::variant<Variable, Trait, Type, ADT, TypeVar> v;
     template <typename... Arg>
     DefType(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
   };
@@ -50,7 +54,7 @@ namespace hir {
   public:
     std::string name;
     std::optional<loc::Span> source;
-    DefType defType = DefType::Type{};
+    DefType defType = DefType::Variable{};
   };
 
   class ErasedExprVisitor;
@@ -106,6 +110,13 @@ namespace hir {
   class BlockExpr : public Expr {
   public:
     Block block;
+
+    _acceptDef(Expr) override;
+  };
+
+  class TypeExpr : public Expr {
+  public:
+    Type type;
 
     _acceptDef(Expr) override;
   };
@@ -231,6 +242,7 @@ namespace hir {
     _EvisitVirtual(Expr)
     _EvisitVirtual(BlockExpr)
     _EvisitVirtual(VarExpr)
+    _EvisitVirtual(TypeExpr)
     _EvisitVirtual(CondExpr)
     _EvisitVirtual(VoidExpr)
     _EvisitVirtual(LiteralExpr)
@@ -252,6 +264,7 @@ namespace hir {
     _EvisitImpl(Expr)
     _EvisitImpl(BlockExpr)
     _EvisitImpl(VarExpr)
+    _EvisitImpl(TypeExpr)
     _EvisitImpl(CondExpr)
     _EvisitImpl(VoidExpr)
     _EvisitImpl(LiteralExpr)
@@ -270,6 +283,7 @@ namespace hir {
     virtual _typedRoot(Expr);
     virtual _typedVisit(BlockExpr) = 0;
     virtual _typedVisit(VarExpr) = 0;
+    virtual _typedVisit(TypeExpr) = 0;
     virtual _typedVisit(CondExpr) = 0;
     virtual _typedVisit(VoidExpr) = 0;
     virtual _typedVisit(LiteralExpr) = 0;

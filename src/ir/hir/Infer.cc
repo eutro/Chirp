@@ -481,14 +481,14 @@ namespace hir::infer {
         ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {defTys.at(var)}));
       }
       for (Idx ty : block.typeBindings) {
-        auto &tyDef = std::get<DefType::Type>(program->bindings.at(ty).defType.v);
+        auto &tyDef = std::get<DefType::TypeVar>(program->bindings.at(ty).defType.v);
         if (tyDef.value && tyDef.value->base) {
           ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
           tyNodes.insert({ty, ig.lastInsn()});
         }
       }
       for (Idx ty : block.typeBindings) {
-        auto &tyDef = std::get<DefType::Type>(program->bindings.at(ty).defType.v);
+        auto &tyDef = std::get<DefType::TypeVar>(program->bindings.at(ty).defType.v);
         if (tyDef.value && tyDef.value->base) {
           VarRef outTyNode = parseCompleteTy(*tyDef.value, ig);
           VarRef inTyNode = tyNodes.at(ty);
@@ -552,12 +552,30 @@ namespace hir::infer {
         } else {
           auto &def = program->bindings.at(base);
           return std::visit(overloaded{
-              [&](DefType::Type &t) -> Tp {
+              [&](DefType::TypeVar &t) -> Tp {
                 if (!placeholders.count(base)) {
                   outIdcs.emplace_back(base);
                   placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
                 }
                 return placeholders[base];
+              },
+              [&](DefType::Type &t) -> Tp {
+                std::vector<Tp> params = visitParams(ty);
+                if (params.size() != t.minArity) {
+                  throw util::ICE("Wrong number of arguments passed to type");
+                }
+                for (Idx i = 0; i < params.size(); ++i) {
+                  Idx idx = t.paramTys[i];
+                  if (placeholders.count(idx)) {
+                    throw util::ICE("Type placeholder is already mapped");
+                  }
+                  placeholders[idx] = params[i];
+                }
+                Tp ret = visitTy(*t.value);
+                for (Idx i = 0; i < params.size(); ++i) {
+                  placeholders.erase(t.paramTys[i]);
+                }
+                return ret;
               },
               [&](DefType::ADT &a) -> Tp {
                 std::vector<Tp> params = visitParams(ty);
@@ -587,16 +605,8 @@ namespace hir::infer {
       inputs.reserve(idcs.size());
       for (auto &e : idcs) {
         if (!e || !tyNodes.count(*e)) {
-          Definition &def = program->bindings.at(*e);
-          if (std::holds_alternative<DefType::Type>(def.defType.v)) { // should be always
-            if (auto val = std::get<DefType::Type>(def.defType.v).value) {
-              tyNodes.insert({*e, parseCompleteTy(*val, ig)}); // FIXME this is uh very fragile
-              goto notFail;
-            }
-          }
           throw util::ICE("Incomplete type");
         }
-       notFail:
         inputs.push_back(tyNodes.at(*e));
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(inputs), {tmpl}, "from type", ty.source));
@@ -662,16 +672,13 @@ namespace hir::infer {
     RET_T visitBlockExpr ARGS(BlockExpr) override {
       return visitBlock(e.block, ig, false);
     }
+    RET_T visitTypeExpr ARGS(TypeExpr) override {
+      Tp tyTemplate = tcx.intern(Ty::TypeToken{tcx.intern(Ty::Placeholder{0})});
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {parseCompleteTy(e.type, ig)},
+                              {tyTemplate}, "type referenced", e.span));
+      return ig.lastInsn();
+    }
     RET_T visitVarExpr ARGS(VarExpr) override {
-      if (std::holds_alternative<DefType::Type>(program->bindings.at(e.ref).defType.v)) {
-        Tp tyTemplate = tcx.intern(Ty::TypeToken{tcx.intern(Ty::Placeholder{0})});
-        Type ty;
-        ty.source = e.span;
-        ty.base = e.ref;
-        ig.insns.push_back(Insn(ConstructInsn::key(), {}, {parseCompleteTy(ty, ig)},
-                                {tyTemplate}, "type referenced", e.span));
-        return ig.lastInsn();
-      }
       return varNodes.at(e.ref);
     }
     RET_T visitCondExpr ARGS(CondExpr) override {
