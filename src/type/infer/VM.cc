@@ -58,12 +58,12 @@ namespace type::infer {
         le.add(err::Location().msg(" at:").maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
         if (logging::DEBUG.isEnabled) {
           std::stringstream os;
-          os << "$@ = " << args << "\n";
+          os << "$@ = " << util::toStr(args) << "\n";
           Idx i = 0;
           for (const Insn &in : insns) {
             os << "$" << std::dec << i << " = " << in << "\n";
             if (i < rets.size()) {
-              os << "$" << std::dec << i << " = " << rets[i] << "\n";
+              os << "$" << std::dec << i << " = " << util::toStr(rets[i]) << "\n";
             } else {
               break;
             }

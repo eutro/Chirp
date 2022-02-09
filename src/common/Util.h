@@ -8,6 +8,17 @@
 #include <vector>
 #include <sstream>
 
+template <typename T>
+std::ostream &operator<<(std::ostream &os, const std::vector<T> &v) {
+  os << "[";
+  for (auto it = v.begin(); it != v.end();) {
+    os << *it;
+    if (++it != v.end()) os << ", ";
+  }
+  os << "]";
+  return os;
+}
+
 namespace util {
   template<typename Data = std::monostate>
   struct DSU {
@@ -140,15 +151,4 @@ namespace util {
   public:
     Unreachable(): ICE("Unreachable reached") {}
   };
-}
-
-template <typename T>
-std::ostream &operator<<(std::ostream &os, const std::vector<T> &v) {
-  os << "[";
-  for (auto it = v.begin(); it != v.end();) {
-    os << *it;
-    if (++it != v.end()) os << ", ";
-  }
-  os << "]";
-  return os;
 }
