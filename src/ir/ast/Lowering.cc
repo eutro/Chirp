@@ -202,7 +202,23 @@ namespace ast::lower {
           });
           auto &adt = std::get<TypeDefn::ADT>(it.val);
           for (auto &ty : adt.types) {
-            visitType(*ty, idcs);
+            if (ty.accessor) {
+              if (auto accessor = lv.bindings.lookup(ty.accessor->ident.value)) {
+                idcs.push_back(*accessor - 1);
+              } else {
+                idcs.push_back(lv.introduceDef(hir::Definition {
+                    ty.accessor->ident.value,
+                    ty.accessor->ident.span(),
+                    DefType::ADT{}
+                }));
+                lv.introduceDef(lv.bindings, hir::Definition{
+                    ty.accessor->ident.value,
+                    ty.accessor->ident.span(),
+                    DefType::Variable{}
+                });
+              }
+            }
+            visitType(*ty.ty, idcs);
           }
         } else {
           auto &alias = std::get<TypeDefn::Alias>(it.val);
@@ -656,6 +672,8 @@ namespace ast::lower {
     Eptr visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, Idx &iidx) override {
       Idx idx = idcs.at(iidx++);
       hir::Definition &def = program.bindings.at(idx);
+      hir::BlockExpr theBlock;
+      theBlock.span = ((Statement &) it).span;
       auto &typeDef = std::get<DefType::Type>(def.defType.v);
       if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
         auto &alias = std::get<TypeDefn::Alias>(it.val);
@@ -664,13 +682,59 @@ namespace ast::lower {
         auto &adt = std::get<TypeDefn::ADT>(it.val);
         Idx adtIdx = idx + 1; // type of the ADT introduced
         auto &adtDef = std::get<DefType::ADT>(program.bindings.at(adtIdx).defType.v);
-        for (const auto &fieldTy : adt.types) {
-          adtDef.fields.push_back(visitType(*fieldTy, &idcs, &iidx));
-        }
         hir::Type ty;
         ty.base = adtIdx;
         ty.source = ((Type &)it).span;
         typeDef.value = ty;
+        Idx fieldIdx = 0;
+        for (const auto &fieldTy : adt.types) {
+          Idx accAdtIdx;
+          if (fieldTy.accessor) {
+            accAdtIdx = idcs.at(iidx++);
+            if (accAdtIdx > adtIdx) {
+              auto defineE = withSpan<hir::DefineExpr>(fieldTy.accessor->ident.span());
+              defineE->idx = accAdtIdx + 1; // acc var idx
+              auto newE = withSpan<hir::NewExpr>(defineE->span);
+              newE->adt = accAdtIdx;
+              defineE->value = std::move(newE);
+              theBlock.block.body.push_back(std::move(defineE));
+            }
+          }
+          hir::Type fieldHirTy = visitType(*fieldTy.ty, &idcs, &iidx);
+          adtDef.fields.push_back(fieldHirTy);
+          if (fieldTy.accessor) {
+            hir::TraitImpl &ti = program.traitImpls.emplace_back();
+            ti.source = fieldTy.accessor->ident.span();
+            ti.type.base = accAdtIdx;
+            ti.types.push_back(fieldHirTy);
+            ti.trait.base = hir::Fn;
+            hir::Type &argsTy = ti.trait.params.emplace_back();
+            argsTy.base = hir::TUPLE;
+            argsTy.params = {ty};
+            hir::Block &accessor = ti.methods.emplace_back();
+            accessor.idx = blockIdx++;
+            Idx accessedIdx;
+            accessor.bindings = {
+                accessedIdx = introduceDef(hir::Definition{
+                  "accessed",
+                  ty.source,
+                  DefType::Variable{}
+                }),
+                introduceDef(hir::Definition{
+                  fieldTy.accessor->ident.value,
+                  fieldTy.accessor->ident.span(),
+                  DefType::Variable{}
+                })
+            };
+            auto &getExpr = (hir::GetExpr &) *accessor.body.emplace_back(withSpan<hir::GetExpr>(fieldTy.accessor->ident.span()));
+            getExpr.field = fieldIdx;
+            getExpr.adt = adtIdx;
+            auto varE = withSpan<hir::VarExpr>(getExpr.span);
+            varE->ref = accessedIdx;
+            getExpr.value = std::move(varE);
+          }
+          fieldIdx++;
+        }
         {
           hir::TraitImpl &ti = program.traitImpls.emplace_back();
           ti.source = *typeDef.value->source;
@@ -707,7 +771,8 @@ namespace ast::lower {
           }));
         }
       }
-      return withSpan<hir::VoidExpr>(((Statement &)it).span);
+      theBlock.block.body.push_back(withSpan<hir::VoidExpr>(((Statement &)it).span));
+      return std::make_unique<hir::BlockExpr>(std::move(theBlock));
     }
     
     Eptr visitTraitImpl(TraitImpl &it, std::vector<Idx> &idcs, Idx &idx) override {

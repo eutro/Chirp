@@ -4,9 +4,9 @@ Statement ::= Defn | Expr | TypeDefn
 
 Defn ::= 'defn' Binding
 
-TypeDefn ::= 'type' Identifier ( '=' Type ) | '(' ( Type (',' Type)* ','? )? ')'
+TypeDefn ::= 'type' Identifier ( '=' Type ) | '(' ( TypeClause (',' TypeClause)* ','? )? ')'
 
-TraitImpl ::= 'impl' Type
+TypeClause ::= ( Identifier ':' )? Type
 
 Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
 

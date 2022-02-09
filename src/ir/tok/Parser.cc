@@ -127,6 +127,10 @@ namespace tok::parser {
       SinglePred pred(type);
       return optional(pred, true);
     }
+
+    void pushBack(Token &&tok) {
+      lookahead.push_back(std::forward<Token>(tok));
+    }
     
     struct AlwaysPred {
       bool operator()(const Tok &oType) const {
@@ -379,7 +383,20 @@ namespace tok::parser {
     defn.span.hi = defn.binding.span.hi;
     return std::make_unique<Defn>(std::move(defn));
   }
-  
+
+  TypeDefn::ADT::Binding parseTypeBinding(ParserStream &stream) {
+    TypeDefn::ADT::Binding bd;
+    if (auto ident = stream.optional(Tok::TIdent)) {
+      if (stream.optional(Tok::TColon)) {
+        bd.accessor = parseIdent(std::move(*ident));
+      } else {
+        stream.pushBack(std::move(*ident));
+      }
+    }
+    bd.ty = parseType(stream);
+    return bd;
+  }
+
   std::unique_ptr<TypeDefn> parseTypeDefn(ParserStream &stream, std::optional<Token> &typeToken) {
     TypeDefn defn;
     defn.typeToken = std::move(*typeToken);
@@ -399,7 +416,7 @@ namespace tok::parser {
       adt.openToken = std::move(openToken);
       std::optional<Token> closeToken;
       while (!(closeToken = stream.optional(Tok::TParClose))) {
-        adt.types.push_back(parseType(stream));
+        adt.types.push_back(parseTypeBinding(stream));
         if (!stream.optional(Tok::TComma)) {
           closeToken = stream.require(Tok::TParClose, ") expected");
           break;

@@ -1,4 +1,14 @@
-type ListNode = type Nil() | type Cons(i64, List)
-type List(ListNode)
+type Pair(lhs: i64, rhs: i64)
+type Triple(lhs: i64, i64, rhs: i64)
 
-List(Nil())
+defn putI(i: i64): #() = foreign
+defn println(): #() = foreign
+
+defn p = Pair(1, 2)
+defn t = Triple(1, 2, 3)
+
+putI(lhs(p))
+println()
+
+putI(rhs(t))
+println()

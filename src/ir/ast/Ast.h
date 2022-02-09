@@ -141,7 +141,11 @@ namespace ast {
     };
     struct ADT {
       Token openToken;
-      std::vector<std::unique_ptr<Type>> types;
+      struct Binding {
+        std::unique_ptr<Type> ty;
+        std::optional<Identifier> accessor;
+      };
+      std::vector<Binding> types;
       Token closeToken;
     };
     std::variant<Alias, ADT> val;

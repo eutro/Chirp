@@ -5,6 +5,7 @@
 #include <set>
 #include <tuple>
 #include <variant>
+#include <vector>
 #include <sstream>
 
 namespace util {
