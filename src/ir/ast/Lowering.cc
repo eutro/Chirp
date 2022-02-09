@@ -240,6 +240,7 @@ namespace ast::lower {
 
       std::monostate visitNamedType(NamedType &it, std::vector<Idx> &idcs) override {
         if (it.args) {
+
           for (auto &p : it.args->types) {
             visitType(*p, idcs);
           }
@@ -434,15 +435,7 @@ namespace ast::lower {
       auto &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
 
       closure.fields.reserve(closed.size());
-      for (auto &ct : closedTypes) {
-        auto &data = program.bindings.at(ct);
-        Idx paramIdx = introduceDef(hir::Definition{
-            data.name,
-            data.source,
-            DefType::TypeVar{}
-        });
-        closure.params.push_back(paramIdx);
-      }
+      closure.paramCount += closedTypes.size();
       for (auto &cv : closed) {
         auto &data = program.bindings.at(cv);
         Idx paramIdx = introduceDef(hir::Definition{
@@ -450,7 +443,7 @@ namespace ast::lower {
             data.source,
             DefType::TypeVar{}
         });
-        closure.params.push_back(paramIdx);
+        closure.paramCount++;
         hir::Type ty;
         ty.base = paramIdx;
         ty.source = data.source;
@@ -462,17 +455,14 @@ namespace ast::lower {
 
       hir::Type &adtType = fnImpl.type;
       adtType.base = typeIdx;
-      adtType.params.reserve(closure.params.size());
-      for (auto &p : closure.params) {
-        hir::Definition &def = program.bindings.at(p);
+      adtType.params.reserve(closure.paramCount);
+      for (Idx i = 0; i < closure.paramCount; ++i) {
         Idx paramIdx = introduceDef(hir::Definition{
-            def.name,
-            def.source,
+            {}, {},
             DefType::TypeVar{}
         });
         hir::Type &param = adtType.params.emplace_back();
         param.base = paramIdx;
-        param.source = def.source;
       }
 
       hir::Type fnArgsTy;
@@ -514,7 +504,7 @@ namespace ast::lower {
 
       auto expr = withSpan<hir::NewExpr>(source);
       expr->adt = typeIdx;
-      expr->types.reserve(closure.params.size());
+      expr->types.reserve(closure.paramCount);
       for (auto &ct : closedTypes) {
         hir::Type &ty = expr->types.emplace_back();
         ty.base = ct;
@@ -717,6 +707,9 @@ namespace ast::lower {
         hir::Type ty;
         ty.base = adtIdx;
         ty.source = ((Type &)it).span;
+        for (Idx i : typeDef.paramTys) {
+          ty.params.emplace_back().base = i;
+        }
         typeDef.value = ty;
         Idx fieldIdx = 0;
         for (const auto &fieldTy : adt.types) {
@@ -733,6 +726,7 @@ namespace ast::lower {
             }
           }
           hir::Type fieldHirTy = visitType(*fieldTy.ty, &idcs, &iidx);
+          adtDef.paramCount = typeDef.paramTys.size();
           adtDef.fields.push_back(fieldHirTy);
           if (fieldTy.accessor) {
             hir::TraitImpl &ti = program.traitImpls.emplace_back();
@@ -780,6 +774,9 @@ namespace ast::lower {
           argsTy.params = adtDef.fields;
 
           hir::Block &ctor = ti.methods.emplace_back();
+          for (Idx tb : typeDef.paramTys) {
+            ctor.typeBindings.push_back(tb);
+          }
           ctor.idx = blockIdx++;
           ctor.bindings.reserve(argsTy.params.size());
           for (Idx i = 0; i < argsTy.params.size(); ++i) {
@@ -791,6 +788,7 @@ namespace ast::lower {
           }
           auto &newExpr = (hir::NewExpr &) *ctor.body.emplace_back(withSpan<hir::NewExpr>(typeDef.value->source));
           newExpr.adt = adtIdx;
+          newExpr.types = ty.params;
           for (Idx i : ctor.bindings) {
             auto varE = withSpan<hir::VarExpr>(program.bindings.at(i).source);
             varE->ref = i;

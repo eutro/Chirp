@@ -64,7 +64,7 @@ namespace type::infer {
                   },
                   [&](const Ty::ADT &lt, const Ty::ADT &rt) {
                     if (lt.i != rt.i || lt.s.size() != rt.s.size() || lt.fieldTys.size() != rt.fieldTys.size()) {
-                      throw err::LocationError(util::toStr("Base type mismatch when deconstructing in ", tmplTy, " and ", ty));
+                      throw err::LocationError(util::toStr("Base type mismatch when deconstructing in,\n ", tmplTy, "\n and ", ty));
                     }
                     {
                       auto ltIt = lt.s.begin();

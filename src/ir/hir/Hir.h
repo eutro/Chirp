@@ -42,7 +42,7 @@ namespace hir {
     };
     struct Trait {};
     struct ADT {
-      std::vector<DefIdx> params;
+      Idx paramCount;
       std::vector<hir::Type> fields;
     };
     std::variant<Variable, Trait, Type, ADT, TypeVar> v;

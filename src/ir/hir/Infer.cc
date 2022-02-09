@@ -48,7 +48,7 @@ namespace hir::infer {
                          log({tys.at(0)}, {(Idx)0});
                          auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
                          CheckInsn check;
-                         check({tys.at(1), ffifn.args}, {});
+                         check({ffifn.args, tys.at(1)}, {});
                          return {ffifn.ret};
                        },
                        1, igIdx++, instSet)
@@ -832,7 +832,7 @@ namespace hir::infer {
       VarRef objTy = visitExpr(*e.value PASS_ARGS);
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
       std::vector<Tp> params, fields;
-      size_t paramCount = adt.params.size();
+      size_t paramCount = adt.paramCount;
       size_t fieldCount = adt.fields.size();
       Idx i = 0;
       for (; i < paramCount; ++i) {

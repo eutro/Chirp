@@ -6,10 +6,10 @@ type Triple(lhs: i64, i64, rhs: i64)
 defn putI(i: i64): #() = foreign
 defn println(): #() = foreign
 
-defn p = cons(1, cons(1, 2))
+defn p = cons(1, cons(4, 9))
 defn t = Triple(1, 2, 3)
 
-putI(lhs(p))
+putI(rhs(rhs(p)))
 println()
 
 putI(rhs(t))
