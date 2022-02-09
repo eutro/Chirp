@@ -12,3 +12,6 @@ println()
 
 putI(rhs(t))
 println()
+
+defn typeName(x: string) = "str"
+typeName("foo")

@@ -375,12 +375,15 @@ namespace ast::lower {
         }
       }
 
+      std::vector<hir::Type> paramTys;
+      paramTys.reserve(params.size());
       for (auto &p : params) {
         introduceDef(bindings, hir::Definition{
             p.name.ident.value,
             p.name.ident.span(),
-            DefType::Variable{false, {visitHint(p.typeHint)}},
+            DefType::Variable{false},
           });
+        paramTys.push_back(visitHint(p.typeHint));
       }
 
       auto blockE = withSpan<hir::BlockExpr>(std::nullopt);
@@ -465,14 +468,21 @@ namespace ast::lower {
       {
         Idx i = 0;
         for (Param &param : params) {
-          Idx paramIdx = introduceDef(hir::Definition{
-              param.name.ident.value,
+          auto &hint = paramTys.at(i);
+          auto &var = std::get<DefType::Variable>(program.bindings.at(block.bindings[i]).defType.v);
+          if (hint.base) {
+            fnArgsTy.params.push_back(hint);
+            var.hints.push_back(hint);
+          } else {
+            Idx paramIdx = introduceDef(hir::Definition{
+                param.name.ident.value,
                 param.name.ident.span(),
                 DefType::Type{},
-                });
-          fnArgsTy.params.emplace_back().base = paramIdx;
-          std::get<DefType::Variable>(program.bindings.at(block.bindings[i++]).defType.v)
-                     .hints.emplace_back().base = paramIdx;
+            });
+            fnArgsTy.params.emplace_back().base = paramIdx;
+            var.hints.emplace_back().base = paramIdx;
+          }
+          i++;
         }
       }
       hir::Type &fnType = fnImpl.trait;
