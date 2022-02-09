@@ -59,7 +59,7 @@ namespace lexer {
     const DFA &dfa;
     std::istream &in;
     bool yieldLines = false;
-    size_t state = dfa.initial;
+    Idx state = dfa.initial;
 
   public:
     std::vector<std::string> lines;

@@ -7,6 +7,9 @@ TIdent ::= /[a-zA-Z_][a-zA-Z_0-9]*/
 
 TDefn ::= 'defn'
 TType ::= 'type'
+TTrait ::= 'trait'
+TImpl ::= 'impl'
+TAs ::= 'as'
 TIf ::= 'if'
 TElse ::= 'else'
 TThen ::= 'then'

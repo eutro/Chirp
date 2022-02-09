@@ -1,3 +1,4 @@
-type List(type Nil() | type Cons(i64, List))
+type ListNode = type Nil() | type Cons(i64, List)
+type List(ListNode)
 
 List(Nil())

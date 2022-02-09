@@ -10,6 +10,9 @@ namespace tok {
     TIdent,
     TDefn,
     TType,
+    TTrait,
+    TImpl,
+    TAs,
     TIf,
     TElse,
     TThen,
@@ -60,6 +63,9 @@ namespace tok {
   {tok::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},\
   {tok::Tok::TDefn, "defn"},\
   {tok::Tok::TType, "type"},\
+  {tok::Tok::TTrait, "trait"},\
+  {tok::Tok::TImpl, "impl"},\
+  {tok::Tok::TAs, "as"},\
   {tok::Tok::TIf, "if"},\
   {tok::Tok::TElse, "else"},\
   {tok::Tok::TThen, "then"},\
