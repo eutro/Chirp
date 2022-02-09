@@ -14,15 +14,7 @@ namespace type::infer {
   thread_local Env *ENV;
 
   std::vector<Tp> InsnList::operator()(const std::vector<Tp> &args, const std::vector<Constant> &) const {
-    if (logging::DEBUG.isEnabled) {
-      std::ostream &os = logging::CHIRP.debug();
-      os << "Currently evaluating:\n$@ = [";
-      for (auto it = args.begin(); it != args.end();) {
-        os << *it;
-        if (++it != args.end()) os << ", ";
-      }
-      os << "]\n" << *this << "\n";
-    }
+    logging::CHIRP.debug("Currently evaluating:\n$@ = ", args, "\n", *this, "\n");
 
     if (insns.empty()) return args;
     std::vector<std::vector<Tp>> rets;
@@ -57,11 +49,28 @@ namespace type::infer {
           }
           auto fn = ENV->table->lookupFn(insn.key, insn.constants, insnArgs);
           rets.push_back(fn(insnArgs, insn.constArgs));
+        } catch (err::LocationError &e) {
+          throw e;
         } catch (std::runtime_error &e) {
           throw err::LocationError(e.what());
         }
       } catch (err::LocationError &le) {
-        le.add(err::Location().maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
+        le.add(err::Location().msg(" at:").maybeSpan(insn.src, insn.reason ? *insn.reason : "synthetic " + insn.key->value));
+        if (logging::DEBUG.isEnabled) {
+          std::stringstream os;
+          os << "$@ = " << util::toStr(args) << "\n";
+          Idx i = 0;
+          for (const Insn &in : insns) {
+            os << "$" << std::dec << i << " = " << in << "\n";
+            if (i < rets.size()) {
+              os << "$" << std::dec << i << " = " << util::toStr(rets[i]) << "\n";
+            } else {
+              break;
+            }
+            ++i;
+          }
+          le.add(err::Location().msg(os.str()));
+        }
         throw le;
       }
     }
@@ -151,7 +160,17 @@ namespace type::infer {
     insns = std::move(outInsns);
   }
 
+  logging::Marker INSNLIST_OPTS("INSNLIST_OPS", false);
+
   void InsnList::opt() {
+    logging::CHIRP.log(INSNLIST_OPTS, "Optimising InsnList:\n", *this, "\n");
+    if (INSNLIST_OPTS.isEnabled) {
+      topSort([](InsnList &il, const std::vector<Insn *> &is) {
+        if (is.size() > 1) {
+          logging::CHIRP.log(INSNLIST_OPTS, "Warning: not topological\n");
+        }
+      });
+    }
     std::vector<Insn> outInsns;
     std::map<VarRef, VarRef> mappedRelocations;
     std::map<VarRef, VarRef> unmappedRelocations;
@@ -160,36 +179,38 @@ namespace type::infer {
     std::vector<VarRef> logVars;
 
     // intern all constant constructions within the block
-    std::set<Tp> fullTys; // set of all types that include no free variables
-    for (auto &insn : insns) {
-      if (insn.inputs.empty() && insn.key == ConstructInsn::key()) {
-        for (Constant &cnst : insn.constArgs) {
-          fullTys.insert(constant_cast<Tp>(cnst));
+    {
+      std::set<Tp> fullTys; // set of all types that include no free variables
+      for (auto &insn : insns) {
+        if (insn.inputs.empty() && insn.key == ConstructInsn::key()) {
+          for (Constant &cnst : insn.constArgs) {
+            fullTys.insert(constant_cast<Tp>(cnst));
+          }
         }
       }
-    }
 
-    if (!fullTys.empty()) {
-      Idx tyId = 0;
-      std::map<Tp, Idx> fullTyIdcs;
-      std::vector<Constant> tys(fullTys.begin(), fullTys.end());
-      for (Tp ty : fullTys) {
-        fullTyIdcs[ty] = tyId++;
-      }
-      outInsns.push_back(Insn(ConstructInsn::key(), {}, {}, std::move(tys)));
-      {
-        Idx insnIdx = 0;
-        for (auto &insn : insns) {
-          if (insn.inputs.empty() && insn.key == ConstructInsn::key()) {
-            Idx retIdx = 0;
-            for (Constant &cnst : insn.constArgs) {
-              mappedRelocations.emplace(
-                VarRef(insnIdx, retIdx++),
-                VarRef(0, fullTyIdcs.at(constant_cast<Tp>(cnst)))
-              );
+      if (!fullTys.empty()) {
+        Idx tyId = 0;
+        std::map<Tp, Idx> fullTyIdcs;
+        std::vector<Constant> tys(fullTys.begin(), fullTys.end());
+        for (Tp ty : fullTys) {
+          fullTyIdcs[ty] = tyId++;
+        }
+        outInsns.push_back(Insn(ConstructInsn::key(), {}, {}, std::move(tys)));
+        {
+          Idx insnIdx = 0;
+          for (auto &insn : insns) {
+            if (insn.inputs.empty() && insn.key == ConstructInsn::key()) {
+              Idx retIdx = 0;
+              for (Constant &cnst : insn.constArgs) {
+                mappedRelocations.emplace(
+                    VarRef(insnIdx, retIdx++),
+                    VarRef(0, fullTyIdcs.at(constant_cast<Tp>(cnst)))
+                );
+              }
             }
+            insnIdx++;
           }
-          insnIdx++;
         }
       }
     }
@@ -259,42 +280,59 @@ namespace type::infer {
     }
 
     // compact the insn list
-    for (Idx i : liveInsns) {
-      Insn &insn = insns[i];
-      for (VarRef &vr : insn.inputs) {
-        if (mappedRelocations.count(vr)) {
-          vr = mappedRelocations.at(vr);
-        } else if (vr.insn) {
-          vr.insn = insnRelocations.at(*vr.insn);
-        }
-      }
-      if (insn.key == CheckInsn::key()) {
-        bool allSame = true;
-        VarRef firstVr = insn.inputs.at(0);
+    {
+      std::set<LookupKey::P> canIntern
+          {IdentityInsn::key(),
+           ConstructInsn::key(),
+           UnionInsn::key(),
+           DeConstructInsn::key()};
+      std::map<Insn *, Idx, util::DerefCmp<>> interns;
+      for (Idx i : liveInsns) {
+        Insn &insn = insns[i];
         for (VarRef &vr : insn.inputs) {
-          if (vr != firstVr) {
-            allSame = false;
-            break;
+          if (mappedRelocations.count(vr)) {
+            vr = mappedRelocations.at(vr);
+          } else if (vr.insn) {
+            vr.insn = insnRelocations.at(*vr.insn);
           }
         }
-        if (allSame) continue;
-      } else if (insn.key == LogInsn::key()) {
-        if (insn.inputs.size() != insn.constArgs.size()) {
-          throw util::ICE("LogInsn inputs/constArgs length mismatch");
+        if (interns.count(&insn)) {
+          insnRelocations[i] = interns.at(&insn);
+          continue;
         }
-        std::copy(insn.constArgs.begin(), insn.constArgs.end(), std::back_inserter(logIdcs));
-        std::copy(insn.inputs.begin(), insn.inputs.end(), std::back_inserter(logVars));
-        continue;
+        if (insn.key == CheckInsn::key()) {
+          bool allSame = true;
+          VarRef firstVr = insn.inputs.at(0);
+          for (VarRef &vr : insn.inputs) {
+            if (vr != firstVr) {
+              allSame = false;
+              break;
+            }
+          }
+          if (allSame) continue;
+        } else if (insn.key == LogInsn::key()) {
+          if (insn.inputs.size() != insn.constArgs.size()) {
+            throw util::ICE("LogInsn inputs/constArgs length mismatch");
+          }
+          std::copy(insn.constArgs.begin(), insn.constArgs.end(), std::back_inserter(logIdcs));
+          std::copy(insn.inputs.begin(), insn.inputs.end(), std::back_inserter(logVars));
+          continue;
+        }
+        Idx newIdx = (Idx) outInsns.size();
+        insnRelocations[i] = newIdx;
+        if (canIntern.count(insn.key)) {
+          interns.insert({&insn, newIdx});
+        }
+        outInsns.push_back(insn);
       }
-      insnRelocations[i] = (Idx) outInsns.size();
-      outInsns.push_back(insn);
-    }
-    if (!logIdcs.empty()) {
-      outInsns.push_back(Insn(LogInsn::key(), {}, std::move(logVars), std::move(logIdcs)));
+      if (!logIdcs.empty()) {
+        outInsns.push_back(Insn(LogInsn::key(), {}, std::move(logVars), std::move(logIdcs)));
+      }
     }
 
     insns = outInsns;
     retInsn = insnRelocations.at(retInsn);
+    logging::CHIRP.log(INSNLIST_OPTS, "Optimised InsnList:\n", *this, "\n");
   }
 
   std::ostream &operator<<(std::ostream &os, const InsnList &list) {
@@ -379,6 +417,10 @@ namespace type::infer {
       }
     }
     return os;
+  }
+  bool Insn::operator<(const Insn &rhs) const {
+    return std::tie(key, constants, inputs, constArgs, reason, src) <
+           std::tie(rhs.key, rhs.constants, rhs.inputs, rhs.constArgs, rhs.reason, rhs.src);
   }
 
   std::ostream &operator<<(std::ostream &os, const VarRef &var) {

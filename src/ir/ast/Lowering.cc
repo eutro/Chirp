@@ -4,6 +4,7 @@
 #include "../../common/Util.h"
 
 #include <sstream>
+#include <numeric>
 
 namespace ast::lower {
   using DefType = hir::DefType;
@@ -72,9 +73,9 @@ namespace ast::lower {
 
   class LoweringVisitor :
     public ProgramVisitor<LowerResult>,
-    public TypeVisitor<hir::Type>,
+    public TypeVisitor<hir::Type, std::vector<Idx> *, Idx *>,
     public ExprVisitor<Eptr, hir::Pos>,
-    public StatementVisitor<Eptr, std::optional<Idx>> {
+    public StatementVisitor<Eptr, std::vector<Idx> &, Idx &> {
   public:
     err::ErrorContext errs;
     hir::Program program;
@@ -116,28 +117,30 @@ namespace ast::lower {
       builtinType("Cmp", DefType::Trait{});
       builtinType("Neg", DefType::Trait{});
 
-      builtinType("bool", DefType::Type{});
+      builtinType("bool", DefType::Type{0,0});
 
-      builtinType("i8", DefType::Type{});
-      builtinType("i16", DefType::Type{});
-      builtinType("i32", DefType::Type{});
-      builtinType("i64", DefType::Type{});
-      builtinType("i128", DefType::Type{});
+      builtinType("i8", DefType::Type{0,0});
+      builtinType("i16", DefType::Type{0,0});
+      builtinType("i32", DefType::Type{0,0});
+      builtinType("i64", DefType::Type{0,0});
+      builtinType("i128", DefType::Type{0,0});
 
-      builtinType("u8", DefType::Type{});
-      builtinType("u16", DefType::Type{});
-      builtinType("u32", DefType::Type{});
-      builtinType("u64", DefType::Type{});
-      builtinType("u128", DefType::Type{});
+      builtinType("u8", DefType::Type{0,0});
+      builtinType("u16", DefType::Type{0,0});
+      builtinType("u32", DefType::Type{0,0});
+      builtinType("u64", DefType::Type{0,0});
+      builtinType("u128", DefType::Type{0,0});
 
-      builtinType("f16", DefType::Type{});
-      builtinType("f32", DefType::Type{});
-      builtinType("f64", DefType::Type{});
+      builtinType("f16", DefType::Type{0,0});
+      builtinType("f32", DefType::Type{0,0});
+      builtinType("f64", DefType::Type{0,0});
 
-      builtinType("tuple", DefType::Type{});
-      builtinType("ffifn", DefType::Type{});
-      builtinType("string", DefType::Type{});
-      builtinType("cstr", DefType::Type{});
+      builtinType("tuple", DefType::Type{0,std::nullopt});
+      builtinType("union", DefType::Type{0,std::nullopt});
+      builtinType("ffifn", DefType::Type{2,2});
+      builtinType("string", DefType::Type{0,0});
+      builtinType("cstr", DefType::Type{0,0});
+      builtinType("type", DefType::Type{1,1});
     }
 
     LoweringVisitor() {
@@ -147,43 +150,151 @@ namespace ast::lower {
 
     void addBindingsToBlock(hir::Block &block) {
       block.bindings = bindings.defs();
+      for (Idx def : typeBindings.defs()) {
+        if (std::holds_alternative<DefType::TypeVar>(program.bindings.at(def).defType.v)) {
+          block.typeBindings.push_back(def);
+        }
+      }
     }
 
     hir::Type visitHint(std::optional<TypeHint> &hint) {
-      return hint ? visitType(*hint->type) : hir::Type();
+      return hint ?
+             visitType(*hint->type, nullptr, nullptr) :
+             hir::Type();
     }
 
     hir::DefIdx introduceBinding(Binding &it) {
       return introduceDef(bindings, hir::Definition{
           it.name.ident.value,
           it.name.ident.span(),
-          DefType::Variable{false},
+          DefType::Variable{},
         });
     }
 
     class BindingVisitor :
-      public StatementVisitor<std::optional<Idx>, bool> {
+      public StatementVisitor<std::monostate, std::vector<Idx>&, bool>,
+      public TypeVisitor<std::monostate, std::vector<Idx>&> {
     private:
       LoweringVisitor &lv;
     public:
       BindingVisitor(LoweringVisitor &lv): lv(lv) {}
 
-      std::optional<Idx> visitDefn(Defn &it, bool topLevel) override {
+      std::monostate visitDefn(Defn &it, std::vector<Idx> &idcs, bool topLevel) override {
         auto idx = lv.introduceBinding(it.binding);
-        if (topLevel) {
-          std::get<DefType::Variable>(lv.program.bindings.at(idx).defType.v).global = true;
-        }
-        return idx;
+        idcs.push_back(idx);
+        return {};
       }
 
-      std::optional<Idx> visitExpr(Expr &it, bool topLevel) override {
-        return std::nullopt;
+      std::monostate visitExpr(Expr &it, std::vector<Idx> &idcs, bool topLevel) override {
+        return {};
+      }
+
+      std::monostate visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, bool topLevel) override {
+        DefType::Type tyDef;
+        Idx arity = 0;
+        if (it.params) {
+          arity = it.params->idents.size();
+        }
+        tyDef.maxArity = tyDef.minArity = arity;
+        idcs.push_back(lv.introduceDef(lv.typeBindings, hir::Definition{
+            it.name.ident.value,
+            it.name.ident.span(),
+            std::move(tyDef)
+        }));
+        if (std::holds_alternative<TypeDefn::ADT>(it.val)) {
+          lv.introduceDef(hir::Definition{
+              it.name.ident.value,
+              it.name.ident.span(),
+              DefType::ADT{} // to populate later
+          });
+          auto &adt = std::get<TypeDefn::ADT>(it.val);
+          for (auto &ty : adt.types) {
+            if (ty.accessor) {
+              if (auto accessor = lv.bindings.lookup(ty.accessor->ident.value)) {
+                idcs.push_back(*accessor - 1);
+              } else {
+                idcs.push_back(lv.introduceDef(hir::Definition {
+                    ty.accessor->ident.value,
+                    ty.accessor->ident.span(),
+                    DefType::ADT{}
+                }));
+                lv.introduceDef(lv.bindings, hir::Definition{
+                    ty.accessor->ident.value,
+                    ty.accessor->ident.span(),
+                    DefType::Variable{}
+                });
+              }
+            }
+            visitType(*ty.ty, idcs);
+          }
+        } else {
+          auto &alias = std::get<TypeDefn::Alias>(it.val);
+          visitType(*alias.type, idcs);
+        }
+        return {};
+      }
+
+      std::monostate visitTraitImpl(TraitImpl &it, std::vector<Idx> &idcs, bool topLevel) override {
+        return {};
+      }
+
+      std::monostate visitNamedType(NamedType &it, std::vector<Idx> &idcs) override {
+        if (it.args) {
+
+          for (auto &p : it.args->types) {
+            visitType(*p, idcs);
+          }
+        }
+        return {};
+      }
+      std::monostate visitPlaceholderType(PlaceholderType &it, std::vector<Idx> &idcs) override {
+        return {};
+      }
+      std::monostate visitTupleType(TupleType &it, std::vector<Idx> &idcs) override {
+        for (auto &p : it.types) {
+          visitType(*p, idcs);
+        }
+        return {};
+      }
+      std::monostate visitUnionType(UnionType &it, std::vector<Idx> &idcs) override {
+        for (auto &p : it.types) {
+          visitType(*p, idcs);
+        }
+        return {};
+      }
+      std::monostate visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs) override {
+        visitTypeDefn(it, idcs, false);
+        return {};
       }
     };
 
-    hir::Type visitNamedType(NamedType &it) override {
-      hir::Type ty;
+    hir::Type visitType(Type &it, std::vector<Idx> *idcs, Idx *idx) override {
+      hir::Type ty = TypeVisitor::visitType(it, idcs, idx);
       ty.source = it.span;
+      if (ty.base) {
+        auto &def = program.bindings.at(*ty.base);
+        if (std::holds_alternative<DefType::Type>(def.defType.v)) {
+          auto &typeDef = std::get<DefType::Type>(def.defType.v);
+          if (ty.params.size() < typeDef.minArity || (typeDef.maxArity && ty.params.size() > *typeDef.maxArity)) {
+            errs
+                .err()
+                .span(it.span, util::toStr("Type '", def.name, "' given with the wrong number of arguments"))
+                .msg(typeDef.minArity == typeDef.maxArity ? util::toStr("  expected: ", typeDef.minArity) :
+                     typeDef.maxArity ? util::toStr("  expected between: ", typeDef.minArity, " and ", *typeDef.maxArity) :
+                     util::toStr("  expected at least: ", typeDef.minArity))
+                .msg(util::toStr("  got: ", ty.params.size()));
+          }
+        } else if (std::holds_alternative<DefType::TypeVar>(def.defType.v)) {
+          if (!ty.params.empty()) {
+            errs.err().span(it.span, util::toStr("Type '", def.name, "' is a type variable and does not take arguments"));
+          }
+        }
+      }
+      return ty;
+    }
+
+    hir::Type visitNamedType(NamedType &it, std::vector<Idx> *idcs, Idx *idx) override {
+      hir::Type ty;
       auto found = typeBindings.lookup(it.raw.ident.value);
       if (found) {
         ty.base = found;
@@ -193,26 +304,51 @@ namespace ast::lower {
           .msg("Type '" + it.raw.ident.value + "' is not defined")
           .span(it.raw.ident.span(), "here");
       }
-      if (it.parameters) {
-        ty.params.reserve(it.parameters->types.size());
-        for (auto &t : it.parameters->types) {
-          ty.params.push_back(visitType(*t));
+      if (it.args) {
+        ty.params.reserve(it.args->types.size());
+        for (auto &t : it.args->types) {
+          ty.params.push_back(visitType(*t, idcs, idx));
         }
       }
       return ty;
     }
 
-    hir::Type visitPlaceholderType(PlaceholderType &it) override {
+    hir::Type visitPlaceholderType(PlaceholderType &it, std::vector<Idx> *idcs, Idx *idx) override {
       return hir::Type();
     }
 
-    hir::Type visitTupleType(TupleType &it) override {
+    hir::Type visitTupleType(TupleType &it, std::vector<Idx> *idcs, Idx *idx) override {
       hir::Type ty;
       ty.base = hir::TUPLE;
       ty.params.reserve(it.types.size());
       for (auto &t : it.types) {
-        ty.params.push_back(visitType(*t));
+        ty.params.push_back(visitType(*t, idcs, idx));
       }
+      return ty;
+    }
+
+    hir::Type visitUnionType(UnionType &it, std::vector<Idx> *idcs, Idx *idx) override {
+      hir::Type ty;
+      ty.base = hir::UNION;
+      ty.params.reserve(it.types.size());
+      for (auto &t : it.types) {
+        ty.params.push_back(visitType(*t, idcs, idx));
+      }
+      return ty;
+    }
+
+    hir::Type visitTypeDefn(TypeDefn &it, std::vector<Idx> *idcs, Idx *idx) override {
+      hir::Type ty;
+      BindingVisitor bv(*this);
+      if (!idcs) {
+        std::vector<Idx> idcsO;
+        bv.visitTypeDefn(it, idcsO, false);
+        idcs = &idcsO;
+        Idx i = 0;
+        idx = &i;
+      }
+      ty.base = idcs->at(*idx);
+      visitStatement(it, *idcs, *idx);
       return ty;
     }
 
@@ -223,13 +359,14 @@ namespace ast::lower {
 
     template <typename Param>
     Eptr fnExpr(const std::string &name,
-                Binding::TypeArguments *typeParams,
+                TypeParams *typeParams,
                 TypeHint *retHint,
                 std::vector<Param> &params,
                 const loc::Span &source,
                 Expr &body) {
       // std::set<hir::DefIdx> globalRefs;
       std::set<hir::DefIdx> closed;
+      std::set<hir::DefIdx> closedTypes;
       bindings.push([&](hir::DefIdx vr) {
         // if (std::get<DefType::Variable>(program.bindings.at(vr).defType.v).global) {
         //   globalRefs.insert(vr);
@@ -237,25 +374,30 @@ namespace ast::lower {
           closed.insert(vr);
         // }
       });
-      typeBindings.push();
+      typeBindings.push([&](hir::DefIdx vr) {
+        if (std::holds_alternative<DefType::TypeVar>(program.bindings.at(vr).defType.v)) {
+          closedTypes.insert(vr);
+        }
+      });
       if (typeParams) {
         for (auto &tp : typeParams->idents) {
           introduceDef(typeBindings, hir::Definition{
               tp.ident.value,
               tp.ident.span(),
-                DefType::Type{},
+                DefType::TypeVar{},
             });
         }
       }
 
-      Idx arity = params.size();
-
+      std::vector<hir::Type> paramTys;
+      paramTys.reserve(params.size());
       for (auto &p : params) {
         introduceDef(bindings, hir::Definition{
             p.name.ident.value,
             p.name.ident.span(),
-            DefType::Variable{false, {visitHint(p.typeHint)}},
+            DefType::Variable{},
           });
+        paramTys.push_back(visitHint(p.typeHint));
       }
 
       auto blockE = withSpan<hir::BlockExpr>(std::nullopt);
@@ -265,7 +407,7 @@ namespace ast::lower {
       addBindingsToBlock(block);
       auto bodyE = visitExpr(body, hir::Pos::Expr);
       if (retHint) {
-        bodyE->hints.push_back(visitType(*retHint->type));
+        bodyE->hints.push_back(visitType(*retHint->type, nullptr, nullptr));
       }
       block.body.push_back(std::move(bodyE));
       bindings.pop();
@@ -292,32 +434,35 @@ namespace ast::lower {
         });
       auto &closure = std::get<DefType::ADT>(program.bindings.at(typeIdx).defType.v);
 
-      closure.values.reserve(closed.size());
+      closure.fields.reserve(closed.size());
+      closure.paramCount += closedTypes.size();
       for (auto &cv : closed) {
         auto &data = program.bindings.at(cv);
-        closure.values.push_back(introduceDef(hir::Definition{
-              data.name,
-              data.source,
-              DefType::Variable{false},
-            }));
+        Idx paramIdx = introduceDef(hir::Definition{
+            data.name,
+            data.source,
+            DefType::TypeVar{}
+        });
+        closure.paramCount++;
+        hir::Type ty;
+        ty.base = paramIdx;
+        ty.source = data.source;
+        closure.fields.push_back(std::move(ty));
       }
 
       hir::TraitImpl &fnImpl = program.traitImpls.emplace_back();
       fnImpl.source = source;
-      fnImpl.params.reserve(closed.size() + arity);
 
       hir::Type &adtType = fnImpl.type;
-      adtType.informative = true;
       adtType.base = typeIdx;
-      adtType.params.reserve(closed.size());
-      for (auto &cv : closed) {
+      adtType.params.reserve(closure.paramCount);
+      for (Idx i = 0; i < closure.paramCount; ++i) {
         Idx paramIdx = introduceDef(hir::Definition{
-            "",
-              program.bindings.at(cv).source,
-              DefType::Type{}
-          });
-        adtType.params.emplace_back().base = paramIdx;
-        fnImpl.params.push_back(paramIdx);
+            {}, {},
+            DefType::TypeVar{}
+        });
+        hir::Type &param = adtType.params.emplace_back();
+        param.base = paramIdx;
       }
 
       hir::Type fnArgsTy;
@@ -326,25 +471,30 @@ namespace ast::lower {
       {
         Idx i = 0;
         for (Param &param : params) {
-          Idx paramIdx = introduceDef(hir::Definition{
-              "",
+          auto &hint = paramTys.at(i);
+          auto &var = std::get<DefType::Variable>(program.bindings.at(block.bindings[i]).defType.v);
+          if (hint.base) {
+            fnArgsTy.params.push_back(hint);
+            var.hints.push_back(hint);
+          } else {
+            Idx paramIdx = introduceDef(hir::Definition{
+                param.name.ident.value,
                 param.name.ident.span(),
-                DefType::Type{},
-                });
-          fnArgsTy.params.emplace_back().base = paramIdx;
-          std::get<DefType::Variable>(program.bindings.at(block.bindings[i++]).defType.v)
-                     .hints.emplace_back().base = paramIdx;
-          fnImpl.params.push_back(paramIdx);
+                DefType::TypeVar{},
+            });
+            fnArgsTy.params.emplace_back().base = paramIdx;
+            var.hints.emplace_back().base = paramIdx;
+          }
+          i++;
         }
       }
       hir::Type &fnType = fnImpl.trait;
       fnType.base = hir::Fn;
       Idx retIdx = introduceDef(hir::Definition{
-          "",
+          "ret",
             body.span,
-            DefType::Type{}
+            DefType::TypeVar{}
         });
-      fnImpl.params.push_back(retIdx);
       block.body.back()->hints.emplace_back().base = retIdx;
 
       fnType.params = {fnArgsTy};
@@ -354,45 +504,77 @@ namespace ast::lower {
 
       auto expr = withSpan<hir::NewExpr>(source);
       expr->adt = typeIdx;
+      expr->types.reserve(closure.paramCount);
+      for (auto &ct : closedTypes) {
+        hir::Type &ty = expr->types.emplace_back();
+        ty.base = ct;
+      }
       expr->values.reserve(closed.size());
       for (auto &cv : closed) {
+        auto &def = program.bindings.at(cv);
         auto varE = withSpan<hir::VarExpr>(std::nullopt);
         varE->ref = cv;
+        Idx extractedTy = introduceDef(hir::Definition{
+            def.name,
+            def.source,
+            DefType::TypeVar{}
+        });
+        hir::Type &hint = varE->hints.emplace_back();
+        hint.base = extractedTy;
+        hint.source = def.source;
+        expr->types.push_back(hint);
         expr->values.push_back(std::move(varE));
       }
 
       std::map<hir::DefIdx, Idx> mapping;
+      std::map<hir::DefIdx, Idx> typeMapping;
       Idx closedIdx = 0;
       for (auto &cv : closed) {
         mapping[cv] = closedIdx++;
+      }
+      closedIdx = 0;
+      for (auto &tv : closedTypes) {
+        typeMapping[tv] = *adtType.params.at(closedIdx++).base;
       }
 
       auto thisIdx = introduceDef(hir::Definition{
           name,
           source,
-          DefType::Variable{false, {adtType}},
+          DefType::Variable{{adtType}},
         });
       block.bindings.push_back(thisIdx);
 
-      hir::rebind::rebindVisitor([&mapping, typeIdx, thisIdx]
-                                 (hir::VarExpr &varE) -> Eptr {
-        auto ref = varE.ref;
-        auto found = mapping.find(ref);
-        if (found != mapping.end()) {
-          auto getE = withSpan<hir::GetExpr>(varE.span);
-          getE->adt = typeIdx;
-          getE->field = found->second;
-          auto thisE = withSpan<hir::VarExpr>(std::nullopt);
-          thisE->ref = thisIdx;
-          getE->value = std::move(thisE);
+      hir::rebind::rebindVisitor(
+          [&mapping, &typeMapping, typeIdx, thisIdx]
+              (hir::VarExpr &varE) -> Eptr {
+            auto ref = varE.ref;
+            auto found = mapping.find(ref);
+            if (found != mapping.end()) {
+              auto getE = withSpan<hir::GetExpr>(varE.span);
+              getE->adt = typeIdx;
+              getE->field = found->second;
+              auto thisE = withSpan<hir::VarExpr>(std::nullopt);
+              thisE->ref = thisIdx;
+              getE->value = std::move(thisE);
 
-          getE->span = varE.span;
-          getE->pos = varE.pos;
-          getE->hints = std::move(varE.hints);
-          return getE;
-        }
-        return nullptr;
-      })->visitExpr(*blockE, nullptr);
+              getE->span = varE.span;
+              getE->pos = varE.pos;
+              getE->hints = std::move(varE.hints);
+              return getE;
+            }
+            auto oFound = typeMapping.find(ref);
+            if (oFound != typeMapping.end()) {
+              varE.ref = oFound->second;
+            }
+            return nullptr;
+          },
+          [&typeMapping](hir::Type &ty) {
+            auto found = typeMapping.find(*ty.base);
+            if (found != typeMapping.end()) {
+              ty.base = found->second;
+            }
+          }
+      )->visitExpr(*blockE, nullptr);
 
       block.idx = blockIdx++;
       fnImpl.methods.push_back(std::move(block));
@@ -402,7 +584,7 @@ namespace ast::lower {
 
     template <typename Param>
     Eptr recFnExpr(Identifier &name,
-                   Binding::TypeArguments *typeParams,
+                   TypeParams *typeParams,
                    TypeHint *retHint,
                    std::vector<Param> &params,
                    const loc::Span &source,
@@ -414,7 +596,7 @@ namespace ast::lower {
       auto idx = introduceDef(bindings, hir::Definition{
           name.ident.value,
           name.ident.span(),
-          DefType::Variable{false},
+          DefType::Variable{},
         });
       expr->block.bindings.push_back(idx);
       auto defE = withSpan<hir::DefineExpr>(std::nullopt);
@@ -438,7 +620,6 @@ namespace ast::lower {
         auto fe = withSpan<hir::ForeignExpr>(it.foreignToken->span());
         fe->name = it.name.ident.value;
         hir::Type &fType = fe->hints.emplace_back();
-        fType.informative = true;
         if (it.arguments) {
           fType.base = hir::FFIFN;
           fType.params.reserve(2);
@@ -456,7 +637,7 @@ namespace ast::lower {
       } else if (it.arguments) {
         // not recFnExpr because it's already captured
         retExpr->value = fnExpr(it.name.ident.value,
-                                maybePtr(it.arguments->typeArguments),
+                                maybePtr(it.arguments->typeParams),
                                 maybePtr(it.typeHint),
                                 it.arguments->bindings,
                                 it.span,
@@ -471,10 +652,11 @@ namespace ast::lower {
     }
 
     LowerResult visitProgram(Program &it) override {
-      std::vector<std::optional<Idx>> indeces;
+      std::vector<std::vector<Idx>> indeces;
       indeces.reserve(it.statements.size());
+      BindingVisitor bv(*this);
       for (auto &stmt : it.statements) {
-        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt, true));
+        bv.visitStatement(*stmt, indeces.emplace_back(), true);
       }
 
       addBindingsToBlock(program.topLevel);
@@ -482,7 +664,8 @@ namespace ast::lower {
       auto &body = program.topLevel.body;
       auto iter = indeces.begin();
       for (auto &stmt : it.statements) {
-        body.push_back(visitStatement(*stmt, *iter++));
+        Idx iidx = 0;
+        body.push_back(visitStatement(*stmt, *iter++, iidx));
       }
       body.push_back(withSpan<hir::VoidExpr>(std::nullopt));
       LowerResult res;
@@ -491,12 +674,142 @@ namespace ast::lower {
       return res;
     }
 
-    Eptr visitDefn(Defn &it, std::optional<Idx> idx) override {
-      return visitBindingExpr(it.binding, *idx, it.span);
+    Eptr visitDefn(Defn &it, std::vector<Idx> &idcs, Idx &idx) override {
+      return visitBindingExpr(it.binding, idcs.at(idx), it.span);
     }
 
-    Eptr visitExpr(Expr &it, std::optional<Idx>) override {
+    Eptr visitExpr(Expr &it, std::vector<Idx> &idcs, Idx &idx) override {
       return ExprVisitor::visitExpr(it, hir::Pos::Stmt);
+    }
+
+    Eptr visitTypeDefn(TypeDefn &it, std::vector<Idx> &idcs, Idx &iidx) override {
+      Idx idx = idcs.at(iidx++);
+      hir::Definition &def = program.bindings.at(idx);
+      auto &typeDef = std::get<DefType::Type>(def.defType.v);
+      hir::BlockExpr theBlock;
+      typeBindings.push();
+      for (auto &param : it.params->idents) {
+        Idx defIdx = introduceDef(typeBindings, hir::Definition{
+            param.ident.value,
+            param.ident.span(),
+            DefType::TypeVar{}
+        });
+        typeDef.paramTys.push_back(defIdx);
+      }
+      theBlock.span = ((Statement &) it).span;
+      if (std::holds_alternative<TypeDefn::Alias>(it.val)) {
+        auto &alias = std::get<TypeDefn::Alias>(it.val);
+        typeDef.value = visitType(*alias.type, &idcs, &iidx);
+      } else {
+        auto &adt = std::get<TypeDefn::ADT>(it.val);
+        Idx adtIdx = idx + 1; // type of the ADT introduced
+        auto &adtDef = std::get<DefType::ADT>(program.bindings.at(adtIdx).defType.v);
+        hir::Type ty;
+        ty.base = adtIdx;
+        ty.source = ((Type &)it).span;
+        for (Idx i : typeDef.paramTys) {
+          ty.params.emplace_back().base = i;
+        }
+        typeDef.value = ty;
+        Idx fieldIdx = 0;
+        for (const auto &fieldTy : adt.types) {
+          Idx accAdtIdx;
+          if (fieldTy.accessor) {
+            accAdtIdx = idcs.at(iidx++);
+            if (accAdtIdx > adtIdx) {
+              auto defineE = withSpan<hir::DefineExpr>(fieldTy.accessor->ident.span());
+              defineE->idx = accAdtIdx + 1; // acc var idx
+              auto newE = withSpan<hir::NewExpr>(defineE->span);
+              newE->adt = accAdtIdx;
+              defineE->value = std::move(newE);
+              theBlock.block.body.push_back(std::move(defineE));
+            }
+          }
+          hir::Type fieldHirTy = visitType(*fieldTy.ty, &idcs, &iidx);
+          adtDef.paramCount = typeDef.paramTys.size();
+          adtDef.fields.push_back(fieldHirTy);
+          if (fieldTy.accessor) {
+            hir::TraitImpl &ti = program.traitImpls.emplace_back();
+            ti.source = fieldTy.accessor->ident.span();
+            ti.type.base = accAdtIdx;
+            ti.types.push_back(fieldHirTy);
+            ti.trait.base = hir::Fn;
+            hir::Type &argsTy = ti.trait.params.emplace_back();
+            argsTy.base = hir::TUPLE;
+            argsTy.params = {ty};
+            hir::Block &accessor = ti.methods.emplace_back();
+            accessor.idx = blockIdx++;
+            Idx accessedIdx;
+            accessor.bindings = {
+                accessedIdx = introduceDef(hir::Definition{
+                  "accessed",
+                  ty.source,
+                  DefType::Variable{}
+                }),
+                introduceDef(hir::Definition{
+                  fieldTy.accessor->ident.value,
+                  fieldTy.accessor->ident.span(),
+                  DefType::Variable{}
+                })
+            };
+            auto &getExpr = (hir::GetExpr &) *accessor.body.emplace_back(withSpan<hir::GetExpr>(fieldTy.accessor->ident.span()));
+            getExpr.field = fieldIdx;
+            getExpr.adt = adtIdx;
+            auto varE = withSpan<hir::VarExpr>(getExpr.span);
+            varE->ref = accessedIdx;
+            getExpr.value = std::move(varE);
+          }
+          fieldIdx++;
+        }
+        {
+          hir::TraitImpl &ti = program.traitImpls.emplace_back();
+          ti.source = *typeDef.value->source;
+          ti.type.source = ti.source;
+          ti.type.base = hir::TYPETOKEN;
+          ti.type.params = {ty};
+          ti.types.emplace_back(ty);
+          ti.trait.base = hir::Fn;
+          hir::Type &argsTy = ti.trait.params.emplace_back();
+          argsTy.base = hir::TUPLE;
+          argsTy.params = adtDef.fields;
+
+          hir::Block &ctor = ti.methods.emplace_back();
+          for (Idx tb : typeDef.paramTys) {
+            ctor.typeBindings.push_back(tb);
+          }
+          ctor.idx = blockIdx++;
+          ctor.bindings.reserve(argsTy.params.size());
+          for (Idx i = 0; i < argsTy.params.size(); ++i) {
+            ctor.bindings.push_back(introduceDef(hir::Definition{
+              util::toStr("arg_", i),
+              argsTy.params.at(i).source,
+              DefType::Variable{}
+            }));
+          }
+          auto &newExpr = (hir::NewExpr &) *ctor.body.emplace_back(withSpan<hir::NewExpr>(typeDef.value->source));
+          newExpr.adt = adtIdx;
+          newExpr.types = ty.params;
+          for (Idx i : ctor.bindings) {
+            auto varE = withSpan<hir::VarExpr>(program.bindings.at(i).source);
+            varE->ref = i;
+            newExpr.values.push_back(std::move(varE));
+          }
+          ctor.bindings.push_back(introduceDef(hir::Definition{
+              "construct",
+              argsTy.source,
+              DefType::Variable{}
+          }));
+        }
+      }
+      typeBindings.pop();
+      theBlock.block.body.push_back(withSpan<hir::VoidExpr>(((Statement &)it).span));
+      return std::make_unique<hir::BlockExpr>(std::move(theBlock));
+    }
+
+    Eptr visitTraitImpl(TraitImpl &it, std::vector<Idx> &idcs, Idx &idx) override {
+      hir::TraitImpl impl;
+      // TODO lower trait implementations
+      throw util::ICE("TODO");
     }
 
     Eptr visitExpr(Expr &it, hir::Pos pos) override {
@@ -566,13 +879,13 @@ namespace ast::lower {
     Eptr visitFnExpr(FnExpr &it, hir::Pos pos) override {
       return it.name ?
         recFnExpr(*it.name,
-                  maybePtr(it.arguments.typeArguments),
+                  maybePtr(it.arguments.typeParams),
                   maybePtr(it.typeHint),
                   it.arguments.bindings,
                   it.span,
                   *it.body) :
         fnExpr("fn",
-               maybePtr(it.arguments.typeArguments),
+               maybePtr(it.arguments.typeParams),
                maybePtr(it.typeHint),
                it.arguments.bindings,
                it.span,
@@ -596,10 +909,11 @@ namespace ast::lower {
       bindings.push();
       typeBindings.push();
 
-      std::vector<std::optional<Idx>> indeces;
+      std::vector<std::vector<Idx>> indeces;
       indeces.reserve(it.statements.size());
+      BindingVisitor bv(*this);
       for (auto &stmt : it.statements) {
-        indeces.push_back(BindingVisitor(*this).visitStatement(*stmt.statement, false));
+        bv.visitStatement(*stmt.statement, indeces.emplace_back(), false);
       }
 
       auto expr = withSpan<hir::BlockExpr>(it.span);
@@ -609,7 +923,8 @@ namespace ast::lower {
       auto &body = expr->block.body;
       auto iter = indeces.begin();
       for (auto &stmt : it.statements) {
-        body.push_back(visitStatement(*stmt.statement, *iter++));
+        Idx iidx = 0;
+        body.push_back(visitStatement(*stmt.statement, *iter++, iidx));
       }
       body.push_back(visitExpr(*it.value, pos));
       bindings.pop();
@@ -650,16 +965,25 @@ namespace ast::lower {
     }
 
     Eptr visitVarExpr(VarExpr &it, hir::Pos pos) override {
-      auto lookup = bindings.lookup(it.name.ident.value);
-      if (lookup) {
+      if (auto lookup = bindings.lookup(it.name.ident.value)) {
         auto expr = withSpan<hir::VarExpr>(it.span);
         expr->ref = *lookup;
         return expr;
+      } else if (typeBindings.lookup(it.name.ident.value)) {
+        auto expr = withSpan<hir::TypeExpr>(it.span);
+        NamedType ty;
+        ty.span = it.span;
+        ty.raw = std::move(it.name);
+        ty.args = std::move(it.args);
+        expr->type = visitType(ty, nullptr, nullptr);
+        it.name = std::move(ty.raw);
+        it.args = std::move(ty.args);
+        return expr;
       } else {
         errs
-          .err()
-          .msg("Name '" + it.name.ident.value + "' is not defined")
-          .span(it.span, "here");
+            .err()
+            .msg("Name '" + it.name.ident.value + "' is not defined")
+            .span(it.span, "here");
         return withSpan<hir::DummyExpr>(it.span);
       }
     }
@@ -841,7 +1165,7 @@ namespace ast::lower {
 
     Eptr visitHintedExpr(HintedExpr &it, hir::Pos pos) override {
       auto expr = visitExpr(*it.expr, pos);
-      expr->hints.push_back(visitType(*it.hint.type));
+      expr->hints.push_back(visitType(*it.hint.type, nullptr, nullptr));
       return expr;
     }
   };

@@ -1,12 +1,15 @@
 #include "Insns.h"
+#include "../../common/Logging.h"
 
 #include <utility>
 
 namespace type::infer {
+  logging::Marker CONSTRUCT_TRACE("CONSTRUCT_TRACE", false);
   std::vector<Tp> IdentityInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &) const {
     return tys;
   }
   std::vector<Tp> ConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
+    logging::CHIRP.log(CONSTRUCT_TRACE, "Constructing ", cArgs, " from ", tys, "\n");
     std::vector<Tp> ret;
     ret.reserve(cArgs.size());
     for (const Constant &constant : cArgs) {
@@ -17,6 +20,7 @@ namespace type::infer {
         ret.push_back(tyTemplate.construct(tys));
       }
     }
+    logging::CHIRP.log(CONSTRUCT_TRACE, "got ", ret, "\n");
     return ret;
   }
   std::vector<Tp> DeConstructInsn::operator()(const std::vector<Tp> &tys, const std::vector<Constant> &cArgs) const {
@@ -25,70 +29,91 @@ namespace type::infer {
   }
 
   Tp TyTemplate::construct(const std::vector<Tp> &tys) const {
-    auto replacer = [&tys](Tp ty) {
-      if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-        return tys.at(std::get<Ty::Placeholder>(ty->v).i);
-      }
-      return ty;
-    };
-    return replaceTy(*targetTy->tcx, targetTy, replacer);
+    std::map<Tp, Tp> replacements;
+    for (Idx i = 0; i < tys.size(); ++i) {
+      replacements.insert({targetTy->tcx->intern(Ty::Placeholder{i}), tys[i]});
+    }
+    return replaceTy(targetTy, replacements);
   }
   std::vector<Tp> TyTemplate::deconstruct(Tp ty) const {
-    Idx rets = 0;
-    auto countRets = [&rets](Tp ty) {
-      if (std::holds_alternative<Ty::Placeholder>(ty->v)) {
-        rets = std::max(std::get<Ty::Placeholder>(ty->v).i + 1, rets);
-      }
-      return ty;
-    };
-    replaceTy<true>(*targetTy->tcx, targetTy, countRets);
+    logging::CHIRP.log(CONSTRUCT_TRACE, "Deconstructing ", targetTy, " from ", ty, "\n");
+    Idx rets = targetTy->free.size();
     std::vector<Tp> out(rets, ty->tcx->intern(Ty::Err{}));
     std::function<void(Tp, Tp)> doDeconstruct = [&doDeconstruct, &out](Tp tmplTy, Tp ty) {
       if (std::holds_alternative<Ty::Placeholder>(tmplTy->v)) {
         out.at(std::get<Ty::Placeholder>(tmplTy->v).i) = ty;
-      } else if (tmplTy->v.index() != ty->v.index()) {
-        return; // not our problem
       } else {
-        std::visit(
-            overloaded{
-                [&](const Ty::Tuple &lt, const Ty::Tuple &rt) {
-                  if (lt.t.size() != rt.t.size()) {
-                    throw err::LocationError("Tuple size mismatch when deconstructing");
+        if (tmplTy == ty) {
+          return;
+        }
+        ty = type::uncycle(ty);
+        if (tmplTy->v.index() != ty->v.index()) {
+          throw err::LocationError(util::toStr("Base type mismatch in ", tmplTy, " and ", ty));
+        } else {
+          std::visit(
+              overloaded{
+                  [&](const Ty::Tuple &lt, const Ty::Tuple &rt) {
+                    if (lt.t.size() != rt.t.size()) {
+                      throw err::LocationError(util::toStr("Tuple size mismatch in ", tmplTy, " and ", ty));
+                    }
+                    auto ltIt = lt.t.begin();
+                    auto rtIt = rt.t.begin();
+                    for (; ltIt != lt.t.end(); ++ltIt, ++rtIt) {
+                      doDeconstruct(*ltIt, *rtIt);
+                    }
+                  },
+                  [&](const Ty::ADT &lt, const Ty::ADT &rt) {
+                    if (lt.i != rt.i || lt.s.size() != rt.s.size() || lt.fieldTys.size() != rt.fieldTys.size()) {
+                      throw err::LocationError(util::toStr("Base type mismatch when deconstructing in,\n ", tmplTy, "\n and ", ty));
+                    }
+                    {
+                      auto ltIt = lt.s.begin();
+                      auto rtIt = rt.s.begin();
+                      for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
+                        doDeconstruct(*ltIt, *rtIt);
+                      }
+                    }
+                    {
+                      auto lftIt = lt.fieldTys.begin();
+                      auto rftIt = rt.fieldTys.begin();
+                      for (; lftIt != lt.fieldTys.end(); ++lftIt, ++rftIt) {
+                        doDeconstruct(*lftIt, *rftIt);
+                      }
+                    }
+                  },
+                  [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
+                    doDeconstruct(lt.args, rt.args);
+                    doDeconstruct(lt.ret, rt.ret);
+                  },
+                  [&](const Ty::TypeToken &lt, const Ty::TypeToken &rt) {
+                    doDeconstruct(lt.ty, rt.ty);
+                  },
+                  [&](const auto &, const auto &) {
+                    throw err::LocationError(util::toStr("Mismatched types: ", tmplTy, " and ", ty));
                   }
-                  auto ltIt = lt.t.begin();
-                  auto rtIt = rt.t.begin();
-                  for (; ltIt != lt.t.end(); ++ltIt, ++rtIt) {
-                    doDeconstruct(*ltIt, *rtIt);
-                  }
-                },
-                [&](const Ty::ADT &lt, const Ty::ADT &rt) {
-                  if (lt.i != rt.i || lt.s.size() != rt.s.size()) {
-                    throw err::LocationError("ADT type mismatch when deconstructing");
-                  }
-                  auto ltIt = lt.s.begin();
-                  auto rtIt = rt.s.begin();
-                  for (; ltIt != lt.s.end(); ++ltIt, ++rtIt) {
-                    doDeconstruct(*ltIt, *rtIt);
-                  }
-                },
-                [&](const Ty::FfiFn &lt, const Ty::FfiFn &rt) {
-                  doDeconstruct(lt.args, rt.args);
-                  doDeconstruct(lt.ret, rt.ret);
-                },
-                [](const auto &, const auto &) {}
-            },
-            tmplTy->v, ty->v);
+              },
+              tmplTy->v, ty->v);
+        }
       }
     };
-    doDeconstruct(targetTy, type::uncycle(ty));
-    for (Tp tp : out) {
-      if (std::holds_alternative<Ty::Err>(tp->v)) {
-        err::Location loc;
-        loc.msg(util::toStr(" to: ", targetTy));
-        loc.msg(util::toStr(" from: ", ty));
-        throw err::LocationError("Failed deconstruction", {loc});
+    try {
+      doDeconstruct(targetTy, ty);
+      for (Tp tp : out) {
+        if (std::holds_alternative<Ty::Err>(tp->v)) {
+          throw err::LocationError("Not all results in output");
+        }
       }
+    } catch (err::LocationError &e) {
+      err::Location loc;
+      loc.msg(util::toStr(" to: ", targetTy));
+      loc.msg(util::toStr(" from: ", ty));
+      loc.msg(e.what());
+      for (auto &l : e.locations) {
+        loc.chain(l);
+      }
+      throw err::LocationError("Failed deconstruction", {std::move(loc)});
     }
+    logging::CHIRP.log(CONSTRUCT_TRACE, "got ", out, "\n");
     return out;
   }
 
@@ -132,10 +157,11 @@ namespace type::infer {
               [](const Ty::Int &l, const Ty::Int &r) {return l.s == r.s;},
               [](const Ty::UInt &l, const Ty::UInt &r) {return l.s == r.s;},
               [](const Ty::Float &l, const Ty::Float &r) {return l.s == r.s;},
-              [](const Ty::ADT &l, const Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s);},
+              [](const Ty::ADT &l, const Ty::ADT &r) {return l.i == r.i && tryUnify(l.s, r.s) && tryUnify(l.fieldTys, r.fieldTys);},
               [](const Ty::Undetermined &l, const Ty::Undetermined &r) {return false;},
               [](const Ty::Union &l, const Ty::Union &r) {return false;},
               [](const Ty::Tuple &l, const Ty::Tuple &r) {return tryUnify(l.t, r.t);},
+              [](const Ty::TypeToken &l, const Ty::TypeToken &r) {return tryUnify(l.ty, r.ty);},
               [](const Ty::String &l, const Ty::String &r) {return l.nul == r.nul;},
               [](const Ty::FfiFn &l, const Ty::FfiFn &r) {return tryUnify({l.args, l.ret}, {r.args, r.ret});},
               [](const auto &, const auto &) {
@@ -229,35 +255,11 @@ namespace type::infer {
               }
             }
           }
-          for (Idx i = 0; i < ret->size(); ++i) {
+          for (Idx i = 0; i < recurTys.size(); ++i) {
             Tp udt = recurTys.at(i);
             Tp &udtVal = retSafe->at(i);
-            Idx cycleDepth = 0;
-            bool isCyclic = false;
-            std::function<Tp(Tp)> replaceTy;
-            auto replaceUdt = overloaded {
-              [&](Tp ty, type::PreWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) ++cycleDepth; return ty;},
-              [&](Tp ty, type::PostWalk) {if (std::holds_alternative<Ty::Cyclic>(ty->v)) --cycleDepth; return ty;},
-              [&](Tp ty) {
-                if (ty == udt) {
-                  isCyclic = true;
-                  return tcx.intern(Ty::CyclicRef{cycleDepth});
-                }
-                if (std::holds_alternative<Ty::Undetermined>(ty->v)) {
-                  const auto &ud = std::get<Ty::Undetermined>(ty->v);
-                  if (ud.ref[0] == ref.first && ud.ref[1] == ref.second) {
-                    return replaceTy(recurTys.at(ud.ref[2]));
-                  }
-                }
-                return ty;
-              },
-            };
-            replaceTy = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceUdt); };
-            Tp newVal = replaceTy(udtVal);
-            if (isCyclic) {
-              newVal = tcx.intern(Ty::Cyclic{newVal});
-            }
-            udtVal = newVal;
+            udtVal = maybeCycle(udtVal, udt);
+            // TODO with multiple returns the return values can theoretically be *mutually* recursive
           }
         }
       }

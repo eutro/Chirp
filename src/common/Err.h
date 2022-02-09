@@ -44,7 +44,7 @@ namespace err {
     Location &err();
   };
 
-  class LocationError : std::runtime_error {
+  class LocationError : public std::runtime_error {
   public:
     std::vector<Location> locations;
 

@@ -1,14 +1,18 @@
 Program ::= ( Statement ( (','|'\n') Statement )* )?
 
-Statement ::= Defn | Expr
+Statement ::= Defn | Expr | TypeDefn
 
 Defn ::= 'defn' Binding
 
-Binding ::= Identifier Arguments? TypeHint? '=' ( Expr | TForeign )
+TypeDefn ::= 'type' TypeParams? Identifier ( '=' Type ) | '(' ( TypeClause (',' TypeClause)* ','? )? ')'
 
-Arguments ::= TypeArguments? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
+TypeClause ::= ( Identifier ':' )? Type
 
-TypeArguments ::= '<' Identifier ( ',' Identifier )* ','> '>'
+Binding ::= Identifier Params? TypeHint? '=' ( Expr | TForeign )
+
+Params ::= TypeParams? ( '(' ( RawBinding ( ',' RawBinding )* )? ')' )
+
+TypeParams ::= '<' Identifier ( ',' Identifier )* ','> '>'
 
 RawBinding ::= Identifier TypeHint?
 
@@ -16,11 +20,17 @@ Identifier ::= TIdent
 
 TypeHint ::= ':' Type
 
-Type ::= PlaceholderType | NamedType | TupleType
+Type ::= UnionType
+
+UnionType ::= AtomType ( '|' AtomType )*
+
+AtomType ::= PlaceholderType | NamedType | TupleType | TypeDefn | '(' Type ')'
 
 PlaceholderType ::= '_'
 
-NamedType ::= Identifier ( '<' Type ( ',' Type )* ','? '>' )?
+TypeArgs ::= '<' Type ( ',' Type )* ','? '>'
+
+NamedType ::= Identifier TypeArgs?
 
 TupleType ::= '#(' ( Type ( ',' Type )* ','? )? ')'
 
@@ -44,7 +54,7 @@ PostfixExpr ::= PrimaryExpr ( '(' ( Expr ( ',' Expr )* ','? )? ')' )*
 
 PrimaryExpr ::= VarExpr | LiteralExpr | DelimitedExpr | IfExpr | LetExpr | FnExpr | LambdaExpr
 
-VarExpr ::= Identifier
+VarExpr ::= Identifier ( '::' TypeArgs )?
 
 LiteralExpr ::= TStr | TInt | TFloat | TTrue | TFalse
 
@@ -62,6 +72,6 @@ IfExpr ::= 'if' Expr BlockExpr
 
 LetExpr ::= 'let' ( Binding ( (','|'\n') Binding )* ','? )? 'in' Identifier? DelimitedExpr
 
-FnExpr ::= 'fn' Identifier? Arguments TypeHint? '=' Expr
+FnExpr ::= 'fn' Identifier? Params TypeHint? '=' Expr
 
 LambdaExpr ::= TBackslash ( Identifier ( ',' Identifier )* )? '.' Expr

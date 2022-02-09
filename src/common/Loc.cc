@@ -54,4 +54,33 @@ namespace loc {
   Span::Span() = default;
   Span::Span(const loc::SrcLoc &lo, const loc::SrcLoc &hi) :
       lo(lo), hi(hi) {}
+  std::ostream &operator<<(std::ostream &os, const Span &span) {
+    os << span.lo << "-" << span.hi;
+    return os;
+  }
+  bool Span::operator<(const Span &rhs) const {
+    if (lo < rhs.lo)
+      return true;
+    if (rhs.lo < lo)
+      return false;
+    return hi < rhs.hi;
+  }
+  bool Span::operator>(const Span &rhs) const {
+    return rhs < *this;
+  }
+  bool Span::operator<=(const Span &rhs) const {
+    return !(rhs < *this);
+  }
+  bool Span::operator>=(const Span &rhs) const {
+    return !(*this < rhs);
+  }
+
+  std::ostream &operator<<(std::ostream &os, const std::optional<Span> &maybeSpan) {
+    if (maybeSpan) {
+      os << *maybeSpan;
+    } else {
+      os << "<unknown>";
+    }
+    return os;
+  }
 }

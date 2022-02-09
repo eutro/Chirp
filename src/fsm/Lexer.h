@@ -40,7 +40,7 @@ namespace lexer {
 
     Token(TokenType type, std::string &&value, const SrcLoc &loc) : type(type), value(value), loc(loc) {}
 
-    loc::Span span() {
+    loc::Span span() const {
       loc::Span v;
       v.hi = v.lo = loc;
       v.hi.add(value);
@@ -59,7 +59,7 @@ namespace lexer {
     const DFA &dfa;
     std::istream &in;
     bool yieldLines = false;
-    size_t state = dfa.initial;
+    Idx state = dfa.initial;
 
   public:
     std::vector<std::string> lines;

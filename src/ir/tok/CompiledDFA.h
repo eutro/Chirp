@@ -1,7 +1,7 @@
 class CompiledDFA {
 public:
-  size_t initial;
+  Idx initial;
   CompiledDFA();
-  bool accept(size_t &current, char &symbol) const;
-  tok::Tok finished(size_t state) const;
+  bool accept(Idx &current, char &symbol) const;
+  tok::Tok finished(Idx state) const;
 };

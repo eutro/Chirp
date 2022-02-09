@@ -22,9 +22,11 @@ namespace hir {
     U8, U16, U32, U64, U128,
     F16, F32, F64,
     TUPLE,
+    UNION,
     FFIFN,
     STRING,
     NULSTRING,
+    TYPETOKEN,
 
     LAST_BUILTIN_
   };

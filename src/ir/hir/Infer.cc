@@ -9,6 +9,9 @@
 namespace hir::infer {
   using namespace type::infer;
 
+  logging::Marker CYCLE_TRACE("CYCLE_TRACE", false);
+  logging::Marker TRAIT_VISITS("TRAIT_VISITS", false);
+
 #define RET_T VarRef
 #define ARGS(TYPE) (TYPE &e, InsnList &ig) // NOLINT(bugprone-macro-parentheses)
 #define PASS_ARGS , ig
@@ -45,7 +48,7 @@ namespace hir::infer {
                          log({tys.at(0)}, {(Idx)0});
                          auto &ffifn = std::get<Ty::FfiFn>(tys.at(0)->v);
                          CheckInsn check;
-                         check({tys.at(1), ffifn.args}, {});
+                         check({ffifn.args, tys.at(1)}, {});
                          return {ffifn.ret};
                        },
                        1, igIdx++, instSet)
@@ -154,7 +157,11 @@ namespace hir::infer {
     }
 
     void doSorting(InsnList &il, const std::vector<Insn *> &insns) {
-      if (insns.size() > 1) {
+      Insn *frontInsn = insns.front();
+      if (insns.size() > 1 ||
+          std::any_of(frontInsn->inputs.begin(), frontInsn->inputs.end(),
+                      [&](VarRef &vr) { return vr.insn && &il.insns.at(*vr.insn) == frontInsn; })) {
+        logging::CHIRP.log(CYCLE_TRACE, "Sorting InsnList:\n", il, "\n");
         std::map<Tp, VarRef> externs;
         std::map<VarRef, Tp> externsRev;
         std::map<Insn *, std::vector<Tp>> tys;
@@ -211,84 +218,115 @@ namespace hir::infer {
             for (Insn *i : insns) idcs[i] = idx--;
             for (auto iit = insns.rbegin(); iit != insns.rend(); ++iit) {
               auto i = *iit;
+              std::stringstream ss;
               if (i->src && i->reason) {
-                std::stringstream ss;
                 ss << idcs[i] << ". " << *i->reason << " ('" << i->key->value << "' instruction" ;
                 if (i->key != constructKey && i->key != idKey) {
                   ss << ", not allowed";
                 }
                 ss << ")";
-                std::vector<Idx> deps;
-                for (auto &input : i->inputs) {
-                  if (input.insn) {
-                    Insn *depInsn = &il.insns.at(*input.insn);
-                    if (idcs.count(depInsn)) {
-                      deps.push_back(idcs.at(depInsn));
-                    }
+              } else {
+                ss << " " << idcs[i] << ". '" << i->key->value << "' instruction" ;
+                if (!i->constArgs.empty()) {
+                  ss << " with constants";
+                  for (auto &c : i->constArgs) {
+                    ss << " " << c;
                   }
                 }
-                if (!deps.empty()) {
-                  ss << " depends on: ";
-                  for (auto it = deps.begin(); it != deps.end();) {
-                    ss << *it;
-                    if (++it != deps.end()) {
-                      ss << ", ";
-                    }
-                  }
+                if (i->key != constructKey && i->key != idKey) {
+                  ss << "; not allowed";
                 }
-                loc.span(*i->src, ss.str());
               }
+              std::vector<Idx> deps;
+              for (auto &input : i->inputs) {
+                if (input.insn) {
+                  Insn *depInsn = &il.insns.at(*input.insn);
+                  if (idcs.count(depInsn)) {
+                    deps.push_back(idcs.at(depInsn));
+                  }
+                }
+              }
+              if (!deps.empty()) {
+                ss << "; depends on: ";
+                for (auto it = deps.begin(); it != deps.end();) {
+                  ss << *it;
+                  if (++it != deps.end()) {
+                    ss << ", ";
+                  }
+                }
+              }
+              loc.maybeSpan(i->src, ss.str());
             }
             throw err::LocationError(util::toStr("Bad instruction in cycle: '", insn->key->value, "'"), {loc});
           }
         }
 
+        if (CYCLE_TRACE.isEnabled) {
+          auto &os = logging::CHIRP.log(CYCLE_TRACE, "Got definitions:\n");
+          for (const auto &kv : values) {
+            os << kv.first << " ::= " << kv.second << "\n";
+          }
+        }
+
+        std::set<Tp> unfixed;
+        std::set<Tp> seen;
+        std::map<Tp, Tp> replacements;
+        std::function<Tp(Tp)> visit = [&](Tp ty) -> Tp {
+          if (seen.count(ty)) {
+            if (replacements.count(ty)) return replacements.at(ty);
+            return ty; // it's cyclic, and we'll bake it later
+          }
+          seen.insert(ty);
+          unfixed.insert(ty);
+          Tp &value = values.at(ty);
+          logging::CHIRP.log(CYCLE_TRACE, "Visiting ", ty, " ::= ", value, "\n");
+          for (const auto &free : value->free) {
+            Tp tp = free.first;
+            if (!values.count(tp)) continue;
+            if (tp != ty) {
+              Tp repl = visit(tp);
+              if (repl != tp) replacements.insert({tp, repl});
+            }
+          }
+          value = replacements[ty] = maybeCycle(replaceTy(value, replacements), ty);
+          logging::CHIRP.log(CYCLE_TRACE, "Associated ", ty, " -> ", value, "\n");
+          return value;
+        };
         for (auto &e : tys) {
+          std::map<Tp, Tp> externRepls;
           std::vector<VarRef> externalInputs;
           for (auto &t : e.second) {
-            bool cyclic = false;
-            Idx cycleDepth = 0;
-            std::function<Tp(Tp)> doReplace;
-            auto replaceFn = overloaded {
-              [&](Tp ty, type::PreWalk) {
-                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-                  cycleDepth++;
+            t = visit(t);
+            {
+              bool fixed;
+              do {
+                fixed = true;
+                for (Tp ty : unfixed) {
+                  Tp &val = replacements.at(ty);
+                  Tp old = val;
+                  val = maybeCycle(replaceTy(val, replacements), ty);
+                  if (old != val) fixed = false;
                 }
-                return ty;
-              },
-              [&](Tp ty, type::PostWalk) {
-                if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
-                  cycleDepth--;
-                }
-                return ty;
-              },
-              [&](Tp tp) {
-                if (std::holds_alternative<Ty::Placeholder>(tp->v)) {
-                  if (externs.count(tp)) {
-                    externalInputs.push_back(externs.at(tp));
-                    return tcx.intern(Ty::Placeholder{(Idx) externalInputs.size() - 1});
-                  } else if (tp == t) {
-                    cyclic = true;
-                    return tcx.intern(Ty::CyclicRef{cycleDepth});
-                  } else {
-                    return doReplace(values.at(tp));
-                  }
-                }
-                return tp;
-              }
-            };
-            doReplace = [&](Tp ty) { return type::replaceTy(tcx, ty, replaceFn); };
-            Tp replaced = doReplace(values.at(t));
-            if (cyclic) {
-              replaced = tcx.intern(Ty::Cyclic{replaced});
+              } while (!fixed);
             }
-            t = replaced;
+            unfixed.clear();
+            t = replaceTy(t, replacements);
+            for (auto &fv : t->free) {
+              Tp tp = fv.first;
+              if (externs.count(tp)) {
+                if (externRepls.insert({tp, tcx.intern(Ty::Placeholder{(Idx) externalInputs.size()})}).second) {
+                  externalInputs.push_back(externs.at(tp));
+                }
+              }
+            }
+            t = replaceTy(t, externRepls);
           }
           e.first->key = ConstructInsn::key();
           e.first->inputs = std::move(externalInputs);
           e.first->constArgs.clear();
           std::copy(e.second.begin(), e.second.end(), std::back_inserter(e.first->constArgs));
         }
+        logging::CHIRP.log(CYCLE_TRACE, "Sorted InsnList:\n", il, "\n");
       }
     }
 
@@ -357,9 +395,11 @@ namespace hir::infer {
         }
         return ret;
       };
+      tyNodes.clear();
     }
 
     void visitTrait(TraitImpl &ti, InferResult &res) {
+      logging::CHIRP.log(TRAIT_VISITS, "Visiting trait at ", ti.source, "\n");
       InsnList ig;
       std::vector<Tp> allParams;
       {
@@ -392,6 +432,7 @@ namespace hir::infer {
         allParams,
         InstWrapper(ig, ti.types.size(), *ti.methods.front().idx, instSet)
       );
+      tyNodes.clear();
     }
 
     std::map<Expr*, Idx> exprTys;
@@ -439,6 +480,21 @@ namespace hir::infer {
         }
         ig.insns.push_back(Insn(LogInsn::key(), {}, {node}, {defTys.at(var)}));
       }
+      for (Idx ty : block.typeBindings) {
+        auto &tyDef = std::get<DefType::TypeVar>(program->bindings.at(ty).defType.v);
+        if (tyDef.value && tyDef.value->base) {
+          ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unvisited var"})); // to modify later
+          tyNodes.insert({ty, ig.lastInsn()});
+        }
+      }
+      for (Idx ty : block.typeBindings) {
+        auto &tyDef = std::get<DefType::TypeVar>(program->bindings.at(ty).defType.v);
+        if (tyDef.value && tyDef.value->base) {
+          VarRef outTyNode = parseCompleteTy(*tyDef.value, ig);
+          VarRef inTyNode = tyNodes.at(ty);
+          ig.insns.at(*inTyNode.insn) = Insn(IdentityInsn::key(), {}, {outTyNode}, {});
+        }
+      }
       VarRef ret({}, 0);
       for (Eptr &expr : block.body) {
         ret = visitExpr(*expr, ig);
@@ -478,27 +534,56 @@ namespace hir::infer {
               return tcx.intern(Ty::Float{(type::FloatSize)(base - F16)});
             case TUPLE:
               return tcx.intern(Ty::Tuple{visitParams(ty)});
+            case UNION:
+              return type::unionOf(tcx, visitParams(ty));
             case FFIFN: {
               auto params = visitParams(ty);
               return tcx.intern(Ty::FfiFn{params.at(0), params.at(1)});
             }
             case STRING: case NULSTRING:
               return tcx.intern(Ty::String{base == NULSTRING});
+            case TYPETOKEN: {
+              auto params = visitParams(ty);
+              return tcx.intern(Ty::TypeToken{params.at(0)});
+            }
             default:
               throw util::Unreachable();
           }
         } else {
           auto &def = program->bindings.at(base);
           return std::visit(overloaded{
-              [&](DefType::Type &) -> Tp {
+              [&](DefType::TypeVar &t) -> Tp {
                 if (!placeholders.count(base)) {
                   outIdcs.emplace_back(base);
                   placeholders[base] = tcx.intern(Ty::Placeholder{counter++});
                 }
                 return placeholders[base];
               },
-              [&](DefType::ADT &) -> Tp {
-                return tcx.intern(Ty::ADT{base, visitParams(ty)});
+              [&](DefType::Type &t) -> Tp {
+                std::vector<Tp> params = visitParams(ty);
+                if (params.size() != t.minArity) {
+                  throw util::ICE("Wrong number of arguments passed to type");
+                }
+                for (Idx i = 0; i < params.size(); ++i) {
+                  Idx idx = t.paramTys[i];
+                  if (placeholders.count(idx)) {
+                    throw util::ICE("Type placeholder is already mapped");
+                  }
+                  placeholders[idx] = params[i];
+                }
+                Tp ret = visitTy(*t.value);
+                for (Idx i = 0; i < params.size(); ++i) {
+                  placeholders.erase(t.paramTys[i]);
+                }
+                return ret;
+              },
+              [&](DefType::ADT &a) -> Tp {
+                std::vector<Tp> params = visitParams(ty);
+                std::vector<Tp> fields;
+                for (auto &t : a.fields) {
+                  fields.push_back(visitTy(t));
+                }
+                return tcx.intern(Ty::ADT{base, std::move(params), std::move(fields)});
               },
               [](DefType::Trait &) -> Tp {
                 throw std::runtime_error("Trait type hints unimplemented");
@@ -513,13 +598,27 @@ namespace hir::infer {
     }
 
     VarRef parseCompleteTy(Type &ty, InsnList &ig) {
+      logging::CHIRP.trace("Parsing type at: ", ty.source, "\n");
       std::vector<std::optional<DefIdx>> idcs;
       Tp tmpl = parseTyTemplate(ty, idcs);
       std::vector<VarRef> inputs;
       inputs.reserve(idcs.size());
       for (auto &e : idcs) {
         if (!e || !tyNodes.count(*e)) {
-          throw util::ICE("Incomplete type");
+          err::Location &err = ecx.err()
+              .msg("Got incomplete type when expecting a complete type.")
+              .maybeSpan(ty.source, "incomplete type found here");
+          for (auto &oe : idcs) {
+            if (oe && !tyNodes.count(*oe)) {
+              Definition &def = program->bindings.at(*oe);
+              if (def.source) {
+                err.span(*def.source, "referenced before definition here");
+              }
+            }
+          }
+          err.msg("Note: all type variables must be defined, and there can be no placeholders");
+          ig.insns.push_back(Insn(ConstructInsn::key(), {}, {}, {tcx.intern(Ty::Err{})}, "incomplete type", ty.source));
+          return ig.lastInsn();
         }
         inputs.push_back(tyNodes.at(*e));
       }
@@ -528,6 +627,7 @@ namespace hir::infer {
     }
 
     Tp parseTyHint(Type &ty, VarRef &node, InsnList &ig) {
+      logging::CHIRP.trace("Parsing type hint at: ", ty.source, "\n");
       std::vector<std::optional<DefIdx>> idcs;
       Tp tmpl = parseTyTemplate(ty, idcs);
       bool doDeconstruct = false;
@@ -562,9 +662,9 @@ namespace hir::infer {
       }
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(constructed), {tmpl}, "constructed from type hint", ty.source));
       VarRef reconstructed = ig.lastInsn();
-      ig.insns.push_back(Insn(CheckInsn::key(), {}, {node, reconstructed}, {}, "check from type hint", ty.source));
+      ig.insns.push_back(Insn(CheckInsn::key(), {}, {reconstructed, node}, {}, "check from type hint", ty.source));
       node = reconstructed;
-      logging::CHIRP.trace("Parsed hint\n", ig);
+      logging::CHIRP.trace("Parsed hint\n", ig, "\n");
       return tmpl;
     }
 
@@ -584,6 +684,12 @@ namespace hir::infer {
     }
     RET_T visitBlockExpr ARGS(BlockExpr) override {
       return visitBlock(e.block, ig, false);
+    }
+    RET_T visitTypeExpr ARGS(TypeExpr) override {
+      Tp tyTemplate = tcx.intern(Ty::TypeToken{tcx.intern(Ty::Placeholder{0})});
+      ig.insns.push_back(Insn(ConstructInsn::key(), {}, {parseCompleteTy(e.type, ig)},
+                              {tyTemplate}, "type referenced", e.span));
+      return ig.lastInsn();
     }
     RET_T visitVarExpr ARGS(VarExpr) override {
       return varNodes.at(e.ref);
@@ -704,29 +810,40 @@ namespace hir::infer {
     }
     RET_T visitNewExpr ARGS(NewExpr) override {
       std::vector<VarRef> args;
-      std::vector<Tp> argTys;
-      args.reserve(e.values.size());
-      argTys.reserve(e.values.size());
+      args.reserve(e.types.size() + e.values.size());
+      std::vector<Tp> fieldTys;
+      fieldTys.reserve(e.values.size());
+      std::vector<Tp> paramTys;
+      paramTys.reserve(e.types.size());
       Idx i = 0;
       for (const auto &se : e.values) {
         args.push_back(visitExpr(*se PASS_ARGS));
-        argTys.push_back(tcx.intern(Ty::Placeholder{i++}));
+        fieldTys.push_back(tcx.intern(Ty::Placeholder{i++}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, argTys});
+      for (auto &t : e.types) {
+        args.push_back(parseCompleteTy(t, ig));
+        paramTys.push_back(tcx.intern(Ty::Placeholder{i++}));
+      }
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, paramTys, fieldTys});
       ig.insns.push_back(Insn(ConstructInsn::key(), {}, std::move(args), {tyTemplate}, "construction", e.span));
       return ig.lastInsn();
     }
     RET_T visitGetExpr ARGS(GetExpr) override {
       VarRef objTy = visitExpr(*e.value PASS_ARGS);
       auto &adt = std::get<DefType::ADT>(program->bindings.at(e.adt).defType.v);
-      size_t fieldCount = adt.values.size();
-      std::vector<Tp> params;
-      for (Idx i = 0; i < fieldCount; ++i) {
+      std::vector<Tp> params, fields;
+      size_t paramCount = adt.paramCount;
+      size_t fieldCount = adt.fields.size();
+      Idx i = 0;
+      for (; i < paramCount; ++i) {
         params.push_back(tcx.intern(Ty::Placeholder{i}));
       }
-      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params)});
+      for (; i < paramCount + fieldCount; ++i) {
+        fields.push_back(tcx.intern(Ty::Placeholder{i}));
+      }
+      Tp tyTemplate = tcx.intern(Ty::ADT{e.adt, std::move(params), std::move(fields)});
       ig.insns.push_back(Insn(DeConstructInsn::key(), {}, {objTy}, {tyTemplate}, "field taken", e.span));
-      return ig.lastInsn(e.field);
+      return ig.lastInsn(paramCount + e.field);
     }
     RET_T visitForeignExpr ARGS(ForeignExpr) override {
       ig.insns.push_back(Insn(TrapInsn::key(), {}, {}, {"unimplemented foreign"}, "unimplemented foreign", e.span));

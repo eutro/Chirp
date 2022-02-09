@@ -6,6 +6,12 @@ TLinebreak ::= /[ \t\v\f\r]*\n/
 TIdent ::= /[a-zA-Z_][a-zA-Z_0-9]*/
 
 TDefn ::= 'defn'
+TType ::= 'type'
+TTrait ::= 'trait'
+TImpl ::= 'impl'
+TAs ::= 'as'
+TWith ::= 'with'
+TWhere ::= 'where'
 TIf ::= 'if'
 TElse ::= 'else'
 TThen ::= 'then'
@@ -28,6 +34,7 @@ TBrClose ::= '}'
 
 TComma ::= ','
 TColon ::= ':'
+TDoubleColon ::= '::'
 TPlaceholder ::= '_'
 
 TNe ::= '!='

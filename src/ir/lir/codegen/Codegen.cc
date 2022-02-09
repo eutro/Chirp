@@ -242,6 +242,10 @@ namespace lir::codegen {
     return {};
   }
 
+  Value emitInsn(Insn &insn, CC &cc, LocalCC &lcc, Insn::ZeroInit &i) {
+    return Value(llvm::Constant::getNullValue(getTy(lcc, insn.ty)));
+  }
+
   void emitInsn(Insn &insn, CC &cc, LocalCC &lcc) {
     if (insn.span) {
       auto &loc = insn.span->lo;

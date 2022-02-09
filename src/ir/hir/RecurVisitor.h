@@ -69,6 +69,9 @@ namespace hir {
       this->visitExpr(*it.value, arg...);
       return {};
     }
+    VISIT(TypeExpr) {
+      return {}; // noop
+    }
     VISIT(ForeignExpr) {
       return {}; // noop
     }

@@ -9,6 +9,12 @@ namespace tok {
     TLinebreak,
     TIdent,
     TDefn,
+    TType,
+    TTrait,
+    TImpl,
+    TAs,
+    TWith,
+    TWhere,
     TIf,
     TElse,
     TThen,
@@ -28,6 +34,7 @@ namespace tok {
     TBrClose,
     TComma,
     TColon,
+    TDoubleColon,
     TPlaceholder,
     TNe,
     TEq2,
@@ -58,6 +65,12 @@ namespace tok {
   {tok::Tok::TLinebreak, "[ \\t\\v\\f\\r]*\\n"},\
   {tok::Tok::TIdent, "[a-zA-Z_][a-zA-Z_0-9]*"},\
   {tok::Tok::TDefn, "defn"},\
+  {tok::Tok::TType, "type"},\
+  {tok::Tok::TTrait, "trait"},\
+  {tok::Tok::TImpl, "impl"},\
+  {tok::Tok::TAs, "as"},\
+  {tok::Tok::TWith, "with"},\
+  {tok::Tok::TWhere, "where"},\
   {tok::Tok::TIf, "if"},\
   {tok::Tok::TElse, "else"},\
   {tok::Tok::TThen, "then"},\
@@ -77,6 +90,7 @@ namespace tok {
   {tok::Tok::TBrClose, "\\}"},\
   {tok::Tok::TComma, ","},\
   {tok::Tok::TColon, ":"},\
+  {tok::Tok::TDoubleColon, "::"},\
   {tok::Tok::TPlaceholder, "_"},\
   {tok::Tok::TNe, "!="},\
   {tok::Tok::TEq2, "=="},\

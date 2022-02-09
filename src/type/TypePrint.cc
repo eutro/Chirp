@@ -46,24 +46,36 @@ static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::ADT &t) 
     os << "<";
     for (auto iter = t.s.begin(); iter != t.s.end();) {
       os << *iter;
-      if (++iter != t.s.end()) os << ",";
+      if (++iter != t.s.end()) os << ", ";
     }
     os << ">";
   }
+  if (!t.fieldTys.empty()) {
+    os << "{";
+    for (auto iter = t.fieldTys.begin(); iter != t.fieldTys.end();) {
+      os << *iter;
+      if (++iter != t.fieldTys.end()) os << ", ";
+    }
+    os << "}";
+  }
 }
 static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Union &t) {
-  os << "U{";
+  if (t.tys.empty()) {
+    os << "!";
+    return;
+  }
+  os << "(";
   for (auto iter = t.tys.begin(); iter != t.tys.end();) {
     os << *iter;
-    if (++iter != t.tys.end()) os << ",";
+    if (++iter != t.tys.end()) os << " | ";
   }
-  os << "}";
+  os << ")";
 }
 static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Tuple &t) {
   os << "#(";
   for (auto iter = t.t.begin(); iter != t.t.end();) {
     os << *iter;
-    if (++iter != t.t.end()) os << ",";
+    if (++iter != t.t.end()) os << ", ";
   }
   os << ")";
 }
@@ -83,9 +95,12 @@ static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::Undeterm
   os << "?{";
   for (auto it = u.ref.begin(); it != u.ref.end();) {
     os << *it;
-    if (++it != u.ref.end()) os << ",";
+    if (++it != u.ref.end()) os << ", ";
   }
   os << "}";
+}
+static void printIt(std::ostream &os, [[maybe_unused]] Tp ty, const Ty::TypeToken &u) {
+  os << "type<" << u.ty << ">";
 }
 
 std::ostream &operator<<(std::ostream &os, Tp ty) {

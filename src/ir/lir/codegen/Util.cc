@@ -3,6 +3,10 @@
 #include <llvm/IR/Constants.h>
 
 namespace lir::codegen {
+  llvm::DIType *zeroSizedType(CC &cc, const std::string &name) {
+    return cc.db.createUnspecifiedType(name);
+  }
+
   TyTuple getTyTuple(CC &cc, Tp ty, const Ty::Bool &v) {
     return std::make_tuple(
         llvm::Type::getInt1Ty(cc.ctx),
@@ -64,9 +68,9 @@ namespace lir::codegen {
     cc.tyCache[ty] = tup;
     auto &optRef = std::get<2>(tup);
     std::vector<Idx> collectibles;
-    for (Idx i = 0; i < v.s.size(); ++i) {
+    for (Idx i = 0; i < v.fieldTys.size(); ++i) {
       const std::optional<GCData> &gcMeta =
-          std::get<2>(getTyTuple(cc, v.s[i]));
+          std::get<2>(getTyTuple(cc, v.fieldTys[i]));
       if (gcMeta) {
         collectibles.push_back(i);
       }
@@ -114,7 +118,7 @@ namespace lir::codegen {
               llvm::ConstantInt::get(cc.ctx, llvm::APInt(32, idx))
           });
           llvm::Value *castGep = ib.CreatePointerCast(gep, i8PtrPtrTy);
-          llvm::Constant *meta = std::get<2>(getTyTuple(cc, v.s[idx]))->metadata;
+          llvm::Constant *meta = std::get<2>(getTyTuple(cc, v.fieldTys[idx]))->metadata;
           if (!meta) {
             meta = llvm::ConstantPointerNull::get(cc.gcMetaTy->getPointerTo());
           }
@@ -198,12 +202,7 @@ namespace lir::codegen {
     if (u.tys.empty()) {
       return std::make_tuple(
           llvm::StructType::create(cc.ctx, {}, "!"),
-          cc.db.createStructType(
-              cc.cu->getFile(), "!", cc.cu->getFile(), 1,
-              0, 0, llvm::DINode::DIFlags::FlagPublic,
-              nullptr,
-              cc.db.getOrCreateArray({})
-          ),
+          zeroSizedType(cc, "!"),
           std::nullopt
       );
     } else {
@@ -301,11 +300,20 @@ namespace lir::codegen {
     }
   }
   
+  TyTuple getTyTuple(CC &cc, Tp ty, const Ty::TypeToken &tt) {
+    std::string name = util::toStr(ty);
+    return std::make_tuple(
+        llvm::StructType::create(cc.ctx, {}, name),
+        zeroSizedType(cc, name),
+        std::nullopt
+    );
+  }
+  
   template <typename T>
   TyTuple getTyTuple(CC &cc, Tp ty, const T &) {
     throw util::ICE(util::toStr("Type ", ty, " cannot exist after inference"));
   }
-  
+
   const TyTuple &getTyTuple(CC &cc, type::Tp ty) {
     auto found = cc.tyCache.find(ty);
     if (found != cc.tyCache.end()) {
@@ -317,7 +325,16 @@ namespace lir::codegen {
     }
     if (std::holds_alternative<Ty::Cyclic>(ty->v)) {
       Tp uncycled = type::uncycle(ty);
-      return getTyTuple(cc, uncycled);
+      if (ty == uncycled) {
+        // Ouroboros type
+        constexpr const char *name = "#{#0}"; // it even looks like it!
+        return cc.tyCache[ty] = std::make_tuple(
+            llvm::StructType::get(cc.ctx, {}, name),
+            zeroSizedType(cc, name),
+            std::nullopt
+        );
+      }
+      return cc.tyCache[ty] = getTyTuple(cc, uncycled);
     } else {
       cc.tyCache[ty] = std::make_tuple(nullptr, nullptr, std::nullopt);
     }
@@ -331,7 +348,7 @@ namespace lir::codegen {
           return std::all_of(v.t.begin(), v.t.end(), isZeroSize);
         },
         [](const Ty::ADT &v) {
-          return std::all_of(v.s.begin(), v.s.end(), isZeroSize);
+          return std::all_of(v.fieldTys.begin(), v.fieldTys.end(), isZeroSize);
         },
         // cyclic types are only non-zero sized if a contained
         // component is, so cyclic references should be ignored
@@ -358,8 +375,8 @@ namespace lir::codegen {
 
   llvm::StructType *adtTy(CC &cc, const Ty::ADT &v) {
     std::vector<llvm::Type *> fieldTys;
-    fieldTys.reserve(v.s.size());
-    for (Tp fieldTy : v.s) {
+    fieldTys.reserve(v.fieldTys.size());
+    for (Tp fieldTy : v.fieldTys) {
       fieldTys.push_back(getTy(cc, fieldTy));
     }
     return llvm::StructType::get(cc.ctx, fieldTys);

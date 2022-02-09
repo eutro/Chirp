@@ -63,6 +63,7 @@ namespace lir {
     struct LiteralBool {
       bool value;
     };
+    struct ZeroInit {};
     struct BlockStart {};
     struct BlockEnd {};
     std::optional<loc::Span> span;
@@ -70,7 +71,7 @@ namespace lir {
     std::variant<HeapAlloc, SetVar, GetVar, SetField, GetField,
                  CallTrait, PhiNode, NewTuple, ForeignRef,
                  LiteralString, LiteralInt, LiteralFloat, LiteralBool,
-                 BlockStart, BlockEnd>
+                 BlockStart, BlockEnd, ZeroInit>
         v;
     template <typename... Arg>
     Insn(Arg &&...arg): v(std::forward<Arg>(arg)...) {}

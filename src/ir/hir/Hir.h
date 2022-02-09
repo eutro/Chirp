@@ -20,7 +20,6 @@ namespace hir {
 
   class Type {
   public:
-    bool informative = false;
     std::optional<loc::Span> source;
     std::optional<DefIdx> base;
     std::vector<Type> params;
@@ -28,16 +27,25 @@ namespace hir {
 
   struct DefType {
     struct Variable {
-      bool global;
       std::vector<Type> hints;
     };
-    struct Type {};
+    struct TypeVar {
+      // always counts as local
+      std::optional<hir::Type> value;
+    };
+    struct Type {
+      // always global
+      Idx minArity;
+      std::optional<Idx> maxArity;
+      std::vector<Idx> paramTys;
+      std::optional<hir::Type> value; // must have a value if not builtin
+    };
     struct Trait {};
     struct ADT {
-      std::vector<DefIdx> values;
-      std::vector<DefIdx> types;
+      Idx paramCount;
+      std::vector<hir::Type> fields;
     };
-    std::variant<Variable, Trait, Type, ADT> v;
+    std::variant<Variable, Trait, Type, ADT, TypeVar> v;
     template <typename... Arg>
     DefType(Arg &&... arg): v(std::forward<Arg>(arg)...) {}
   };
@@ -46,7 +54,7 @@ namespace hir {
   public:
     std::string name;
     std::optional<loc::Span> source;
-    DefType defType = DefType::Type{};
+    DefType defType = DefType::Variable{};
   };
 
   class ErasedExprVisitor;
@@ -80,12 +88,12 @@ namespace hir {
     std::optional<Idx> idx;
     std::optional<loc::Span> span;
     std::vector<DefIdx> bindings;
+    std::vector<DefIdx> typeBindings;
     std::vector<Eptr> body;
   };
 
   class TraitImpl {
   public:
-    std::vector<DefIdx> params;
     Type type, trait;
     loc::Span source;
     std::vector<Type> types;
@@ -102,6 +110,13 @@ namespace hir {
   class BlockExpr : public Expr {
   public:
     Block block;
+
+    _acceptDef(Expr) override;
+  };
+
+  class TypeExpr : public Expr {
+  public:
+    Type type;
 
     _acceptDef(Expr) override;
   };
@@ -195,6 +210,7 @@ namespace hir {
   class NewExpr : public Expr {
   public:
     Idx adt;
+    std::vector<Type> types;
     std::vector<Eptr> values;
 
     _acceptDef(Expr) override;
@@ -226,6 +242,7 @@ namespace hir {
     _EvisitVirtual(Expr)
     _EvisitVirtual(BlockExpr)
     _EvisitVirtual(VarExpr)
+    _EvisitVirtual(TypeExpr)
     _EvisitVirtual(CondExpr)
     _EvisitVirtual(VoidExpr)
     _EvisitVirtual(LiteralExpr)
@@ -247,6 +264,7 @@ namespace hir {
     _EvisitImpl(Expr)
     _EvisitImpl(BlockExpr)
     _EvisitImpl(VarExpr)
+    _EvisitImpl(TypeExpr)
     _EvisitImpl(CondExpr)
     _EvisitImpl(VoidExpr)
     _EvisitImpl(LiteralExpr)
@@ -265,6 +283,7 @@ namespace hir {
     virtual _typedRoot(Expr);
     virtual _typedVisit(BlockExpr) = 0;
     virtual _typedVisit(VarExpr) = 0;
+    virtual _typedVisit(TypeExpr) = 0;
     virtual _typedVisit(CondExpr) = 0;
     virtual _typedVisit(VoidExpr) = 0;
     virtual _typedVisit(LiteralExpr) = 0;

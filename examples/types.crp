@@ -1,0 +1,19 @@
+type Pair<L, R>(lhs: L, rhs: R)
+defn cons<L, R>(lhs: L, rhs: R) = Pair::<L, R>(lhs, rhs)
+
+type Triple(lhs: i64, i64, rhs: i64)
+
+defn putI(i: i64): #() = foreign
+defn println(): #() = foreign
+
+defn p = cons(1, cons(4, 9))
+defn t = Triple(1, 2, 3)
+
+putI(rhs(rhs(p)))
+println()
+
+putI(rhs(t))
+println()
+
+defn typeName(x: string) = "str"
+typeName("foo")

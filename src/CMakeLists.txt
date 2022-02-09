@@ -16,18 +16,6 @@ add_definitions(${LLVM_DEFINITIONS})
 
 llvm_map_components_to_libnames(llvm_libs core support)
 
-include(FetchContent)
-
-FetchContent_Declare(json
-  GIT_REPOSITORY https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent
-  GIT_TAG v3.9.1)
-
-FetchContent_GetProperties(json)
-if(NOT json_POPULATED)
-  FetchContent_Populate(json)
-  add_subdirectory(${json_SOURCE_DIR} ${json_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
-
 if(MSVC)
   add_compile_options(/W4
     /wd4458 # declaration hides class member

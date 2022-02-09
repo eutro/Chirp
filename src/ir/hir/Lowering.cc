@@ -106,6 +106,9 @@ namespace hir::lower {
     RET_T visitBlockExpr ARGS(BlockExpr) override {
       return visitBlock(e.block, l, bb, tail, false);
     }
+    RET_T visitTypeExpr ARGS(TypeExpr) override {
+      return l[*bb].emplace_back(Insn::ZeroInit{});
+    }
     RET_T visitVarExpr ARGS(VarExpr) override {
       return l[*bb].emplace_back(Insn::GetVar{e.ref});
     }
